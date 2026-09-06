@@ -12,14 +12,7 @@
 - 새로운 dependency는 기존 dependency만으로 구현하기 어려운 경우에만 추가한다.
 - 변경 후 가능한 범위에서 관련 test, build 또는 static analysis를 실행하고, 실패하거나 실행하지 못한 항목을 결과에 명시한다.
 
-# 구현 전 이행사항
-
-- `app/backend/`를 수정하기 전에는 `docs/architecture/backend.md`를 확인하고, 해당 문서에 정의된 아키텍처와 설계 원칙을 따른다.
-- `app/frontend/`를 수정하기 전에는 `docs/architecture/frontend.md`와 `docs/DESIGN.md`를 확인하고, 해당 문서에 정의된 아키텍처와 디자인 원칙을 따른다.
-- `app/backend/`와 `app/frontend/`를 모두 수정하는 경우에는 각 영역에 지정된 문서를 모두 확인한다.
-- 사용자가 별도로 요청하지 않는 한, 수정 대상 영역에 지정되지 않은 문서는 확인하지 않는다.
-
-# Architecture Decision Records
+# 아키텍처 결정 기록
 
 - 구현 중 다음에 해당하는 새로운 아키텍처 결정이 필요한 경우 ADR 작성 대상으로 본다.
   - 기존 아키텍처 문서에 정의된 원칙이나 구조를 변경하는 결정
@@ -34,3 +27,10 @@
 - 기존 결정을 변경하는 경우 기존 ADR을 수정하거나 삭제하지 않고, 이를 대체하는 새로운 ADR을 작성한다.
 - ADR 작성 후 `docs/architecture/decisions/README.md`의 ADR 목록을 갱신한다.
 - 승인된 결정으로 기존 `docs/architecture/backend.md` 또는 `docs/architecture/frontend.md`의 현재 아키텍처 규칙이 변경되는 경우 해당 문서도 함께 갱신한다.
+
+# 구현 전 이행사항
+
+- `apps/backend/`를 수정하기 전에는 `docs/architecture/backend.md`를 확인하고, 해당 문서에 정의된 아키텍처와 설계 원칙을 따른다.
+- `apps/frontend/`를 수정하기 전에는 `docs/architecture/frontend.md`와 `docs/DESIGN.md`를 확인하고, 해당 문서에 정의된 아키텍처와 디자인 원칙을 따른다.
+- `apps/backend/`와 `apps/frontend/`를 모두 수정하는 경우에는 각 영역에 지정된 문서를 모두 확인한다.
+- 사용자가 별도로 요청하지 않는 한, 수정 대상 영역에 지정되지 않은 문서는 확인하지 않는다.
