@@ -1,0 +1,27 @@
+# Shared command prefixes. Additional arguments are included in each match.
+# These rules do not inspect changed files, commit messages, or script contents.
+prefix_rule(
+    pattern = ["git", ["status", "diff", "log", "show", "rev-parse", "ls-files", "ls-tree", "blame"]],
+    decision = "allow",
+)
+prefix_rule(pattern = ["git", "add"], decision = "allow")
+prefix_rule(
+    pattern = ["git", ["commit", "push", "merge", "rebase", "reset", "clean", "restore", "checkout", "switch", "revert", "cherry-pick", "rm", "branch", "tag", "stash", "remote", "config", "worktree", "pull"]],
+    decision = "prompt",
+    justification = "Review changes to history, working files, refs, or repository settings before execution.",
+)
+prefix_rule(
+    pattern = ["gh", ["pr", "issue"], ["view", "list", "status", "create"]],
+    decision = "allow",
+)
+prefix_rule(pattern = ["gh", "pr", ["diff", "checks"]], decision = "allow")
+prefix_rule(
+    pattern = ["gh", ["pr", "issue"], ["comment", "edit", "close", "reopen", "delete", "lock", "unlock", "transfer", "pin", "unpin", "develop", "merge", "review", "ready", "checkout", "update-branch"]],
+    decision = "prompt",
+    justification = "Review comments and changes to existing PRs or issues before execution.",
+)
+prefix_rule(pattern = ["gh", "release", ["list", "view"]], decision = "allow")
+prefix_rule(pattern = ["gh", "release", ["create", "edit", "delete", "upload", "delete-asset"]], decision = "prompt")
+# The generic API can perform writes; do not pre-approve it as a read command.
+prefix_rule(pattern = ["gh", "api"], decision = "prompt")
+prefix_rule(pattern = [["rm", "rmdir"]], decision = "prompt")

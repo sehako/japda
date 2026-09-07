@@ -1,0 +1,19 @@
+# 출처: apps/frontend/package.json 및 apps/frontend/README.md
+# 실행 위치: apps/frontend. 규칙 자체는 작업 디렉터리를 제한하지 않는다.
+# 접두사 뒤에 추가되는 인자도 허용 범위에 포함된다.
+prefix_rule(
+    pattern = ["npm", "run", ["build", "lint"]],
+    decision = "allow",
+    match = ["npm run build", "npm run lint"],
+    not_match = ["npm run dev", "npm run deploy"],
+)
+
+# 출처: 사용자가 명시적으로 허용한 백엔드 테스트 및 빌드 명령.
+# 실행 위치: apps/backend. 규칙 자체는 작업 디렉터리를 제한하지 않는다.
+# 접두사 뒤에 추가되는 인자와 task도 허용 범위에 포함된다.
+prefix_rule(
+    pattern = ["./gradlew", ["test", "build"]],
+    decision = "allow",
+    match = ["./gradlew test", "./gradlew test --info", "./gradlew build"],
+    not_match = ["./gradlew publish"],
+)
