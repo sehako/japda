@@ -4,6 +4,8 @@
 
 기술 스택은 TypeScript + React + TailwindCSS를 사용한다.
 
+프로젝트는 `apps/frontend`에 위치하며 Vite로 개발 서버와 빌드를 실행한다. 패키지는 npm으로 관리하고 TailwindCSS는 공식 Vite 플러그인으로 연동한다. [ADR-001](decisions/ADR-001-frontend-vite.md)을 따른다.
+
 패키지는 기능 또는 도메인 단위로 구성한다.
 
 ```text
