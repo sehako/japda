@@ -131,3 +131,4 @@ Repository 구현체: {Domain}RepositoryImpl
 - 무분별한 @OneToMany / 양방향 연관관계 / CascadeType.ALL
 - 패턴을 맞추기 위한 불필요한 Interface, Mapper, Facade 생성
 - 비즈니스 규칙을 util에 작성
+- 도메인 규칙·프로토콜·설정의 의미를 가진 문자열과 숫자 리터럴은 코드에 직접 작성하지 않고, 의도가 드러나는 이름의 상수 또는 설정값으로 관리한다.
