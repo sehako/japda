@@ -178,7 +178,7 @@ presentation 계층은 헤더와 JSON의 누락, 형식 및 타입처럼 HTTP �
 
 데이터베이스는 `seller_id > 0`, 이름과 설명의 허용 길이 및 상태 값을 CHECK 제약으로 다시 보장한다. 애플리케이션이 정규화된 문자열만 저장하며 데이터베이스는 내부 또는 앞뒤 공백 정규화를 수행하지 않는다.
 
-Gradle에는 Spring Data JPA, Bean Validation, PostgreSQL JDBC Driver, Flyway PostgreSQL 지원, Spring Boot Testcontainers와 PostgreSQL Testcontainers 의존성을 추가한다. Spring Boot 의존성 관리를 사용하고 개별 버전은 직접 고정하지 않는다. `application.yaml`은 기본값 없는 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` 환경 변수를 데이터 소스 설정에 사용한다. JPA는 Flyway 스키마를 자동 생성하지 않고 `ddl-auto=validate`로 검증하며 Flyway를 활성화한다.
+Gradle에는 Spring Data JPA, Bean Validation, PostgreSQL JDBC Driver, Flyway PostgreSQL 지원, Spring Boot Testcontainers와 PostgreSQL Testcontainers 의존성을 추가한다. Spring Boot 의존성 관리를 사용하고 개별 버전은 직접 고정하지 않는다. `application.yaml`은 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` 환경 변수를 데이터 소스 설정에 사용하고, 환경 변수가 없으면 로컬 PostgreSQL의 `jdbc:postgresql://localhost:5432/japda`, `root`, `1234`를 기본값으로 사용한다. JPA는 Flyway 스키마를 자동 생성하지 않고 `ddl-auto=validate`로 검증하며 Flyway를 활성화한다.
 
 테스트에는 공유 `PostgreSqlTestContainerConfiguration`을 두고 Context Test, 영속성 테스트와 HTTP 통합 테스트가 가져와 사용한다. Spring Boot `@ServiceConnection`이 테스트 데이터 소스 연결값을 제공하므로 테스트 실행에는 데이터 소스 환경 변수가 필요하지 않다.
 
@@ -260,15 +260,23 @@ Gradle에는 Spring Data JPA, Bean Validation, PostgreSQL JDBC Driver, Flyway Po
 - [x] 2026-09-09 00:00Z 백엔드 상품 등록 API의 요구사항과 설계를 사용자와 확정했다.
 - [x] 2026-09-09 01:48Z 가격 소유권을 `Product`에서 `Sale`로 변경하고 API·도메인·영속성 계약과 ADR에 반영했다.
 - [x] 2026-09-09 02:08Z 영속성 단계, 검증 책임, 오류 계약, ID·시간 생성과 Testcontainers 연결의 모호함을 해소해 계획에 반영했다.
-- [ ] 마일스톤 1을 구현하고 검증한다.
-- [ ] 마일스톤 2를 구현하고 검증한다.
-- [ ] 마일스톤 3을 구현하고 검증한다.
-- [ ] 마일스톤 4를 구현하고 전체 검증 결과를 기록한다.
+- [x] 2026-09-09 02:21Z 마일스톤 1을 구현하고 PostgreSQL Context Test로 Flyway 스키마 생성을 검증했다.
+- [x] 2026-09-09 02:25Z 마일스톤 2를 구현하고 도메인, Application, PostgreSQL 영속성 테스트를 검증했다.
+- [x] 2026-09-09 02:35Z 마일스톤 3을 구현하고 MVC 성공·검증·오류·프로토콜 계약을 검증했다.
+- [x] 2026-09-09 02:37Z 마일스톤 4의 HTTP-PostgreSQL 통합 테스트와 전체 테스트 17개 및 빌드를 검증했다.
+- [x] 2026-09-09 02:47Z Controller의 HTTP 입력 변환을 `CreateProductRequestConverter`로 분리하고 전체 테스트 20개 및 빌드를 다시 검증했다.
+- [x] 2026-09-09 02:52Z 데이터소스 환경 변수에 로컬 PostgreSQL 기본 연결값을 추가하고 전체 테스트 20개 및 빌드를 다시 검증했다.
 
 ## 예상 밖의 발견
 
 - 관찰: 백엔드는 Web MVC 스캐폴드만 있어 상품 기능 구현 전에 영속성 기반부터 추가해야 한다.
   근거: `apps/backend/build.gradle.kts`에 JPA, PostgreSQL, Flyway와 Testcontainers 의존성이 없고 `application.yaml`에도 데이터 소스 설정이 없다.
+- 관찰: 최초 Context Test 실행에서 소스에 없는 과거 마이그레이션 파일이 `build/resources/main`에 남아 테스트가 잘못 통과했다.
+  근거: `./gradlew clean test --tests io.github.sehako.japda.BackendApplicationTests`로 빌드 산출물을 제거한 뒤 `products` 테이블 부재를 검증하는 테스트가 기대한 이유로 실패했다.
+- 관찰: Controller 타입으로 범위를 제한한 `@RestControllerAdvice`는 handler가 정해지기 전에 발생하는 405와 415 예외를 처리하지 않는다.
+  근거: 독립 MVC 테스트에서 405 응답에 본문이 없었고, Spring Boot 4.1의 `spring.mvc.problemdetails.enabled`가 전역 MVC 프로토콜 예외용 `ProblemDetailsExceptionHandler`를 별도로 제공함을 로컬 소스에서 확인했다. 상품 도메인 오류는 범위가 제한된 `ProductExceptionHandler`가 처리하고 405와 415는 Spring MVC 표준 처리기가 상태와 `ProblemDetail`을 보존하도록 구성했다.
+- 관찰: Jackson 3 기본 바인딩은 숫자 JSON 값을 Kotlin `String`으로 강제 변환한다.
+  근거: 숫자 상품명이 등록 성공으로 처리되는 실패 테스트를 확인했다. 전역 Jackson 정책을 변경하지 않고 `CreateProductRequest`에서 `JsonNode`로 구조를 받은 뒤 Controller가 문자열과 `null`만 허용하도록 제한했다.
 
 ## 결정 기록
 
@@ -305,7 +313,25 @@ Gradle에는 Spring Data JPA, Bean Validation, PostgreSQL JDBC Driver, Flyway Po
 - 결정: 마일스톤 1은 공유 `@ServiceConnection` Testcontainer로 PostgreSQL 연결과 Flyway 적용을 검증하고, Entity와 Flyway 스키마의 실제 매핑 검증은 마일스톤 2에서 수행한다.
   이유: Entity가 존재하기 전에 JPA 테이블 매핑을 검증한다는 단계 간 모순을 제거하고 테스트 데이터 소스 환경 변수를 별도로 요구하지 않기 위해서다.
   일자/작성자: 2026-09-09, 사용자와 Codex
+- 결정: 상품 도메인과 본문 오류는 Controller 범위를 제한한 `ProductExceptionHandler`가 처리하고, handler 결정 전에 발생하는 405와 415는 Spring Boot의 표준 ProblemDetail 지원을 사용한다.
+  이유: 상품 오류 처리기를 다른 Controller로 확장하지 않으면서도 MVC 프로토콜 오류의 원래 상태와 `ProblemDetail` 응답을 보존하기 위해서다.
+  일자/작성자: 2026-09-09, Codex
+- 결정: `CreateProductRequest`는 두 본문 필드를 `JsonNode`로 받고 Controller가 문자열과 `null`만 Application DTO로 변환한다.
+  이유: 다른 API의 Jackson 역직렬화 정책을 바꾸지 않고 숫자, 배열과 객체의 문자열 강제 변환을 상품 등록 경계에서만 차단하기 위해서다.
+  일자/작성자: 2026-09-09, Codex
+- 결정: `CreateProductRequestConverter`가 판매자 헤더와 `JsonNode`를 검증하고 `CreateProductDto`로 변환한다.
+  이유: HTTP 입력 변환 책임을 presentation 계층에 유지하면서 `ProductController`를 요청 위임과 HTTP 응답 생성에 집중시키기 위해서다.
+  일자/작성자: 2026-09-09, 사용자와 Codex
+- 결정: 데이터소스 환경 변수가 없으면 로컬 PostgreSQL의 `jdbc:postgresql://localhost:5432/japda`, `root`, `1234`를 기본 연결값으로 사용한다.
+  이유: 별도 환경 변수 설정 없이도 로컬 데이터베이스를 준비한 개발자가 백엔드를 바로 실행할 수 있게 하기 위해서다. 배포 환경에서는 기존 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` 환경 변수가 기본값을 대체한다.
+  일자/작성자: 2026-09-09, 사용자와 Codex
 
 ## 결과와 회고
 
-아직 완료되지 않음.
+- `POST /api/products`가 유효한 판매자 헤더와 상품 본문을 받아 정규화된 `DRAFT` 상품을 저장하고 `201 Created`, 상대 `Location`과 상품 응답을 반환한다.
+- 상품 도메인이 판매자 ID, Unicode 공백 정규화, code point 길이와 초기 상태를 보장하며, Application Service는 주입된 `Clock`의 생성 시각으로 트랜잭션 저장 흐름을 조율한다.
+- Flyway 최초 마이그레이션, PostgreSQL과 Spring Data JPA Repository 구현, 환경 변수 기반 운영 데이터소스 설정 및 공유 Testcontainers 구성을 추가했다.
+- 데이터소스 환경 변수가 없으면 `jdbc:postgresql://localhost:5432/japda`, `root`, `1234`로 연결하고, 환경 변수가 있으면 해당 값을 우선 사용한다.
+- 상품 Controller에 한정한 `ProblemDetail` 오류 계약과 Spring MVC 표준 405·415 처리를 구현했다. `CreateProductRequestConverter`가 판매자 헤더와 `JsonNode`를 검증하고 Application DTO로 변환하므로 Controller는 요청 위임과 응답 생성에 집중한다.
+- `./gradlew clean test`는 전체 테스트 20개가 실패 없이 통과했고, `./gradlew build`도 종료 코드 0으로 완료됐다.
+- 승인된 인수 기준은 모두 충족했다. 이미지, 판매 일정, 인증·인가와 상품 조회·수정·삭제 등 제외 범위는 구현하지 않았다.
