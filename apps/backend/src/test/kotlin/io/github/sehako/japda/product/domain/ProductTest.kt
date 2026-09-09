@@ -1,5 +1,6 @@
 package io.github.sehako.japda.product.domain
 
+import io.github.sehako.japda.product.domain.image.ProductImageRegistrationConflictException
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -68,5 +69,36 @@ class ProductTest {
 
 		assertEquals(ProductStatus.DRAFT, product.status)
 		assertEquals(createdAt, product.createdAt)
+	}
+
+	@Test
+	@DisplayName("이미지 등록 완료_DRAFT 상품을 READY로 전환한다")
+	fun 이미지_등록_완료_DRAFT_상품을_READY로_전환한다() {
+		val product = Product.create(
+			sellerId = 1L,
+			name = "상품",
+			description = "설명",
+			createdAt = Instant.parse("2026-09-09T03:00:00Z"),
+		)
+
+		product.markReadyAfterImageRegistration()
+
+		assertEquals(ProductStatus.READY, product.status)
+	}
+
+	@Test
+	@DisplayName("이미지 등록 완료_READY 상품의 재전환을 거부한다")
+	fun 이미지_등록_완료_READY_상품의_재전환을_거부한다() {
+		val product = Product.create(
+			sellerId = 1L,
+			name = "상품",
+			description = "설명",
+			createdAt = Instant.parse("2026-09-09T03:00:00Z"),
+		)
+		product.markReadyAfterImageRegistration()
+
+		assertFailsWith<ProductImageRegistrationConflictException> {
+			product.markReadyAfterImageRegistration()
+		}
 	}
 }

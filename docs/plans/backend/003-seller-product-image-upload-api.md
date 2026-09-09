@@ -288,14 +288,19 @@ S3 저장소는 테스트 대역으로 교체하고 PostgreSQL은 기존 Testcon
 - [x] 2026-09-09 00:00Z 기존 상품 등록 계획, 구현, 테스트, Flyway 스키마와 백엔드 아키텍처를 조사했다.
 - [x] 2026-09-09 00:00Z Kubernetes 멀티 인스턴스 조건, S3 저장, multipart 업로드, 대표 이미지와 정렬 순서, 파일 제한, 상태 전이와 실패 보상 방식을 사용자와 확정했다.
 - [x] 2026-09-09 00:00Z 별도 인증 worktree의 `002` 계획과 ADR·migration 번호 충돌 가능성을 확인하고 현재 branch 기준 계획으로 작성하기로 결정했다.
-- [ ] 구현 시작 전에 최신 branch의 인증 병합 여부, Flyway 번호와 ADR 목록을 재확인한다.
-- [ ] 마일스톤 1의 이미지 도메인과 PostgreSQL 계약을 테스트 주도로 구현한다.
-- [ ] 마일스톤 2의 파일 검증과 S3 adapter를 테스트 주도로 구현한다.
-- [ ] 마일스톤 3의 업로드 조율, 트랜잭션과 보상 흐름을 테스트 주도로 구현한다.
-- [ ] 마일스톤 4의 multipart HTTP API와 오류 계약을 테스트 주도로 구현한다.
-- [ ] 마일스톤 5의 통합·회귀 테스트와 전체 검증을 완료한다.
+- [x] 2026-09-09 00:00Z 구현 시작 전에 최신 branch의 인증 미병합, 현재 Flyway `V1` 단일 migration과 승인된 ADR-005를 재확인했다.
+- [x] 2026-09-09 04:55Z 마일스톤 1의 이미지 도메인과 PostgreSQL 계약을 테스트 주도로 구현했다.
+- [x] 2026-09-09 04:55Z 마일스톤 2의 파일 검증과 S3 adapter를 테스트 주도로 구현했다.
+- [x] 2026-09-09 04:55Z 마일스톤 3의 업로드 조율, 트랜잭션과 보상 흐름을 테스트 주도로 구현했다.
+- [x] 2026-09-09 04:55Z 마일스톤 4의 multipart HTTP API와 오류 계약을 테스트 주도로 구현했다.
+- [x] 2026-09-09 04:55Z 마일스톤 5의 통합·회귀 테스트와 전체 검증을 완료했다.
 
 ## 예상 밖의 발견
+
+- 관찰: 구현 시작 시점에도 OAuth2/JWT 인증은 현재 branch에 병합되지 않았고 상품 API의 판매자 식별 경계는 `X-Seller-Id`로 유지된다.
+  근거: 현재 backend dependency와 main source에 Spring Security/OAuth2 코드가 없고 `ProductController.create()`와 `CreateProductRequestConverter.parseSellerId()`가 헤더를 처리한다.
+- 관찰: 현재 branch의 migration은 `V1__create_products.sql` 하나이며 ADR-005가 이미지 저장 아키텍처를 이미 승인하고 있어 이번 구현을 위해 새 ADR은 필요하지 않다.
+  근거: `apps/backend/src/main/resources/db/migration/`과 `docs/architecture/decisions/README.md`를 구현 시작 직전에 다시 확인했다.
 
 - 관찰: 현재 상품 구현에는 `READY` enum 값과 DB CHECK 값만 있고 상태 전이 메서드, 상품 조회와 잠금 계약은 없다.
   근거: `Product.status`는 `val`이고 `ProductRepository`에는 `save()`만 있으며 `ProductJpaRepository`에는 별도 query가 없다.
@@ -305,6 +310,12 @@ S3 저장소는 테스트 대역으로 교체하고 PostgreSQL은 기존 Testcon
   근거: 인증 worktree의 `NimbusAccessTokenIssuer`, `CookieBearerTokenResolver`, `AuthController`와 `SecurityConfig`를 확인했다. 현재 상품 branch에는 이 코드가 없다.
 - 관찰: 기존 상품 Controller에만 범위가 제한된 `ProductExceptionHandler`가 있어 새 Controller의 도메인·Application 오류는 자동으로 같은 응답 계약을 사용하지 않는다.
   근거: `@RestControllerAdvice(assignableTypes = [ProductController::class])` 선언을 확인했다.
+- 관찰: Controller 타입으로 범위를 제한한 advice는 multipart resolver가 Controller 선택 전에 발생시킨 용량 초과 예외에 적용되지 않았다.
+  근거: 실제 embedded Tomcat에 10MiB 초과 multipart 요청을 보낸 RED 통합 테스트에서 Spring 기본 `413 ProblemDetail`이 반환됐고, 범위 제한 없는 multipart 전용 advice를 추가한 뒤 합의된 `errors.files` 응답이 통과했다.
+- 관찰: S3가 객체를 저장한 뒤 응답이 유실되면 `store()`가 예외를 던져도 객체가 남을 수 있으므로 정상 반환된 키만 보상 대상으로 추적해서는 부족하다.
+  근거: 저장 완료 후 예외를 던지는 저장소 대역의 RED 테스트에서 객체가 삭제되지 않았고, 저장 시도 전에 키를 기록해 존재하지 않는 키에도 안전한 삭제를 시도하도록 변경한 뒤 통과했다.
+- 관찰: PostgreSQL identity INSERT는 `flush()`보다 `saveAll()`에서 제약 위반을 즉시 발생시킬 수 있다.
+  근거: 실제 PostgreSQL 제약 테스트가 `saveAll()`에서 `DataIntegrityViolationException`을 던져, 저장과 flush 전체를 예외 검증 범위로 조정했다.
 
 ## 결정 기록
 
@@ -335,7 +346,19 @@ S3 저장소는 테스트 대역으로 교체하고 PostgreSQL은 기존 Testcon
 - 결정: S3 객체는 비공개로 저장하고 이미지 조회 URL과 CloudFront 연동은 후속 기능으로 분리한다.
   이유: 저장과 전달 정책을 분리하고 현재 업로드 기능에 필요하지 않은 공개 경로 설계를 미루기 위해서다.
   일자/작성자: 2026-09-09, 사용자와 Codex
+- 결정: 저장 호출이 실패해도 응답 유실 가능성을 고려해 시도한 객체 키 전체를 역순 보상 삭제 대상으로 삼는다.
+  이유: S3 `DeleteObject`는 존재하지 않는 키에도 안전하며, 객체 저장 성공 뒤 응답만 유실된 경우의 고아 객체를 방지할 수 있기 때문이다.
+  일자/작성자: 2026-09-09, Codex
+- 결정: Controller 선택 전 multipart 용량 초과만 처리하는 범위 제한 없는 `ProductImageMultipartExceptionHandler`를 별도로 둔다.
+  이유: 기존 상품 오류 advice의 Controller 범위와 catch-all 동작은 유지하면서 multipart resolver 선처리 예외만 합의된 `413 ProblemDetail`로 변환하기 위해서다.
+  일자/작성자: 2026-09-09, Codex
 
 ## 결과와 회고
 
-아직 구현을 시작하지 않았다. 실행 중 완료한 기능, 검증 결과, 남은 운영 작업과 후속 개선 사항을 여기에 기록한다.
+판매자가 `DRAFT` 상품에 JPEG, PNG 또는 WebP 이미지 1장 이상 10장 이하를 최초 업로드하는 API를 구현했다. 파일 MIME type과 시그니처, 개별·합계 용량, 대표 인덱스를 검증하고 UUID 기반 S3 키로 순차 저장한 뒤, 별도 짧은 트랜잭션에서 상품 행을 비관적 잠금 조회해 이미지 메타데이터와 `READY` 전환을 함께 반영한다. 저장 시도 또는 DB 반영 실패에는 시도한 객체 키를 역순 삭제하고, 삭제 실패에는 cleanup tagging을 시도한다.
+
+`V2__create_product_images.sql`은 객체 키·상품별 정렬 순서·대표 이미지·크기·MIME type 제약을 추가했다. AWS SDK S3 adapter는 기본 credential provider chain과 필수 버킷·리전 설정을 사용하며 HTTP 응답과 로그에 SDK 원본 예외를 노출하지 않는다. 실제 AWS 버킷·IAM·Lifecycle 생성과 smoke test는 계획대로 저장소 밖 운영 작업으로 남는다.
+
+검증은 `apps/backend`에서 `./gradlew clean test`로 83개 테스트가 모두 통과했고, 실제 PostgreSQL 동시 업로드 경합에서 한 요청만 성공하며 패자 객체가 삭제되는 흐름, 실제 DB 제약 실패 rollback과 S3 보상, 실제 embedded Tomcat의 Controller 진입 전 multipart `413`을 포함한다. `./gradlew dependencyInsight --dependency software.amazon.awssdk:s3 --configuration runtimeClasspath`에서 S3 모듈이 `2.54.13` 하나로 해석됐고 `./gradlew build`와 `git diff --check`도 통과했다.
+
+계획과의 차이는 Controller 이전 multipart 예외를 처리하기 위해 전용 전역 advice를 추가한 점과, 응답 유실 위험을 발견해 정상 저장된 키뿐 아니라 저장을 시도한 키도 보상 대상으로 확대한 점이다. 현재 유일한 multipart API에는 문제가 없지만 향후 다른 multipart API가 추가되면 전역 용량 초과 advice의 상품 이미지 전용 문구를 URI와 무관한 공통 계약으로 분리할지 재검토해야 한다. 자동화 범위 밖에는 실제 AWS 환경의 put/delete/cleanup tagging 권한과 Lifecycle 동작 smoke test가 남는다.

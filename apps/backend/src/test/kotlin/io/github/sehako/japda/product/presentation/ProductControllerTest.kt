@@ -165,10 +165,18 @@ class ProductControllerTest {
 			status = product.status,
 			createdAt = product.createdAt,
 		)
+
+		override fun findById(id: Long): Product? = null
+
+		override fun findByIdForUpdate(id: Long): Product? = null
 	}
 
 	private class FailingProductRepository : ProductRepository {
 		override fun save(product: Product): Product =
 			throw IllegalStateException("내부 SQL 상세 정보")
+
+		override fun findById(id: Long): Product? = null
+
+		override fun findByIdForUpdate(id: Long): Product? = null
 	}
 }

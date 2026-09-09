@@ -4,6 +4,10 @@ spring:
   mvc:
     problemdetails:
       enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 52MB
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/japda}
     username: ${DB_USERNAME:root}
@@ -13,3 +17,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
+product:
+  image:
+    s3:
+      bucket: ${PRODUCT_IMAGE_S3_BUCKET}
+      region: ${PRODUCT_IMAGE_S3_REGION}
+      prefix: ${PRODUCT_IMAGE_S3_PREFIX:product-images}

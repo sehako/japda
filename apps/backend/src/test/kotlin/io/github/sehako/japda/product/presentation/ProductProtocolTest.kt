@@ -37,5 +37,14 @@ class ProductProtocolTest(
 			content { contentType(MediaType.APPLICATION_PROBLEM_JSON) }
 			jsonPath("$.status") { value(415) }
 		}
+		mockMvc.post("/api/products/1/images") {
+			header("X-Seller-Id", "123")
+			contentType = MediaType.APPLICATION_JSON
+			content = "{}"
+		}.andExpect {
+			status { isUnsupportedMediaType() }
+			content { contentType(MediaType.APPLICATION_PROBLEM_JSON) }
+			jsonPath("$.status") { value(415) }
+		}
 	}
 }

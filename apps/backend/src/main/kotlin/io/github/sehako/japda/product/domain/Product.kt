@@ -1,5 +1,6 @@
 package io.github.sehako.japda.product.domain
 
+import io.github.sehako.japda.product.domain.image.ProductImageRegistrationConflictException
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -26,13 +27,17 @@ class Product internal constructor(
 	@Column(nullable = false, length = DESCRIPTION_MAX_LENGTH)
 	val description: String,
 
-	@Enumerated(EnumType.STRING)
-	@Column(nullable = false, length = STATUS_MAX_LENGTH)
-	val status: ProductStatus,
+	status: ProductStatus,
 
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant,
 ) {
+	@Enumerated(EnumType.STRING)
+	@Column(name = "status", nullable = false, length = STATUS_MAX_LENGTH)
+	private var productStatus: ProductStatus = status
+
+	val status: ProductStatus
+		get() = productStatus
 
 	companion object {
 		const val NAME_MAX_LENGTH = 100
@@ -104,5 +109,12 @@ class Product internal constructor(
 
 		private fun Int.isUnicodeWhitespace(): Boolean =
 			Character.isWhitespace(this) || Character.isSpaceChar(this)
+	}
+
+	fun markReadyAfterImageRegistration() {
+		if (productStatus != ProductStatus.DRAFT) {
+			throw ProductImageRegistrationConflictException()
+		}
+		productStatus = ProductStatus.READY
 	}
 }

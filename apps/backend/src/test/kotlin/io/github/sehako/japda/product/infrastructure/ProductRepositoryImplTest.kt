@@ -5,6 +5,7 @@ import io.github.sehako.japda.product.domain.Product
 import io.github.sehako.japda.product.domain.ProductRepository
 import io.github.sehako.japda.product.domain.ProductStatus
 import jakarta.persistence.EntityManager
+import jakarta.persistence.LockModeType
 import java.time.Instant
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -45,5 +46,33 @@ class ProductRepositoryImplTest(
 		assertEquals("설명", found.description)
 		assertEquals(ProductStatus.DRAFT, found.status)
 		assertEquals(createdAt, found.createdAt)
+	}
+
+	@Test
+	@DisplayName("상품 조회_ID로 저장된 상품을 조회한다")
+	fun 상품_조회_ID로_저장된_상품을_조회한다() {
+		val saved = productRepository.save(
+			Product.create(123L, "상품", "설명", Instant.parse("2026-09-09T03:00:00Z")),
+		)
+		entityManager.flush()
+		entityManager.clear()
+
+		val found = productRepository.findById(assertNotNull(saved.id))
+
+		assertEquals(saved.id, assertNotNull(found).id)
+	}
+
+	@Test
+	@DisplayName("상품 잠금 조회_PostgreSQL 행에 비관적 쓰기 잠금을 획득한다")
+	fun 상품_잠금_조회_PostgreSQL_행에_비관적_쓰기_잠금을_획득한다() {
+		val saved = productRepository.save(
+			Product.create(123L, "상품", "설명", Instant.parse("2026-09-09T03:00:00Z")),
+		)
+		entityManager.flush()
+		entityManager.clear()
+
+		val found = assertNotNull(productRepository.findByIdForUpdate(assertNotNull(saved.id)))
+
+		assertEquals(LockModeType.PESSIMISTIC_WRITE, entityManager.getLockMode(found))
 	}
 }

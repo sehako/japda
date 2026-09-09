@@ -58,5 +58,9 @@ class ProductServiceTest {
 				createdAt = product.createdAt,
 			)
 		}
+
+		override fun findById(id: Long): Product? = null
+
+		override fun findByIdForUpdate(id: Long): Product? = null
 	}
 }
