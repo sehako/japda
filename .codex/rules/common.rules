@@ -1,27 +1,48 @@
-# Shared command prefixes. Additional arguments are included in each match.
-# These rules do not inspect changed files, commit messages, or script contents.
+# 공통 명령 접두사 규칙이다. 각 규칙은 뒤에 추가되는 인자도 함께 일치한다.
+# 변경 파일, commit 메시지 또는 script 내부 동작은 검사하지 않는다.
 prefix_rule(
     pattern = ["git", ["status", "diff", "log", "show", "rev-parse", "ls-files", "ls-tree", "blame"]],
     decision = "allow",
 )
-prefix_rule(pattern = ["git", "add"], decision = "allow")
+prefix_rule(pattern = ["git", "add"], decision = "prompt")
+# 일반 push는 승인된 작업 흐름에서만 수행한다. 기본 브랜치, 다른 이름의 원격
+# 브랜치, 강제 push 및 원격 브랜치 삭제의 승인 요구는 AGENTS.md에서 규정한다.
+prefix_rule(pattern = ["git", "push"], decision = "allow")
 prefix_rule(
-    pattern = ["git", ["commit", "push", "merge", "rebase", "reset", "clean", "restore", "checkout", "switch", "revert", "cherry-pick", "rm", "branch", "tag", "stash", "remote", "config", "worktree", "pull"]],
+    pattern = ["git", ["commit", "merge", "rebase", "reset", "clean", "restore", "checkout", "switch", "revert", "cherry-pick", "rm", "pull"]],
     decision = "prompt",
-    justification = "Review changes to history, working files, refs, or repository settings before execution.",
+    justification = "실행 전에 history, 작업 파일, ref 또는 저장소 설정 변경을 검토한다.",
 )
 prefix_rule(
-    pattern = ["gh", ["pr", "issue"], ["view", "list", "status", "create"]],
+    pattern = ["gh", ["pr", "issue"], ["view", "list", "status"]],
     decision = "allow",
 )
 prefix_rule(pattern = ["gh", "pr", ["diff", "checks"]], decision = "allow")
 prefix_rule(
-    pattern = ["gh", ["pr", "issue"], ["comment", "edit", "close", "reopen", "delete", "lock", "unlock", "transfer", "pin", "unpin", "develop", "merge", "review", "ready", "checkout", "update-branch"]],
+    pattern = ["gh", ["pr", "issue"], ["create", "comment", "edit", "close", "reopen", "delete", "lock", "unlock", "transfer", "pin", "unpin", "develop", "merge", "review", "ready", "checkout", "update-branch"]],
     decision = "prompt",
-    justification = "Review comments and changes to existing PRs or issues before execution.",
+    justification = "PR 또는 issue의 생성, comment 및 변경을 실행 전에 검토한다.",
 )
 prefix_rule(pattern = ["gh", "release", ["list", "view"]], decision = "allow")
 prefix_rule(pattern = ["gh", "release", ["create", "edit", "delete", "upload", "delete-asset"]], decision = "prompt")
-# The generic API can perform writes; do not pre-approve it as a read command.
+# 범용 API는 변경 작업도 수행할 수 있으므로 조회 명령으로 사전 승인하지 않는다.
 prefix_rule(pattern = ["gh", "api"], decision = "prompt")
 prefix_rule(pattern = [["rm", "rmdir"]], decision = "prompt")
+
+# 조회와 변경이 혼재된 하위 명령을 분리한다. 넓은 prompt 규칙으로 조회 규칙을 덮지 않는다.
+prefix_rule(pattern = ["git", ["branch", "tag"], "--list"], decision = "allow")
+prefix_rule(pattern = ["git", "branch", ["-d", "-D", "-m", "-M", "-c", "-C", "--delete", "--move", "--copy", "--set-upstream-to", "--unset-upstream"]], decision = "prompt")
+prefix_rule(pattern = ["git", "tag", ["-d", "--delete", "-a", "-s", "-f"]], decision = "prompt")
+prefix_rule(pattern = ["git", "stash", ["list", "show"]], decision = "allow")
+prefix_rule(pattern = ["git", "stash", ["push", "pop", "apply", "drop", "clear", "save", "create", "store", "branch"]], decision = "prompt")
+prefix_rule(pattern = ["git", "remote", ["-v", "get-url"]], decision = "allow")
+prefix_rule(pattern = ["git", "remote", ["add", "remove", "rename", "set-url", "set-head", "set-branches", "prune", "update"]], decision = "prompt")
+prefix_rule(pattern = ["git", "config", ["get", "list", "--get", "--get-all", "--get-regexp", "--list"]], decision = "allow")
+prefix_rule(pattern = ["git", "config", ["set", "unset", "edit", "--add", "--unset", "--unset-all", "--replace-all", "--edit", "--remove-section", "--rename-section"]], decision = "prompt")
+prefix_rule(pattern = ["git", "worktree", "list"], decision = "allow")
+prefix_rule(pattern = ["git", "worktree", ["add", "remove", "move", "prune", "lock", "unlock", "repair"]], decision = "prompt")
+prefix_rule(pattern = ["git", ["init", "clone", "fetch"]], decision = "prompt")
+prefix_rule(pattern = ["gh", "auth", "status"], decision = "allow")
+prefix_rule(pattern = ["gh", "auth", ["login", "logout", "refresh", "setup-git", "switch"]], decision = "prompt")
+# 위치 인자로 생성하는 branch/tag와 구형 config 변경 형식은 규칙에 일치하지 않을 수 있다.
+# 일치하지 않는 명령과 뒤에 추가된 option은 에이전트가 별도로 검토한다.

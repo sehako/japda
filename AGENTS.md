@@ -34,3 +34,15 @@
 - `apps/frontend/`를 수정하기 전에는 `docs/architecture/frontend.md`와 `docs/DESIGN.md`를 확인하고, 해당 문서에 정의된 아키텍처와 디자인 원칙을 따른다.
 - `apps/backend/`와 `apps/frontend/`를 모두 수정하는 경우에는 각 영역에 지정된 문서를 모두 확인한다.
 - 사용자가 별도로 요청하지 않는 한, 수정 대상 영역에 지정되지 않은 문서는 확인하지 않는다.
+
+# Codex 권한
+
+- 사용자가 승인한 작업 범위 안에서는 파일과 코드를 조회·검색하고, 편집 도구로 코드 파일을 생성·수정·삭제하며, 프로젝트에서 확인된 build·test·static analysis 명령을 실행할 수 있다.
+- staging 전에 대상 파일과 변경 내용을 제시하여 승인받는다. 동일한 범위에 이미 받은 구체적인 승인은 재사용할 수 있다.
+- staging 전 기존 staged 변경을 확인하고, 승인된 변경만 staging한다. 같은 파일의 무관한 hunk를 포함한 사용자 staging을 보존하며, 이를 임의로 unstage·덮어쓰기하거나 commit에 포함하지 않는다. 범위가 충돌하면 사용자와 해결한다.
+- commit 또는 amend 전에 실제 staged diff, 포함할 변경 및 정확한 commit 메시지를 제시하여 승인받는다. 동일한 내용과 메시지에 이미 받은 구체적인 승인은 재사용할 수 있다. 실행 직전에 다시 확인하고 staged 내용이나 메시지가 달라졌다면 변경된 범위를 다시 제시하여 승인받는다.
+- 일반 push는 요청되거나 승인된 작업 흐름에 포함된 경우에만 추가 승인 없이 수행한다. commit 승인만으로 요청되지 않은 push를 수행하지 않는다.
+- push할 때 remote와 현재 작업 branch와 같은 이름의 목적지 branch를 명시한다. 현재 branch가 `feature/example`이면 `git push origin feature/example:feature/example`을 사용하고, 원격 branch가 없으면 `git push -u origin feature/example:feature/example`로 생성하고 upstream을 설정한다.
+- 기본 branch 직접 push, 다른 이름의 원격 branch로 push, force push 및 원격 branch 삭제는 명시적인 승인을 받는다. 그 밖의 Git 상태 변경, 외부 서비스 변경, dependency 설치, 배포 및 명령을 통한 삭제도 실행 전에 승인받는다.
+- 인증 오류가 발생하면 재로그인이나 인증 복구를 바로 요청하지 않고 sandbox·network, executable, 설정 및 credential 가용성 등 실행 환경 차이를 먼저 점검한다. credential 값은 출력하지 않는다.
+- 검증되지 않은 변경 명령은 실행 전에 확인받는다. 구체적인 작업과 범위에 이미 받은 승인은 재사용할 수 있다.

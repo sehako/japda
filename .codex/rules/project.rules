@@ -8,7 +8,7 @@ prefix_rule(
     not_match = ["npm run dev", "npm run deploy"],
 )
 
-# 출처: 사용자가 명시적으로 허용한 백엔드 테스트 및 빌드 명령.
+# 출처: apps/backend/gradlew 및 apps/backend/build.gradle.kts
 # 실행 위치: apps/backend. 규칙 자체는 작업 디렉터리를 제한하지 않는다.
 # 접두사 뒤에 추가되는 인자와 task도 허용 범위에 포함된다.
 prefix_rule(
@@ -16,4 +16,12 @@ prefix_rule(
     decision = "allow",
     match = ["./gradlew test", "./gradlew test --info", "./gradlew build"],
     not_match = ["./gradlew publish"],
+)
+
+# 출처: apps/frontend/README.md
+# dependency 설치는 실행 전에 사용자 승인을 받는다.
+prefix_rule(
+    pattern = ["npm", "install"],
+    decision = "prompt",
+    justification = "dependency 설치 범위와 변경될 lockfile을 실행 전에 검토한다.",
 )
