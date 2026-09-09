@@ -95,6 +95,8 @@ HTTP Request
 - PG 등 핵심 흐름에 영향을 주는 외부 시스템은 필요하면 Interface로 추상화한다.
 - 모든 기술 요소에 불필요한 Interface를 만들지 않는다.
 - 외부 API 호출을 DB Transaction 안에 장시간 포함하지 않는다.
+- 상품 이미지 원본은 비공개 AWS S3 버킷에 저장하고, 데이터베이스에는 전체 URL이 아닌 `objectKey`와 메타데이터를 저장한다.
+- S3 자격 증명은 AWS 기본 credential provider chain으로 공급하고 코드나 설정 파일에 직접 작성하지 않는다.
 
 ## 공통 코드
 
