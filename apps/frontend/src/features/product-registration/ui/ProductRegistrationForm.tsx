@@ -78,7 +78,6 @@ export function ProductRegistrationForm() {
             className="mb-6 border border-obsidian bg-obsidian px-5 py-4 text-body-sm font-medium text-paper-white"
           >
             <p>상품 등록이 완료되었습니다</p>
-            <p className="mt-1">상품 ID {submission.productId}</p>
           </div>
         ) : null}
         {submission.failureStage !== null ? (
@@ -91,8 +90,7 @@ export function ProductRegistrationForm() {
                 '상품 등록에 실패했습니다. 다시 시도해 주세요.'}
             </p>
             <p className="mt-1">
-              다시 시도할 수 있습니다. 새로고침하면 현재 진행 정보는 복구되지
-              않습니다.
+              새로고침하면 현재 진행 정보는 복구되지 않습니다.
             </p>
           </div>
         ) : null}

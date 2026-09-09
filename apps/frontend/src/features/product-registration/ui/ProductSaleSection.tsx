@@ -27,7 +27,7 @@ type FieldProps = {
   value: string
   type: 'text' | 'datetime-local'
   error?: string
-  helper: string
+  helper?: string
   inputRef: Ref<HTMLInputElement>
   inputMode?: 'numeric'
   placeholder?: string
@@ -61,14 +61,18 @@ function SaleField({
         value={value}
         disabled={disabled}
         placeholder={placeholder}
-        aria-describedby={`${id}-help ${id}-error`}
+        aria-describedby={
+          helper === undefined ? `${id}-error` : `${id}-help ${id}-error`
+        }
         aria-invalid={error !== undefined}
         className={inputClassName}
         onChange={(event) => onChange(event.target.value)}
       />
-      <p id={`${id}-help`} className="mt-2 text-caption text-steel">
-        {helper}
-      </p>
+      {helper === undefined ? null : (
+        <p id={`${id}-help`} className="mt-2 text-caption text-steel">
+          {helper}
+        </p>
+      )}
       {error !== undefined ? (
         <p id={`${id}-error`} className="mt-2 text-caption text-signal">
           {error}
@@ -130,7 +134,6 @@ export function ProductSaleSection({
           inputMode="numeric"
           value={quantity}
           placeholder="예: 100"
-          helper="판매할 전체 수량을 입력해 주세요."
           error={errors.quantity}
           inputRef={quantityRef}
           onChange={onQuantityChange}

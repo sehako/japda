@@ -107,7 +107,6 @@ describe('ProductRegistrationForm', () => {
     await user.click(screen.getByRole('button', { name: '상품 등록' }))
 
     expect(await screen.findByText('상품 등록이 완료되었습니다')).toBeVisible()
-    expect(screen.getByText('상품 ID 7')).toBeVisible()
     expect(order).toEqual(['product', 'images', 'sale'])
   })
 

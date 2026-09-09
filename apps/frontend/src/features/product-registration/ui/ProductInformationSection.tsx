@@ -51,15 +51,11 @@ export function ProductInformationSection({
             type="text"
             value={name}
             disabled={disabled}
-            placeholder="판매할 상품의 이름"
-            aria-describedby="product-name-help product-name-error"
+            aria-describedby="product-name-error"
             aria-invalid={errors.name !== undefined}
             className={inputClassName}
             onChange={(event) => onNameChange(event.target.value)}
           />
-          <p id="product-name-help" className="mt-2 text-caption text-steel">
-            구매자가 상품을 식별할 수 있는 이름을 입력해 주세요.
-          </p>
           {errors.name !== undefined ? (
             <p id="product-name-error" className="mt-2 text-caption text-signal">
               {errors.name}

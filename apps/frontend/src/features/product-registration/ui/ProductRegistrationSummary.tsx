@@ -42,10 +42,7 @@ export function ProductRegistrationSummary({
 
   return (
     <aside className="border border-obsidian bg-paper-white p-5 sm:p-7 lg:sticky lg:top-8">
-      <p className="text-caption font-medium tracking-[0.14em] text-steel uppercase">
-        등록 요약
-      </p>
-      <h2 className="mt-2 text-subheading font-medium text-obsidian">
+      <h2 className="text-subheading font-medium text-obsidian">
         입력 상태
       </h2>
 
@@ -74,9 +71,6 @@ export function ProductRegistrationSummary({
         </button>
       ) : (
         <>
-          <p className="mt-5 text-caption text-steel">
-            모든 항목이 유효해야 상품을 등록할 수 있습니다.
-          </p>
           <button
             type="submit"
             disabled={!isDraftValid || submission.isPending}
