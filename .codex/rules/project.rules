@@ -1,6 +1,6 @@
 # 출처: apps/frontend/package.json 및 apps/frontend/README.md
-# 실행 위치: apps/frontend. 규칙 자체는 작업 디렉터리를 제한하지 않는다.
-# 접두사 뒤에 추가되는 인자도 허용 범위에 포함된다.
+# 실행 위치: apps/frontend. 규칙 자체는 작업 디렉터리를 제한하지 않습니다.
+# 접두사 뒤에 추가되는 인자도 허용 범위에 포함됩니다.
 prefix_rule(
     pattern = ["npm", "run", ["build", "lint"]],
     decision = "allow",
@@ -8,9 +8,17 @@ prefix_rule(
     not_match = ["npm run dev", "npm run deploy"],
 )
 
-# 출처: 사용자가 명시적으로 허용한 백엔드 테스트 및 빌드 명령.
-# 실행 위치: apps/backend. 규칙 자체는 작업 디렉터리를 제한하지 않는다.
-# 접두사 뒤에 추가되는 인자와 task도 허용 범위에 포함된다.
+# 출처: apps/frontend/README.md
+# dependency 설치와 설치 script 실행 가능성을 실행 전에 검토합니다.
+prefix_rule(
+    pattern = ["npm", "install"],
+    decision = "prompt",
+    justification = "dependency 설치와 설치 script 실행을 검토합니다.",
+)
+
+# 출처: apps/backend/build.gradle.kts와 기존 프로젝트 규칙
+# 실행 위치: apps/backend. 규칙 자체는 작업 디렉터리를 제한하지 않습니다.
+# 접두사 뒤에 추가되는 인자와 task도 허용 범위에 포함됩니다.
 prefix_rule(
     pattern = ["./gradlew", ["test", "build"]],
     decision = "allow",
