@@ -4,12 +4,11 @@ prefix_rule(
     pattern = ["git", ["status", "diff", "log", "show", "rev-parse", "ls-files", "ls-tree", "blame"]],
     decision = "allow",
 )
-prefix_rule(pattern = ["git", "add"], decision = "prompt")
-# 일반 push는 승인된 작업 흐름에서만 수행한다. 기본 브랜치, 다른 이름의 원격
+
 # 브랜치, 강제 push 및 원격 브랜치 삭제의 승인 요구는 AGENTS.md에서 규정한다.
-prefix_rule(pattern = ["git", "push"], decision = "allow")
+prefix_rule(pattern = ["git", ["add", "push", "commit"]], decision = "allow")
 prefix_rule(
-    pattern = ["git", ["commit", "merge", "rebase", "reset", "clean", "restore", "checkout", "switch", "revert", "cherry-pick", "rm", "pull"]],
+    pattern = ["git", ["merge", "rebase", "reset", "clean", "restore", "checkout", "switch", "revert", "cherry-pick", "rm", "pull"]],
     decision = "prompt",
     justification = "실행 전에 history, 작업 파일, ref 또는 저장소 설정 변경을 검토한다.",
 )
