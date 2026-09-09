@@ -211,10 +211,10 @@ npm run build
 - [x] 2026-09-09 판매자 상품 등록 UI의 저장소 구조, 프론트엔드 아키텍처와 디자인 원칙을 조사했다.
 - [x] 2026-09-09 API 미연동 범위, 한 페이지·세 섹션, 임시 검증과 mock 성공 흐름을 사용자와 확정했다.
 - [x] 2026-09-09 ADR-003을 확인하고 가격을 판매 일정 및 수량 section에 배치했다.
-- [ ] 마일스톤 1을 구현하고 정적 검증 결과를 기록한다.
-- [ ] 마일스톤 2를 구현하고 정적 검증 결과를 기록한다.
-- [ ] 마일스톤 3을 구현하고 정적 검증 결과를 기록한다.
-- [ ] 마일스톤 4를 구현하고 전체 검증 결과를 기록한다.
+- [x] 2026-09-09 마일스톤 1을 구현하고 `npm run lint`, `npm run build` 성공을 확인했다.
+- [x] 2026-09-09 마일스톤 2를 구현하고 `npm run lint`, `npm run build` 성공을 확인했다.
+- [x] 2026-09-09 마일스톤 3을 구현하고 `npm run lint`, `npm run build` 성공을 확인했다.
+- [x] 2026-09-09 마일스톤 4를 구현하고 정적 검증 및 headless browser 전체 흐름 검증을 완료했다.
 
 ## 예상 밖의 발견
 
@@ -224,6 +224,10 @@ npm run build
   근거: `docs/architecture/decisions/ADR-003-sale-owns-price.md`.
 - 관찰: 작업 트리에는 이 계획과 무관한 백엔드 계획 및 ADR 변경이 이미 존재한다. 해당 변경을 수정하거나 staging하지 않는다.
   근거: 계획 작성 시점의 `git status --short`.
+- 관찰: 프로젝트에는 test runner가 없지만 로컬 Google Chrome의 DevTools Protocol을 사용해 dependency 추가 없이 실제 React 화면의 입력과 반응형 동작을 검증할 수 있었다.
+  근거: `npm run dev`와 headless Chrome에서 수행한 1440px·375px 시나리오 결과.
+- 관찰: 구현 중 작업 트리에 이 계획과 무관한 백엔드 test 변경이 추가로 나타났다. 해당 변경을 수정하지 않았다.
+  근거: 구현 완료 전 `git status --short`.
 
 ## 결정 기록
 
@@ -248,4 +252,17 @@ npm run build
 
 ## 결과와 회고
 
-아직 구현하지 않았다.
+판매자 상품 등록 UI를 계획한 `app → pages → features` 구조로 구현했다. 상품 정보, 여러 이미지와 대표 이미지, 판매 가격·일정·수량을 한 화면에서 입력할 수 있고, 실제 저장 없이 전체 입력을 검증해 완료 안내를 표시한다. 제출 이후에는 변경된 필드와 상호 의존하는 판매 시각 오류를 다시 계산하며, 대표 이미지 삭제와 object URL 정리도 계획한 생명주기에 맞춰 처리한다.
+
+JAPDA 디자인 토큰을 Tailwind theme와 base style에 반영하고 starter 화면을 제거했다. 화면은 1440px에서 입력 영역과 360px 요약 영역의 두 열로, 375px에서 한 열로 렌더링되며 두 너비 모두 가로 scroll이 생기지 않았다. 입력과 버튼은 native form 요소를 사용하고 label, helper, error text 및 focus indicator를 연결했다.
+
+검증 결과는 다음과 같다.
+
+- `npm run lint`: 성공
+- `npm run build`: 성공
+- `git diff --check`: 성공
+- `npm run dev`: Vite 개발 서버 기동과 페이지·entry 응답 확인
+- headless Chrome: 빈 제출 시 7개 필수 오류와 상품명 focus, 잘못된 가격·수량·판매 시각 거부, 이미지 2장 preview, 대표 이미지 변경, 일반·대표·마지막 이미지 삭제, 대표 이미지 자동 승계, 성공 안내와 입력 유지, 변경 시 성공 안내 해제 확인
+- headless Chrome: 1440px 두 열, 375px 한 열, 두 너비의 가로 scroll 없음과 page console 오류 없음 확인
+
+계획과 구현 범위의 차이는 없다. 계획대로 신규 runtime·test dependency, API 호출, Router와 원격 이미지 처리는 추가하지 않았다. 자동화 test runner가 없으므로 회귀 테스트 파일은 추가하지 않았고, OS 파일 선택 대화상자 자체의 키보드 조작은 headless 환경에서 실행하지 못했다. 이미지 입력과 대표 지정·삭제는 native file input과 button으로 구현했으며, headless 시나리오에서는 동일한 change·click 경로를 확인했다.
