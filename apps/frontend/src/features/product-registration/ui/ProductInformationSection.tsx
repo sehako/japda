@@ -7,6 +7,7 @@ type ProductInformationSectionProps = {
   errors: ProductRegistrationErrors
   nameRef: Ref<HTMLInputElement>
   descriptionRef: Ref<HTMLTextAreaElement>
+  disabled: boolean
   onNameChange: (value: string) => void
   onDescriptionChange: (value: string) => void
 }
@@ -20,6 +21,7 @@ export function ProductInformationSection({
   errors,
   nameRef,
   descriptionRef,
+  disabled,
   onNameChange,
   onDescriptionChange,
 }: ProductInformationSectionProps) {
@@ -48,6 +50,7 @@ export function ProductInformationSection({
             id="product-name"
             type="text"
             value={name}
+            disabled={disabled}
             placeholder="판매할 상품의 이름"
             aria-describedby="product-name-help product-name-error"
             aria-invalid={errors.name !== undefined}
@@ -76,6 +79,7 @@ export function ProductInformationSection({
             id="product-description"
             rows={6}
             value={description}
+            disabled={disabled}
             placeholder="소재, 구성, 특징 등 상품 정보를 입력해 주세요."
             aria-describedby="product-description-help product-description-error"
             aria-invalid={errors.description !== undefined}
@@ -86,7 +90,7 @@ export function ProductInformationSection({
             id="product-description-help"
             className="mt-2 text-caption text-steel"
           >
-            현재 최대 글자 수는 제한하지 않습니다.
+            최대 5,000자까지 입력할 수 있습니다.
           </p>
           {errors.description !== undefined ? (
             <p

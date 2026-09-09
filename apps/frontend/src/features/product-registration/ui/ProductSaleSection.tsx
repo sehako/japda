@@ -11,6 +11,7 @@ type ProductSaleSectionProps = {
   saleStartsAtRef: Ref<HTMLInputElement>
   saleEndsAtRef: Ref<HTMLInputElement>
   quantityRef: Ref<HTMLInputElement>
+  disabled: boolean
   onPriceChange: (value: string) => void
   onSaleStartsAtChange: (value: string) => void
   onSaleEndsAtChange: (value: string) => void
@@ -31,6 +32,7 @@ type FieldProps = {
   inputMode?: 'numeric'
   placeholder?: string
   onChange: (value: string) => void
+  disabled: boolean
 }
 
 function SaleField({
@@ -44,6 +46,7 @@ function SaleField({
   inputMode,
   placeholder,
   onChange,
+  disabled,
 }: FieldProps) {
   return (
     <div>
@@ -56,6 +59,7 @@ function SaleField({
         type={type}
         inputMode={inputMode}
         value={value}
+        disabled={disabled}
         placeholder={placeholder}
         aria-describedby={`${id}-help ${id}-error`}
         aria-invalid={error !== undefined}
@@ -84,6 +88,7 @@ export function ProductSaleSection({
   saleStartsAtRef,
   saleEndsAtRef,
   quantityRef,
+  disabled,
   onPriceChange,
   onSaleStartsAtChange,
   onSaleEndsAtChange,
@@ -116,6 +121,7 @@ export function ProductSaleSection({
           error={errors.price}
           inputRef={priceRef}
           onChange={onPriceChange}
+          disabled={disabled}
         />
         <SaleField
           id="product-quantity"
@@ -128,6 +134,7 @@ export function ProductSaleSection({
           error={errors.quantity}
           inputRef={quantityRef}
           onChange={onQuantityChange}
+          disabled={disabled}
         />
         <SaleField
           id="sale-starts-at"
@@ -138,6 +145,7 @@ export function ProductSaleSection({
           error={errors.saleStartsAt}
           inputRef={saleStartsAtRef}
           onChange={onSaleStartsAtChange}
+          disabled={disabled}
         />
         <SaleField
           id="sale-ends-at"
@@ -148,6 +156,7 @@ export function ProductSaleSection({
           error={errors.saleEndsAt}
           inputRef={saleEndsAtRef}
           onChange={onSaleEndsAtChange}
+          disabled={disabled}
         />
       </div>
     </section>

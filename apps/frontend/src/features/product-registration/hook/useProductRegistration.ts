@@ -1,14 +1,29 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ProductRegistrationApiError,
+  createProduct,
+  createSale,
+  uploadProductImages,
+} from '../api/productRegistrationApi'
+import {
   INITIAL_PRODUCT_REGISTRATION_DRAFT,
+  INITIAL_PRODUCT_REGISTRATION_SUBMISSION_STATE,
   type ProductRegistrationDraft,
   type ProductRegistrationErrors,
+  type ProductRegistrationFailureStage,
   type ProductRegistrationField,
   type ProductRegistrationImage,
+  type ProductRegistrationStage,
 } from '../model/productRegistration'
+import {
+  toCreateProductRequest,
+  toCreateSaleRequest,
+  toUploadProductImagesRequest,
+} from '../model/productRegistrationMapper'
 import {
   validateProductRegistration,
   validateProductRegistrationField,
+  validateProductRegistrationImages,
 } from '../model/productRegistrationValidation'
 
 type ProductRegistrationTextField = Exclude<
@@ -16,8 +31,42 @@ type ProductRegistrationTextField = Exclude<
   'images'
 >
 
+const SERVER_FIELD_MAP: Record<string, ProductRegistrationField | undefined> = {
+  name: 'name',
+  description: 'description',
+  files: 'images',
+  representativeIndex: 'images',
+  price: 'price',
+  quantity: 'quantity',
+  startsAt: 'saleStartsAt',
+  endsAt: 'saleEndsAt',
+}
+
 function createImageId() {
   return crypto.randomUUID()
+}
+
+function canEditField(
+  field: ProductRegistrationField,
+  completedStage: ProductRegistrationStage,
+) {
+  if (completedStage === 'none') {
+    return true
+  }
+
+  if (completedStage === 'product') {
+    return field !== 'name' && field !== 'description'
+  }
+
+  if (completedStage === 'images') {
+    return field === 'price' || field === 'quantity' || field.startsWith('sale')
+  }
+
+  return false
+}
+
+function serverErrorMessage(value: string | string[]) {
+  return Array.isArray(value) ? value.join(' ') : value
 }
 
 export function useProductRegistration() {
@@ -26,8 +75,12 @@ export function useProductRegistration() {
   )
   const [errors, setErrors] = useState<ProductRegistrationErrors>({})
   const [hasSubmitted, setHasSubmitted] = useState(false)
-  const [isValidationComplete, setIsValidationComplete] = useState(false)
+  const [submission, setSubmission] = useState(
+    INITIAL_PRODUCT_REGISTRATION_SUBMISSION_STATE,
+  )
   const imagesRef = useRef<ProductRegistrationImage[]>([])
+  const pendingRef = useRef(false)
+  const validation = validateProductRegistration(draft)
 
   useEffect(() => {
     imagesRef.current = draft.images
@@ -67,6 +120,13 @@ export function useProductRegistration() {
     })
   }
 
+  const clearFailureMessage = () => {
+    setSubmission((current) => ({
+      ...current,
+      formError: null,
+    }))
+  }
+
   const updateField = (
     field: ProductRegistrationTextField,
     value: string,
@@ -78,7 +138,7 @@ export function useProductRegistration() {
         : [field]
 
     setDraft(nextDraft)
-    setIsValidationComplete(false)
+    clearFailureMessage()
     updateErrors(nextDraft, relatedFields)
   }
 
@@ -87,7 +147,19 @@ export function useProductRegistration() {
       return
     }
 
-    const addedImages = Array.from(files, (file) => ({
+    const selectedFiles = Array.from(files)
+    const imageError = validateProductRegistrationImages([
+      ...draft.images,
+      ...selectedFiles.map((file) => ({ file })),
+    ])
+
+    if (imageError !== undefined) {
+      setHasSubmitted(true)
+      setErrors((current) => ({ ...current, images: imageError }))
+      return
+    }
+
+    const addedImages = selectedFiles.map((file) => ({
       id: createImageId(),
       file,
       previewUrl: URL.createObjectURL(file),
@@ -101,7 +173,7 @@ export function useProductRegistration() {
 
     imagesRef.current = nextImages
     setDraft(nextDraft)
-    setIsValidationComplete(false)
+    clearFailureMessage()
     updateErrors(nextDraft, ['images'])
   }
 
@@ -125,7 +197,7 @@ export function useProductRegistration() {
 
     imagesRef.current = nextImages
     setDraft(nextDraft)
-    setIsValidationComplete(false)
+    clearFailureMessage()
     updateErrors(nextDraft, ['images'])
   }
 
@@ -136,28 +208,152 @@ export function useProductRegistration() {
 
     const nextDraft = { ...draft, primaryImageId: imageId }
     setDraft(nextDraft)
-    setIsValidationComplete(false)
+    clearFailureMessage()
     updateErrors(nextDraft, ['images'])
   }
 
-  const validate = () => {
-    const result = validateProductRegistration(draft)
+  const applyRequestError = (
+    error: unknown,
+    completedStage: ProductRegistrationStage,
+  ) => {
+    const nextErrors: ProductRegistrationErrors = {}
+    const formMessages: string[] = []
 
+    if (error instanceof ProductRegistrationApiError) {
+      const serverErrors = error.problem?.errors ?? {}
+
+      for (const [serverField, value] of Object.entries(serverErrors)) {
+        const field = SERVER_FIELD_MAP[serverField]
+        const message = serverErrorMessage(value)
+
+        if (field !== undefined && canEditField(field, completedStage)) {
+          nextErrors[field] = message
+        } else {
+          formMessages.push(message)
+        }
+      }
+
+      if (Object.keys(serverErrors).length === 0 || formMessages.length > 0) {
+        formMessages.unshift(error.message)
+      }
+    } else {
+      formMessages.push('상품 등록에 실패했습니다. 잠시 후 다시 시도해 주세요.')
+    }
+
+    setErrors(nextErrors)
+    return {
+      firstErrorField:
+        (Object.keys(nextErrors)[0] as ProductRegistrationField | undefined) ??
+        null,
+      formError: formMessages.join(' '),
+    }
+  }
+
+  const submit = async (): Promise<ProductRegistrationField | null> => {
+    if (pendingRef.current) {
+      return null
+    }
+
+    const result = validateProductRegistration(draft)
     setHasSubmitted(true)
     setErrors(result.errors)
-    setIsValidationComplete(result.firstErrorField === null)
 
-    return result.firstErrorField
+    if (result.firstErrorField !== null) {
+      return result.firstErrorField
+    }
+
+    pendingRef.current = true
+    setSubmission((current) => ({
+      ...current,
+      isPending: true,
+      failureStage: null,
+      formError: null,
+    }))
+
+    let activeProductId = submission.productId
+    let activeStage = submission.completedStage
+    let failureStage: ProductRegistrationFailureStage = 'product'
+
+    try {
+      if (activeStage === 'none') {
+        failureStage = 'product'
+        const product = await createProduct(toCreateProductRequest(draft))
+        activeProductId = product.id
+        activeStage = 'product'
+        setSubmission((current) => ({
+          ...current,
+          productId: product.id,
+          completedStage: 'product',
+        }))
+      }
+
+      if (activeStage === 'product') {
+        failureStage = 'images'
+        await uploadProductImages(
+          activeProductId!,
+          toUploadProductImagesRequest(draft),
+        )
+        activeStage = 'images'
+        setSubmission((current) => ({
+          ...current,
+          completedStage: 'images',
+        }))
+      }
+
+      if (activeStage === 'images') {
+        failureStage = 'sale'
+        await createSale(activeProductId!, toCreateSaleRequest(draft))
+      }
+
+      setErrors({})
+      setSubmission({
+        completedStage: 'sale',
+        productId: activeProductId,
+        isPending: false,
+        failureStage: null,
+        isComplete: true,
+        formError: null,
+      })
+      return null
+    } catch (error) {
+      const requestError = applyRequestError(error, activeStage)
+      setSubmission({
+        completedStage: activeStage,
+        productId: activeProductId,
+        isPending: false,
+        failureStage,
+        isComplete: false,
+        formError: requestError.formError,
+      })
+      return requestError.firstErrorField
+    } finally {
+      pendingRef.current = false
+    }
+  }
+
+  const reset = () => {
+    for (const image of imagesRef.current) {
+      URL.revokeObjectURL(image.previewUrl)
+    }
+    imagesRef.current = []
+    pendingRef.current = false
+    setDraft(INITIAL_PRODUCT_REGISTRATION_DRAFT)
+    setErrors({})
+    setHasSubmitted(false)
+    setSubmission(INITIAL_PRODUCT_REGISTRATION_SUBMISSION_STATE)
   }
 
   return {
     draft,
     errors,
-    isValidationComplete,
+    validationErrors: validation.errors,
+    isDraftValid: validation.firstErrorField === null,
+    submission,
     updateField,
     addImages,
     removeImage,
     setPrimaryImage,
-    validate,
+    submit,
+    reset,
   }
 }

@@ -218,14 +218,22 @@ API 및 제출 타입은 `features/product-registration/model`에 둔다.
 - [x] 2026-09-09 07:11Z 기존 프론트엔드 구조, 확정된 백엔드 API 계약, 테스트 환경과 계획 문서 관례를 조사했다.
 - [x] 2026-09-09 07:11Z 제출 UX, 임시 판매자 ID, 부분 실패 재시도, 성공 상태, 연결 방식과 테스트 기술을 사용자와 확정했다.
 - [x] 2026-09-09 07:11Z 승인된 설계를 바탕으로 초기 ExecPlan을 작성했다.
-- [ ] 마일스톤 1을 구현하고 검증한다.
-- [ ] 마일스톤 2를 구현하고 검증한다.
-- [ ] 마일스톤 3을 구현하고 검증한다.
-- [ ] 마일스톤 4를 구현하고 검증한다.
-- [ ] 전체 자동·수동 검증과 결과를 기록한다.
+- [x] 2026-09-09 07:30Z 마일스톤 1을 구현하고 model 테스트 11개, lint와 production build로 검증했다.
+- [x] 2026-09-09 07:33Z 마일스톤 2를 구현하고 API 테스트 7개, 전체 테스트 18개, lint와 production build로 검증했다.
+- [x] 2026-09-09 07:46Z 마일스톤 3을 구현하고 form 통합 테스트로 순차 제출, 중복 방지, 부분 실패 재시도와 초기화를 검증했다.
+- [x] 2026-09-09 07:46Z 마일스톤 4를 구현하고 CTA 상태, section 잠금, 오류 focus, 완료 및 재시도 UI를 검증했다.
+- [x] 2026-09-09 07:46Z 전체 테스트 25개, lint, production build와 개발 서버 HTTP 응답을 검증하고 수행하지 못한 수동 항목을 기록했다.
 
 ## 예상 밖의 발견
 
+- 관찰: ExecPlan이 출처로 참조한 `docs/superpowers/specs/2026-09-09-seller-product-registration-api-integration-design.md`는 현재 저장소에 없지만, ExecPlan에는 구현 계약과 승인된 결정이 자급자족하도록 기록되어 있다.
+  근거: 계획 실행 시점의 파일 조회와 `bee84b6` 커밋 내용.
+- 관찰: 프로젝트의 TypeScript `erasableSyntaxOnly` 설정은 constructor parameter property 문법을 허용하지 않는다.
+  근거: 마일스톤 2 첫 build의 `TS1294`와 명시적 class field로 변경한 뒤 성공한 build.
+- 관찰: 부분 실패 뒤 수정 가능한 field를 변경할 때 실패 단계를 함께 지우면 완료 단계는 보존되어도 CTA가 `상품 등록`으로 돌아가 재시도 의미가 흐려진다.
+  근거: 판매 실패 뒤 가격을 수정하는 form 회귀 테스트의 RED-GREEN 결과.
+- 관찰: 최종 검증 시 backend가 `localhost:8080`에서 실행 중이지 않아 Vite proxy를 통한 실제 API 요청과 브라우저 종단 간 확인을 수행할 수 없었다.
+  근거: `curl http://localhost:8080/api/products` 연결 실패. Vite 개발 서버 자체는 `http://127.0.0.1:5173/`에서 `200` 응답을 확인했다.
 - 관찰: 기존 UI는 실제 API가 확정되면 별도 연동 설계를 진행하도록 의도적으로 API, 오류와 재시도를 제외했다.
   근거: `docs/plans/frontend/001-seller-product-registration-ui.md`의 범위와 결과.
 - 관찰: 상품 등록은 상품 생성, 이미지 업로드와 판매 등록의 세 요청으로 분리되며 상품 생성은 멱등하지 않다.
@@ -271,4 +279,12 @@ API 및 제출 타입은 `features/product-registration/model`에 둔다.
 
 ## 결과와 회고
 
-아직 완료되지 않음.
+판매자 상품 등록 form을 상품 생성, 이미지 업로드와 판매 등록 API에 연결했다. native `fetch` 경계는 상대 `/api` 경로와 공통 `X-Seller-Id: 1` 헤더를 사용하며 JSON, multipart, `ProblemDetail`, 비정상 응답과 네트워크 실패를 feature 내부에서 처리한다. Vite 개발 proxy는 `/api`를 `http://localhost:8080`으로 전달한다.
+
+hook은 성공한 단계와 `productId`를 즉시 보존한다. 이미지 실패 뒤에는 상품 생성을 건너뛰고, 판매 실패 뒤에는 상품 생성과 이미지 업로드를 건너뛴다. 완료된 section과 pending 중 전체 form은 native `disabled`로 잠긴다. 서버 field 오류는 수정 가능한 입력에 연결하며 일반 오류와 잠긴 field 오류는 form alert로 안내한다. 전체 성공 뒤 입력과 상품 ID를 유지하고 `새 상품 등록`에서 draft, 진행 상태와 object URL을 정리한다.
+
+Vitest, React Testing Library, `user-event`, `jest-dom`과 `jsdom`을 추가했다. model과 API 단위 테스트 및 form 통합 테스트 총 25개가 통과했다. `npm run lint`와 `npm run build`도 오류와 경고 없이 통과했고 `git diff --check`가 성공했다. `npm run dev -- --host 127.0.0.1`은 정상 기동했으며 루트 문서가 HTTP `200`으로 응답했다.
+
+계획과 달리 실제 backend 연동, 1440px·375px layout, 키보드 전용 조작과 브라우저 console은 backend 미실행 및 브라우저 자동화 도구 부재로 수동 확인하지 못했다. 성공, pending, 이미지·판매 부분 실패, 서버 field 오류, 입력 잠금과 object URL 정리는 자동화된 form 테스트를 주 검증 근거로 삼았다. 실제 S3 오류와 서버 응답을 포함한 브라우저 검증은 backend 실행 환경에서 후속 확인이 필요하다.
+
+구현 범위나 승인된 아키텍처 결정은 변경하지 않았다. 작업 시작 시 이미 존재하던 `docs/architecture/frontend.md`, `docs/architecture/decisions/README.md`, `docs/architecture/decisions/ADR-007-frontend-testing-stack.md` 변경은 수정하지 않고 보존했다.

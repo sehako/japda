@@ -6,6 +6,8 @@
 
 프로젝트는 `apps/frontend`에 위치하며 Vite로 개발 서버와 빌드를 실행한다. 패키지는 npm으로 관리하고 TailwindCSS는 공식 Vite 플러그인으로 연동한다. [ADR-001](decisions/ADR-001-frontend-vite.md)을 따른다.
 
+단위 및 컴포넌트 통합 테스트는 Vitest, React Testing Library, `user-event`와 `jsdom`을 사용한다. [ADR-007](decisions/ADR-007-frontend-testing-stack.md)을 따른다.
+
 패키지는 기능 또는 도메인 단위로 구성한다.
 
 ```text
@@ -249,6 +251,14 @@ Mutation 성공 후 영향을 받는 Query를 갱신하거나 무효화한다.
 반복되는 UI가 실제로 동일한 역할을 가질 때만 공통 컴포넌트로 분리한다.
 
 특정 도메인에 종속된 UI는 해당 feature에 유지한다.
+
+---
+
+## 테스트
+
+순수 model과 변환 로직은 단위 테스트로 검증한다. React component와 hook은 내부 구현보다 사용자가 관찰하는 입력, 상태, 오류와 접근성 동작을 중심으로 통합 테스트한다.
+
+네트워크 경계는 우선 `fetch` 대역으로 검증한다. 실제 필요가 확인되기 전에는 MSW나 E2E 도구를 기본 의존성으로 추가하지 않는다.
 
 ---
 

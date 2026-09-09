@@ -9,6 +9,7 @@ type ProductImageSectionProps = {
   primaryImageId: string | null
   errors: ProductRegistrationErrors
   inputRef: Ref<HTMLInputElement>
+  disabled: boolean
   onImagesAdd: (files: FileList | null) => void
   onPrimaryImageChange: (imageId: string) => void
   onImageRemove: (imageId: string) => void
@@ -19,6 +20,7 @@ export function ProductImageSection({
   primaryImageId,
   errors,
   inputRef,
+  disabled,
   onImagesAdd,
   onPrimaryImageChange,
   onImageRemove,
@@ -46,8 +48,9 @@ export function ProductImageSection({
           ref={inputRef}
           id="product-images"
           type="file"
-          accept="image/*"
+          accept="image/jpeg,image/png,image/webp"
           multiple
+          disabled={disabled}
           aria-describedby="product-images-help product-images-error"
           aria-invalid={errors.images !== undefined}
           className="mt-2 block w-full border border-dashed border-concrete-gray bg-soft-mist px-4 py-6 text-body-sm text-steel file:mr-4 file:rounded-button file:border-0 file:bg-obsidian file:px-5 file:py-2.5 file:text-body-sm file:font-medium file:text-paper-white hover:file:bg-black"
@@ -57,7 +60,8 @@ export function ProductImageSection({
           }}
         />
         <p id="product-images-help" className="mt-2 text-caption text-steel">
-          여러 장을 선택할 수 있습니다. 첫 이미지가 대표로 지정됩니다.
+          JPEG, PNG, WebP 파일을 최대 10장 선택할 수 있습니다. 첫 이미지가
+          대표로 지정됩니다.
         </p>
         {errors.images !== undefined ? (
           <p id="product-images-error" className="mt-2 text-caption text-signal">
@@ -92,7 +96,7 @@ export function ProductImageSection({
                   <div className="mt-4 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={isPrimary}
+                      disabled={disabled || isPrimary}
                       className="border border-obsidian px-3 py-2 text-caption font-medium text-obsidian disabled:cursor-not-allowed disabled:border-concrete-gray disabled:text-faint-gray"
                       onClick={() => onPrimaryImageChange(image.id)}
                     >
@@ -100,6 +104,7 @@ export function ProductImageSection({
                     </button>
                     <button
                       type="button"
+                      disabled={disabled}
                       className="border border-concrete-gray px-3 py-2 text-caption font-medium text-steel hover:border-signal hover:text-signal"
                       aria-label={`${image.file.name} 이미지 삭제`}
                       onClick={() => onImageRemove(image.id)}

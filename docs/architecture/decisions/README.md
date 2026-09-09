@@ -35,3 +35,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 003 | [판매 가격을 Sale이 소유](ADR-003-sale-owns-price.md) | backend | 승인 |
 | 005 | [상품 이미지를 AWS S3에 저장](ADR-005-product-image-storage.md) | backend | 승인 |
 | 006 | [판매 영속성 경계와 기간 중첩 방지](ADR-006-sale-boundary-and-period-overlap.md) | backend | 승인 |
+| 007 | [프론트엔드 테스트 기술로 Vitest와 React Testing Library 사용](ADR-007-frontend-testing-stack.md) | frontend | 승인 |

@@ -11,8 +11,8 @@ export function SellerProductRegistrationPage() {
           상품 등록
         </h1>
         <p className="mt-4 max-w-2xl text-body-sm text-steel sm:text-body">
-          상품과 판매 조건을 한 번에 입력하고 등록 전 내용을 검증합니다. 현재
-          화면은 백엔드 API와 연결되어 있지 않습니다.
+          상품 정보와 이미지, 판매 조건을 한 번에 입력해 등록합니다. 일부
+          단계에서 실패해도 완료된 작업은 유지한 채 다시 시도할 수 있습니다.
         </p>
       </header>
 
