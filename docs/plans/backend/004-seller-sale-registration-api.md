@@ -290,15 +290,23 @@ PostgreSQL은 기존 Testcontainers 설정을 사용하고 S3 저장소는 테�
 - [x] 2026-09-09 00:00Z API 경로, 값·시각 규칙, 계산 상태, 오류 상태, 중첩·멱등성·도메인 참조 정책을 사용자와 확정했다.
 - [x] 2026-09-09 00:00Z 현재 작업 트리에서 이미지 등록 구현과 `V2` migration이 진행 중이며 Sale이 상품 잠금 조회와 `READY` 전이에 의존함을 확인했다.
 - [x] 2026-09-09 00:00Z 하나의 독립 검증 가능한 판매 등록 기능으로 ExecPlan을 작성했다.
-- [ ] 구현 직전에 최신 branch, 이미지 기능 완료 상태, 인증 병합 여부, Flyway 번호와 ADR 목록을 재확인한다.
-- [ ] 마일스톤 1의 ADR과 판매 도메인 규칙을 테스트 주도로 구현한다.
-- [ ] 마일스톤 2의 PostgreSQL 스키마와 Repository 경계를 테스트 주도로 구현한다.
-- [ ] 마일스톤 3의 판매 등록 Application 흐름을 테스트 주도로 구현한다.
-- [ ] 마일스톤 4의 JSON HTTP API와 오류 계약을 테스트 주도로 구현한다.
-- [ ] 마일스톤 5의 상품-이미지-판매 통합 및 전체 회귀 검증을 완료한다.
+- [x] 2026-09-09 05:00Z 구현 직전에 최신 branch, 이미지 기능 완료 상태, 인증 병합 여부, Flyway 번호와 ADR 목록을 재확인했다.
+- [x] 2026-09-09 05:23Z 마일스톤 1의 ADR과 판매 도메인 규칙을 테스트 주도로 구현했다.
+- [x] 2026-09-09 05:23Z 마일스톤 2의 PostgreSQL 스키마와 Repository 경계를 테스트 주도로 구현했다.
+- [x] 2026-09-09 05:23Z 마일스톤 3의 판매 등록 Application 흐름을 테스트 주도로 구현했다.
+- [x] 2026-09-09 05:23Z 마일스톤 4의 JSON HTTP API와 오류 계약을 테스트 주도로 구현했다.
+- [x] 2026-09-09 05:24Z 마일스톤 5의 상품-이미지-판매 통합 및 전체 회귀 검증을 완료했다.
 
 ## 예상 밖의 발견
 
+- 관찰: 병렬로 진행되던 이미지 등록 구현이 완료되어 `003` 계획의 모든 마일스톤이 완료 처리되었고, 전체 백엔드 테스트가 다시 통과했다.
+  근거: `docs/plans/backend/003-seller-product-image-upload-api.md`의 진행 상황과 결과와 회고, `GRADLE_USER_HOME=$PWD/.gradle-local ./gradlew --no-daemon test` 성공 결과를 확인했다.
+- 관찰: 첫 전체 검증에서는 Gradle 배포본을 내려받은 직후 daemon이 종료되었으나, `--no-daemon` 재실행은 성공했다.
+  근거: 첫 실행은 테스트 결과 없이 `Gradle build daemon disappeared unexpectedly`로 종료되었고 같은 작업 트리의 재실행은 `BUILD SUCCESSFUL`이었다.
+- 관찰: Hibernate 7.4.5는 PostgreSQL exclusion constraint 위반을 변환할 때 `ConstraintViolationException.constraintName`을 `null`로 제공했다.
+  근거: 실제 PostgreSQL 통합 테스트에서 하위 `SQLException`은 SQLState `23P01`과 `ex_sales_product_period` 이름을 제공했지만 Hibernate 예외의 constraint 이름은 비어 있었다. Repository adapter는 Hibernate 이름 검사를 우선하고, SQLState와 정확히 인용된 constraint 이름을 함께 확인하는 fallback을 사용한다.
+- 관찰: 검증 도중 병렬 이미지 작업이 이미지 코드를 `product` 하위의 기능별 세부 패키지로 이동해 공유 빌드의 소스 스냅샷과 테스트 컴파일 사이에 일시적 불일치가 발생했다.
+  근거: 이미지 production과 테스트 파일의 이동이 완료된 뒤 별도 빌드 디렉터리에서 `compileKotlin`과 판매·Product presentation 테스트가 성공했다. 판매 구현은 이동된 이미지 계약을 기준으로 통합 테스트 import를 유지했다.
 - 관찰: 조사 직전에는 이미지 등록이 문서 계획만 존재했지만, ExecPlan 작성 시점의 공유 작업 트리에는 이미지 구현 파일과 `V2__create_product_images.sql`이 추가되어 있고 Product 상태 전이와 잠금 Repository 계약도 변경 중이다.
   근거: `git status --short`, `Product.markReadyAfterImageRegistration()`, `ProductRepository.findByIdForUpdate()`와 `V2__create_product_images.sql`을 확인했다.
 - 관찰: 현재 인증 구현은 없으며 상품 생성과 이미지 계획은 임시 `X-Seller-Id` 계약을 사용한다.
@@ -338,4 +346,10 @@ PostgreSQL은 기존 Testcontainers 설정을 사용하고 S3 저장소는 테�
 
 ## 결과와 회고
 
-아직 구현을 시작하지 않았다. 실행 중 완료한 기능, 검증 결과, 남은 운영 작업과 후속 개선 사항을 여기에 기록한다.
+판매자가 자신이 소유한 `READY` 상품에 가격, 수량과 `[startsAt, endsAt)` 판매 기간을 등록하는 API를 구현했다. `Sale`은 상품 ID와 판매 값만 저장하고 판매자와 상태를 중복 저장하지 않으며, 응답 상태는 주입된 `Clock`의 동일한 현재 시각을 기준으로 계산한다. 상품 없음과 타인 소유는 동일한 `404`, `DRAFT`와 기간 중첩은 원인별 `409`, 입력 오류는 필드별 `400`으로 반환하고 예상하지 못한 오류의 내부 정보는 노출하지 않는다.
+
+PostgreSQL에는 `V3__create_sales.sql`로 `sales` 테이블, foreign key, check constraint와 `btree_gist` 기반 exclusion constraint를 추가했다. Repository는 `saveAndFlush()`로 위반을 호출 안에서 확인하고 `ex_sales_product_period`만 도메인 충돌로 변환한다. Hibernate 7.4.5에서 exclusion constraint 이름이 비어 있는 실제 동작 때문에 Hibernate constraint 이름 확인을 우선하되, 하위 `SQLException`의 SQLState `23P01`과 정확히 인용된 constraint 이름을 함께 확인하는 fallback을 추가했다. 이는 오류 계약을 바꾸지 않는 adapter 구현 차이다.
+
+도메인, application, PostgreSQL 영속성, standalone HTTP와 실제 Spring Boot 통합 테스트를 추가했다. 통합 테스트는 `DRAFT → 이미지 등록 → READY → 판매 등록`, 동일·중첩·인접 기간, 타인 소유 은닉, 이미지와 판매 등록 경합 및 동시 중첩 판매 중 정확히 한 건만 저장되는 동작을 검증한다. 확정된 판매 경계와 중첩 방지 결정은 `ADR-006-sale-boundary-and-period-overlap.md`에 기록하고 ADR 목록을 갱신했다.
+
+최종 검증은 병렬 이미지 패키지 이동과 공유 Gradle 산출물 경합을 피하도록 별도 빌드 디렉터리를 사용했다. `GRADLE_USER_HOME=$PWD/.gradle-local ./gradlew --no-daemon -Pkotlin.incremental=false -I /tmp/japda-sale-domain.init.gradle clean test`와 같은 옵션의 `build`가 모두 종료 코드 0으로 완료됐다. 계획의 인수 기준에서 제외되거나 미검증으로 남은 항목은 없다. 운영 배포 전 PostgreSQL 환경의 `btree_gist` extension 생성 권한 확인은 계획에 명시된 선행 조건으로 남는다.
