@@ -31,3 +31,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 번호 | 결정 | 적용 영역 | 상태 |
 | --- | --- | --- | --- |
 | 001 | [프론트엔드 빌드 도구로 Vite 사용](ADR-001-frontend-vite.md) | frontend | 승인 |
+| 002 | [백엔드 API 문서화에 Spring REST Docs 사용](ADR-002-backend-api-documentation-with-spring-rest-docs.md) | backend | 승인 |
