@@ -8,6 +8,7 @@ import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.HttpMediaTypeNotSupportedException
+import org.springframework.web.bind.MissingServletRequestParameterException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
@@ -34,6 +35,12 @@ class GlobalExceptionHandler(
 	@ExceptionHandler(MethodArgumentTypeMismatchException::class)
 	fun handleMethodArgumentTypeMismatchException(
 		@Suppress("UNUSED_PARAMETER") exception: MethodArgumentTypeMismatchException,
+		request: HttpServletRequest,
+	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_PARAMETER_INVALID, request)
+
+	@ExceptionHandler(MissingServletRequestParameterException::class)
+	fun handleMissingServletRequestParameterException(
+		@Suppress("UNUSED_PARAMETER") exception: MissingServletRequestParameterException,
 		request: HttpServletRequest,
 	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_PARAMETER_INVALID, request)
 
