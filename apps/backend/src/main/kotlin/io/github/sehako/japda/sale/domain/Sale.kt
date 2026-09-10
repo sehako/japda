@@ -37,14 +37,18 @@ class Sale private constructor(
 
 	@get:Transient
 	val startsAt: Instant
-		get() = saleDate.atStartOfDay(SALE_ZONE).toInstant()
+		get() = startsAt(saleDate)
 
 	@get:Transient
 	val endsAt: Instant
-		get() = saleDate.plusDays(1).atStartOfDay(SALE_ZONE).toInstant()
+		get() = endsAt(saleDate)
 
 	companion object {
 		private val SALE_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
+
+		fun startsAt(saleDate: LocalDate): Instant = saleDate.atStartOfDay(SALE_ZONE).toInstant()
+
+		fun endsAt(saleDate: LocalDate): Instant = saleDate.plusDays(1).atStartOfDay(SALE_ZONE).toInstant()
 
 		fun create(
 			productId: Long?,
