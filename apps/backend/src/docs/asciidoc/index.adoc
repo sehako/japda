@@ -1,0 +1,17 @@
+= Japda 백엔드 API
+:doctype: book
+:icons: font
+:source-highlighter: highlightjs
+:toc: left
+:toclevels: 2
+:sectlinks:
+
+== 판매자 상품 기본 정보 등록
+
+=== 성공
+
+operation::product-create[snippets='http-request,request-headers,request-fields,http-response,response-headers,response-fields']
+
+=== 상품명 누락
+
+operation::product-create-name-required[snippets='http-request,http-response,response-fields']

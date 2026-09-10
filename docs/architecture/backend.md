@@ -15,10 +15,13 @@
 
 필요하지 않은 계층이나 패키지는 미리 만들지 않는다.
 
+기능별 예외는 `{domain}/exception`에 둔다. Spring에 의존하지 않는 공통 예외 추상화는 `global/exception`에 두고, Spring `ProblemDetail`을 사용하는 HTTP 오류 변환은 `global/error`에 둔다.
+
 의존성 방향:
 
 presentation → application → domain
 infrastructure → domain
+domain → {domain}.exception → global.exception
 
 ## 계층 책임
 
@@ -100,6 +103,8 @@ HTTP Request
 
 - 여러 도메인에서 실제로 공유되는 기술 코드만 공통 영역으로 이동한다.
 - 두 곳에서 사용된다는 이유만으로 바로 공통화하지 않는다.
+- 기능별 오류 타입은 Spring HTTP 타입에 의존하지 않는다.
+- HTTP 오류 응답은 Spring `ProblemDetail`을 사용한다.
 
 ## API 문서화
 
