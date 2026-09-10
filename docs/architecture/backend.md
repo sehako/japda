@@ -87,6 +87,7 @@ HTTP Request
 - @OneToOne은 실제 1:1 관계가 DB 제약과 도메인 규칙으로 보장될 때만 사용한다.
 - 연관관계 Fetch는 기본 LAZY로 한다.
 - 자식 목록은 Repository Query, Projection, Application 조립으로 조회한다.
+- 여러 도메인의 읽기 정보가 항상 함께 필요한 구매자 판매 상품 목록은 쓰기 Repository와 분리된 조회 전용 Repository 및 projection으로 단일 join 조회한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-010](decisions/ADR-010-buyer-sale-product-query-model.md)을 따른다.
 
 ## 도메인 규칙
 
@@ -103,6 +104,7 @@ HTTP Request
 - 모든 기술 요소에 불필요한 Interface를 만들지 않는다.
 - 외부 API 호출을 DB Transaction 안에 장시간 포함하지 않는다.
 - 상품 이미지 원본은 비공개 AWS S3에 백엔드 검증 후 저장하고, DB에는 접근 URL 대신 객체 키와 메타데이터를 저장한다. [ADR-005](decisions/ADR-005-product-image-storage-with-s3.md)를 따른다.
+- 구매자 판매 상품 목록에는 대표 이미지 객체 키를 직접 명명하거나 완전한 URL을 생성하지 않고 이미지 상대 경로를 반환한다. 이미지 제공 도메인 결합과 CloudFront 연동은 클라이언트 및 후속 인프라 작업의 책임으로 둔다. [ADR-011](decisions/ADR-011-product-image-relative-path-response.md)을 따른다.
 - 상품 이미지 S3 업로드는 DB Transaction 밖에서 수행하고, 메타데이터 저장과 상품 상태 전환은 짧은 DB Transaction으로 처리한다. 확정된 실패는 보상 삭제하며 커밋 결과가 불명확하면 DB 참조 확인 전 객체를 삭제하지 않는다.
 
 ## 공통 코드

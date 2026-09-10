@@ -2,6 +2,9 @@ package io.github.sehako.japda.sale.presentation
 
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.sale.application.BuyerSaleProductListResponse
+import io.github.sehako.japda.sale.application.BuyerSaleProductResponse
+import io.github.sehako.japda.sale.application.BuyerSaleStatus
 import io.github.sehako.japda.sale.application.CreateSaleDto
 import io.github.sehako.japda.sale.application.SaleResponse
 import io.github.sehako.japda.sale.application.SaleService
@@ -26,14 +29,18 @@ import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
+import org.springframework.restdocs.mockmvc.RestDocumentationResultHandler
 import org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest
 import org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessResponse
 import org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPrint
 import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
+import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
+import org.springframework.restdocs.request.RequestDocumentation.queryParameters
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.ResultActions
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -42,7 +49,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.test.web.servlet.setup.MockMvcConfigurer
 import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 
-@DisplayName("판매 일정 등록 API")
+@DisplayName("판매 API")
 @ExtendWith(RestDocumentationExtension::class)
 class SaleControllerTest {
 	private lateinit var mockMvc: MockMvc
@@ -121,6 +128,112 @@ class SaleControllerTest {
 			)
 
 		verify(saleService).create(expectedDto)
+	}
+
+	@Test
+	@DisplayName("판매일에 해당하는 구매자 판매 상품 목록을 공개 조회하고 문서화한다")
+	fun 판매일에_해당하는_구매자_판매_상품_목록을_공개_조회하고_문서화한다() {
+		val saleDate = LocalDate.parse("2026-09-10")
+		`when`(saleService.findBuyerSaleProducts(saleDate)).thenReturn(
+			BuyerSaleProductListResponse(
+				sales = listOf(
+					BuyerSaleProductResponse(
+						saleId = 100L,
+						productId = 42L,
+						name = "한정판 상품",
+						description = null,
+						price = 35_000L,
+						quantity = 100,
+						saleDate = saleDate,
+						startsAt = Instant.parse("2026-09-09T15:00:00Z"),
+						endsAt = Instant.parse("2026-09-10T15:00:00Z"),
+						status = BuyerSaleStatus.ON_SALE,
+						representativeImagePath = "/products/42/request-id/object-id",
+					),
+				),
+			),
+		)
+
+		mockMvc.perform(get("/api/sales").queryParam("saleDate", "2026-09-10"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.sales[0].saleId").value(100))
+			.andExpect(jsonPath("$.sales[0].productId").value(42))
+			.andExpect(jsonPath("$.sales[0].name").value("한정판 상품"))
+			.andExpect(jsonPath("$.sales[0].description").value(null))
+			.andExpect(jsonPath("$.sales[0].price").value(35000))
+			.andExpect(jsonPath("$.sales[0].quantity").value(100))
+			.andExpect(jsonPath("$.sales[0].saleDate").value("2026-09-10"))
+			.andExpect(jsonPath("$.sales[0].startsAt").value("2026-09-09T15:00:00Z"))
+			.andExpect(jsonPath("$.sales[0].endsAt").value("2026-09-10T15:00:00Z"))
+			.andExpect(jsonPath("$.sales[0].status").value("ON_SALE"))
+			.andExpect(jsonPath("$.sales[0].representativeImagePath").value("/products/42/request-id/object-id"))
+			.andDo(
+				document(
+					"buyer-sale-product-list",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					queryParameters(parameterWithName("saleDate").description("Asia/Seoul 기준 조회 판매일(YYYY-MM-DD)")),
+					responseFields(
+						fieldWithPath("sales").description("판매 상품 목록"),
+						fieldWithPath("sales[].saleId").description("판매 일정 식별자"),
+						fieldWithPath("sales[].productId").description("상품 식별자"),
+						fieldWithPath("sales[].name").description("상품명"),
+						fieldWithPath("sales[].description").description("상품 설명").optional(),
+						fieldWithPath("sales[].price").description("원화 기준 판매 가격"),
+						fieldWithPath("sales[].quantity").description("최초 판매 수량"),
+						fieldWithPath("sales[].saleDate").description("Asia/Seoul 기준 판매일"),
+						fieldWithPath("sales[].startsAt").description("판매 시작 시각"),
+						fieldWithPath("sales[].endsAt").description("판매 종료 시각"),
+						fieldWithPath("sales[].status").description("판매 상태"),
+						fieldWithPath("sales[].representativeImagePath").description("대표 이미지 상대 경로"),
+					),
+				),
+			)
+
+		verify(saleService).findBuyerSaleProducts(saleDate)
+	}
+
+	@Test
+	@DisplayName("판매 기록이 없는 유효한 판매일이면 빈 목록을 반환한다")
+	fun 판매_기록이_없는_유효한_판매일_빈_목록을_반환한다() {
+		val saleDate = LocalDate.parse("2026-09-09")
+		`when`(saleService.findBuyerSaleProducts(saleDate)).thenReturn(BuyerSaleProductListResponse(emptyList()))
+
+		mockMvc.perform(get("/api/sales").queryParam("saleDate", "2026-09-09"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.sales").isEmpty)
+			.andDo(
+				document(
+					"buyer-sale-product-list-empty",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					queryParameters(parameterWithName("saleDate").description("Asia/Seoul 기준 조회 판매일(YYYY-MM-DD)")),
+					responseFields(fieldWithPath("sales").description("빈 판매 상품 목록")),
+				),
+			)
+	}
+
+	@Test
+	@DisplayName("판매일 쿼리 파라미터가 누락되면 공통 요청 파라미터 오류를 반환하고 문서화한다")
+	fun 판매일_쿼리_파라미터가_누락_공통_요청_파라미터_오류를_반환하고_문서화한다() {
+		assertInvalidSaleListRequest(null, "COMMON_REQUEST_PARAMETER_INVALID")
+			.andDo(documentBuyerSaleListError("buyer-sale-product-list-parameter-invalid"))
+	}
+
+	@Test
+	@DisplayName("판매일 형식이 올바르지 않으면 공통 요청 파라미터 오류를 반환한다")
+	fun 판매일_형식이_올바르지_않음_공통_요청_파라미터_오류를_반환한다() {
+		assertInvalidSaleListRequest("2026-09-31", "COMMON_REQUEST_PARAMETER_INVALID")
+	}
+
+	@Test
+	@DisplayName("판매일이 조회 범위를 벗어나면 판매일 범위 오류를 반환하고 문서화한다")
+	fun 판매일이_조회_범위를_벗어남_판매일_범위_오류를_반환하고_문서화한다() {
+		val saleDate = LocalDate.parse("2026-09-12")
+		`when`(saleService.findBuyerSaleProducts(saleDate)).thenThrow(SaleException(SaleErrorCode.DATE_OUT_OF_RANGE))
+
+		assertInvalidSaleListRequest("2026-09-12", "SALE_DATE_OUT_OF_RANGE", "saleDate", "판매일은 내일까지 조회할 수 있습니다.")
+			.andDo(documentBuyerSaleListError("buyer-sale-product-list-date-out-of-range", true))
 	}
 
 	@Test
@@ -288,6 +401,50 @@ class SaleControllerTest {
 			result.andExpect(jsonPath("$.errors.$expectedProperty").value(expectedMessage))
 		}
 		return result
+	}
+
+	private fun assertInvalidSaleListRequest(
+		saleDate: String?,
+		expectedCode: String,
+		expectedProperty: String? = null,
+		expectedMessage: String? = null,
+	): ResultActions {
+		val request = get("/api/sales")
+		if (saleDate != null) request.queryParam("saleDate", saleDate)
+
+		val result = mockMvc.perform(request)
+			.andExpect(status().isBadRequest)
+			.andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+			.andExpect(jsonPath("$.type").value("about:blank"))
+			.andExpect(jsonPath("$.status").value(400))
+			.andExpect(jsonPath("$.instance").value("/api/sales"))
+			.andExpect(jsonPath("$.code").value(expectedCode))
+
+		if (expectedProperty != null && expectedMessage != null) {
+			result.andExpect(jsonPath("$.errors.$expectedProperty").value(expectedMessage))
+		}
+		return result
+	}
+
+	private fun documentBuyerSaleListError(
+		identifier: String,
+		includeSaleDateError: Boolean = false,
+	): RestDocumentationResultHandler {
+		val fields = mutableListOf(
+			fieldWithPath("type").description("오류 유형 URI"),
+			fieldWithPath("title").description("오류 제목"),
+			fieldWithPath("status").description("HTTP 상태 코드"),
+			fieldWithPath("detail").description("오류 설명"),
+			fieldWithPath("instance").description("오류가 발생한 요청 경로"),
+			fieldWithPath("code").description("안정적인 오류 코드"),
+		)
+		if (includeSaleDateError) fields += fieldWithPath("errors.saleDate").description("판매일 오류 메시지")
+		return document(
+			identifier,
+			preprocessRequest(prettyPrint()),
+			preprocessResponse(prettyPrint()),
+			responseFields(fields),
+		)
 	}
 
 	private companion object {
