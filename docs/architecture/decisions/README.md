@@ -38,3 +38,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 006 | [상품 이미지 기능을 상품 도메인의 계층별 하위 패키지로 구성](ADR-006-product-image-package-structure.md) | backend | 승인 |
 | 007 | [Application 계층에서 Spring Web 타입 분리](ADR-007-application-layer-spring-web-independence.md) | backend | 승인 |
 | 008 | [상품 이미지 최초 등록 검증을 파일 시그니처로 제한](ADR-008-product-image-signature-validation.md) | backend | 승인 |
+| 009 | [상품 원본과 판매 일정의 도메인 경계 분리](ADR-009-product-and-sale-domain-boundaries.md) | backend | 승인 |

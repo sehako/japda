@@ -94,6 +94,7 @@ HTTP Request
 - 단일 Entity에서 판단 가능한 규칙은 Entity에 둔다.
 - 여러 Domain 객체의 흐름은 Application Service가 조율한다.
 - 하나의 Entity에 속하기 어려운 핵심 규칙만 Domain Service로 분리한다.
+- 상품 원본과 준비 상태는 `Product`, 판매일·가격·판매 수량은 `Sale`, 판매일별 정원은 판매 영역의 `SaleDay`가 관리한다. 판매 등록 application은 상품 Repository로 소유권과 `READY`를 확인하며 판매 Entity는 상품을 ID로 참조한다. 판매 등록으로 상품 상태를 변경하지 않는다. [ADR-009](decisions/ADR-009-product-and-sale-domain-boundaries.md)을 따른다.
 - 의미와 규칙이 있는 값만 Value Object로 만든다.
 
 ## 외부 시스템
