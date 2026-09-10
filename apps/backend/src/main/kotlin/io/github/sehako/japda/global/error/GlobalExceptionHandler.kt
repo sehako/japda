@@ -7,8 +7,13 @@ import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ProblemDetail
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
+import org.springframework.web.HttpMediaTypeNotSupportedException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.multipart.MaxUploadSizeExceededException
+import org.springframework.web.multipart.MultipartException
+import org.springframework.web.multipart.support.MissingServletRequestPartException
 
 @RestControllerAdvice
 class GlobalExceptionHandler(
@@ -23,6 +28,30 @@ class GlobalExceptionHandler(
 	@ExceptionHandler(HttpMessageNotReadableException::class)
 	fun handleHttpMessageNotReadableException(
 		@Suppress("UNUSED_PARAMETER") exception: HttpMessageNotReadableException,
+		request: HttpServletRequest,
+	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_BODY_MALFORMED, request)
+
+	@ExceptionHandler(MethodArgumentTypeMismatchException::class)
+	fun handleMethodArgumentTypeMismatchException(
+		@Suppress("UNUSED_PARAMETER") exception: MethodArgumentTypeMismatchException,
+		request: HttpServletRequest,
+	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_PARAMETER_INVALID, request)
+
+	@ExceptionHandler(HttpMediaTypeNotSupportedException::class)
+	fun handleHttpMediaTypeNotSupportedException(
+		@Suppress("UNUSED_PARAMETER") exception: HttpMediaTypeNotSupportedException,
+		request: HttpServletRequest,
+	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.MEDIA_TYPE_UNSUPPORTED, request)
+
+	@ExceptionHandler(MaxUploadSizeExceededException::class)
+	fun handleMaxUploadSizeExceededException(
+		@Suppress("UNUSED_PARAMETER") exception: MaxUploadSizeExceededException,
+		request: HttpServletRequest,
+	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_SIZE_EXCEEDED, request)
+
+	@ExceptionHandler(MissingServletRequestPartException::class, MultipartException::class)
+	fun handleMalformedMultipartException(
+		@Suppress("UNUSED_PARAMETER") exception: Exception,
 		request: HttpServletRequest,
 	): ResponseEntity<ProblemDetail> = response(CommonErrorCode.REQUEST_BODY_MALFORMED, request)
 

@@ -2,7 +2,10 @@ package io.github.sehako.japda.global.exception
 
 enum class ErrorCategory {
 	INVALID_REQUEST,
+	FORBIDDEN,
 	NOT_FOUND,
 	CONFLICT,
+	PAYLOAD_TOO_LARGE,
+	UNSUPPORTED_MEDIA_TYPE,
 	INTERNAL_SERVER_ERROR,
 }

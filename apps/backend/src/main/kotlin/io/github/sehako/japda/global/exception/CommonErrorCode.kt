@@ -20,6 +20,21 @@ enum class CommonErrorCode(
 		"요청 본문 형식이 올바르지 않습니다.",
 		ErrorCategory.INVALID_REQUEST,
 	),
+	REQUEST_PARAMETER_INVALID(
+		"COMMON_REQUEST_PARAMETER_INVALID",
+		"요청 파라미터 형식이 올바르지 않습니다.",
+		ErrorCategory.INVALID_REQUEST,
+	),
+	REQUEST_SIZE_EXCEEDED(
+		"COMMON_REQUEST_SIZE_EXCEEDED",
+		"요청 용량 제한을 초과했습니다.",
+		ErrorCategory.PAYLOAD_TOO_LARGE,
+	),
+	MEDIA_TYPE_UNSUPPORTED(
+		"COMMON_MEDIA_TYPE_UNSUPPORTED",
+		"지원하지 않는 미디어 타입입니다.",
+		ErrorCategory.UNSUPPORTED_MEDIA_TYPE,
+	),
 	INTERNAL_SERVER_ERROR(
 		"COMMON_INTERNAL_SERVER_ERROR",
 		"서버 내부 오류가 발생했습니다.",
