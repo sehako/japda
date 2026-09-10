@@ -1,0 +1,734 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JAPDA 판매자 상품 등록</title>
+    <style>
+      :root {
+        --obsidian: #111111;
+        --paper-white: #ffffff;
+        --concrete-gray: #e5e5e5;
+        --soft-mist: #f5f5f5;
+        --steel: #707072;
+        --faint-gray: #9e9ea0;
+        --signal: #d92d20;
+        --font: Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .topbar {
+        height: 72px;
+        border-bottom: 1px solid var(--concrete-gray);
+      }
+
+      .topbar-inner {
+        width: min(100% - 64px, 1440px);
+        height: 100%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+
+      .brand-logo {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.04em;
+      }
+
+      .brand-context {
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+      }
+
+      .topbar-action {
+        border: 0;
+        background: transparent;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .page {
+        width: min(100% - 64px, 1280px);
+        margin: 0 auto;
+        padding: 64px 0 80px;
+      }
+
+      .page-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 32px;
+        margin-bottom: 36px;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 4vw, 48px);
+        line-height: 1.1;
+        font-weight: 600;
+        letter-spacing: -0.04em;
+      }
+
+      .form-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+        border-top: 1px solid var(--obsidian);
+        border-bottom: 1px solid var(--obsidian);
+      }
+
+      .section {
+        padding: 36px 0 48px;
+      }
+
+      .image-section {
+        padding-right: 48px;
+        border-right: 1px solid var(--concrete-gray);
+      }
+
+      .info-section {
+        padding-left: 48px;
+      }
+
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.4;
+        font-weight: 600;
+      }
+
+      .counter {
+        color: var(--steel);
+        font-size: 12px;
+      }
+
+      .upload-zone {
+        min-height: 240px;
+        border: 1px dashed var(--faint-gray);
+        background: var(--soft-mist);
+        display: grid;
+        place-items: center;
+        padding: 36px;
+        text-align: center;
+        cursor: pointer;
+        transition: border-color 120ms ease, background-color 120ms ease;
+      }
+
+      .upload-zone:hover,
+      .upload-zone:focus-visible,
+      .upload-zone.is-dragging {
+        border-color: var(--obsidian);
+        background: var(--paper-white);
+        outline: none;
+      }
+
+      .upload-icon {
+        width: 40px;
+        height: 40px;
+        margin: 0 auto 20px;
+        border: 1px solid var(--obsidian);
+        border-radius: 50%;
+        display: grid;
+        place-items: center;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .upload-title {
+        margin: 0 0 6px;
+        font-size: 16px;
+        font-weight: 500;
+      }
+
+      .image-input {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+      }
+
+      .image-list {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+
+      .image-card {
+        position: relative;
+        aspect-ratio: 1;
+        overflow: hidden;
+        background: var(--soft-mist);
+        border: 1px solid var(--concrete-gray);
+      }
+
+      .image-card.is-representative {
+        border: 2px solid var(--obsidian);
+      }
+
+      .image-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .image-order {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        min-width: 24px;
+        height: 24px;
+        padding: 0 7px;
+        display: grid;
+        place-items: center;
+        color: var(--paper-white);
+        background: rgba(17, 17, 17, 0.82);
+        border-radius: 20px;
+        font-size: 11px;
+      }
+
+      .representative-button {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        min-height: 30px;
+        padding: 0 12px;
+        border: 1px solid var(--paper-white);
+        border-radius: 30px;
+        color: var(--paper-white);
+        background: rgba(17, 17, 17, 0.82);
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .remove-button {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 0;
+        border-radius: 50%;
+        color: var(--paper-white);
+        background: rgba(17, 17, 17, 0.82);
+        cursor: pointer;
+      }
+
+      .field {
+        margin-bottom: 32px;
+      }
+
+      .field:last-child {
+        margin-bottom: 0;
+      }
+
+      .field-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 10px;
+      }
+
+      .field-label {
+        font-weight: 500;
+      }
+
+      .required {
+        color: var(--signal);
+      }
+
+      .text-input,
+      .textarea {
+        width: 100%;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        outline: none;
+        transition: border-color 120ms ease;
+      }
+
+      .text-input {
+        height: 52px;
+        padding: 0 16px;
+      }
+
+      .textarea {
+        min-height: 220px;
+        padding: 14px 16px;
+        resize: vertical;
+      }
+
+      .text-input:focus,
+      .textarea:focus {
+        border-color: var(--obsidian);
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        gap: 12px;
+        padding-top: 28px;
+      }
+
+      .button {
+        min-height: 48px;
+        padding: 0 26px;
+        border-radius: 30px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .button-secondary {
+        border: 1px solid var(--concrete-gray);
+        background: var(--paper-white);
+      }
+
+      .button-primary {
+        min-width: 152px;
+        border: 1px solid var(--obsidian);
+        color: var(--paper-white);
+        background: var(--obsidian);
+      }
+
+      .button:hover {
+        opacity: 0.78;
+      }
+
+      .button:focus-visible,
+      .representative-button:focus-visible,
+      .remove-button:focus-visible,
+      .topbar-action:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
+      }
+
+      .button:disabled {
+        border-color: var(--faint-gray);
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        cursor: not-allowed;
+        opacity: 1;
+      }
+
+      .status-message {
+        display: none;
+        margin-top: 20px;
+        padding: 14px 16px;
+        border-left: 3px solid var(--signal);
+        background: var(--soft-mist);
+      }
+
+      .status-message.is-visible {
+        display: block;
+      }
+
+      @media (max-width: 800px) {
+        .topbar-inner,
+        .page {
+          width: min(100% - 40px, 100%);
+        }
+
+        .topbar {
+          height: 64px;
+        }
+
+        .brand-context,
+        .topbar-action {
+          display: none;
+        }
+
+        .page {
+          padding: 40px 0 112px;
+        }
+
+        .page-heading {
+          margin-bottom: 28px;
+        }
+
+        .form-layout {
+          display: block;
+        }
+
+        .section {
+          padding: 28px 0 36px;
+        }
+
+        .image-section {
+          padding-right: 0;
+          border-right: 0;
+          border-bottom: 1px solid var(--concrete-gray);
+        }
+
+        .info-section {
+          padding-left: 0;
+        }
+
+        .upload-zone {
+          min-height: 190px;
+          padding: 28px 20px;
+        }
+
+        .image-list {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .textarea {
+          min-height: 170px;
+        }
+
+        .form-actions {
+          position: fixed;
+          z-index: 10;
+          right: 0;
+          bottom: 0;
+          left: 0;
+          padding: 12px 20px max(12px, env(safe-area-inset-bottom));
+          border-top: 1px solid var(--concrete-gray);
+          background: var(--paper-white);
+        }
+
+        .button-secondary {
+          flex: 0 0 auto;
+        }
+
+        .button-primary {
+          flex: 1;
+        }
+
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-logo">JAPDA</span>
+          <span class="brand-context">SELLER</span>
+        </div>
+        <button class="topbar-action" type="button">판매자 센터 나가기</button>
+      </div>
+    </header>
+
+    <main class="page">
+      <header class="page-heading">
+        <div>
+          <p class="eyebrow">PRODUCT REGISTRATION</p>
+          <h1>상품 등록</h1>
+        </div>
+      </header>
+
+      <form id="product-form" novalidate>
+        <div class="form-layout">
+          <section class="section image-section" aria-labelledby="image-heading">
+            <div class="section-heading">
+              <h2 id="image-heading">상품 이미지</h2>
+            </div>
+
+            <label class="upload-zone" id="upload-zone" for="image-input" tabindex="0">
+              <span>
+                <span class="upload-icon" aria-hidden="true">+</span>
+                <span class="upload-title">이미지 추가</span>
+              </span>
+            </label>
+            <input
+              class="image-input"
+              id="image-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+            />
+            <div class="image-list" id="image-list" aria-live="polite"></div>
+          </section>
+
+          <section class="section info-section" aria-labelledby="info-heading">
+            <div class="section-heading">
+              <h2 id="info-heading">기본 정보</h2>
+            </div>
+
+            <div class="field">
+              <div class="field-head">
+                <label class="field-label" for="name">상품명 <span class="required">*</span></label>
+                <span class="counter"><span id="name-count">0</span> / 100</span>
+              </div>
+              <input
+                class="text-input"
+                id="name"
+                name="name"
+                type="text"
+                maxlength="100"
+                required
+              />
+            </div>
+
+            <div class="field">
+              <div class="field-head">
+                <label class="field-label" for="description">상품 설명</label>
+                <span class="counter"><span id="description-count">0</span> / 3000</span>
+              </div>
+              <textarea
+                class="textarea"
+                id="description"
+                name="description"
+                maxlength="3000"
+              ></textarea>
+            </div>
+          </section>
+        </div>
+
+        <p class="status-message" id="status-message" role="alert"></p>
+
+        <div class="form-actions">
+          <button class="button button-secondary" id="cancel-button" type="button">취소</button>
+          <button class="button button-primary" id="submit-button" type="submit">상품 등록</button>
+        </div>
+      </form>
+    </main>
+
+    <script>
+      const MAX_FILE_COUNT = 10;
+      const MAX_FILE_SIZE = 10 * 1024 * 1024;
+      const MAX_TOTAL_SIZE = 50 * 1024 * 1024;
+      const SUPPORTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+      const form = document.querySelector("#product-form");
+      const nameInput = document.querySelector("#name");
+      const descriptionInput = document.querySelector("#description");
+      const imageInput = document.querySelector("#image-input");
+      const imageList = document.querySelector("#image-list");
+      const uploadZone = document.querySelector("#upload-zone");
+      const nameCount = document.querySelector("#name-count");
+      const descriptionCount = document.querySelector("#description-count");
+      const statusMessage = document.querySelector("#status-message");
+      const submitButton = document.querySelector("#submit-button");
+      const cancelButton = document.querySelector("#cancel-button");
+
+      let images = [];
+      let representativeIndex = null;
+
+      function showMessage(message) {
+        statusMessage.textContent = message;
+        statusMessage.classList.toggle("is-visible", Boolean(message));
+      }
+
+      function renderImages() {
+        imageList.replaceChildren();
+
+        images.forEach((image, index) => {
+          const card = document.createElement("article");
+          card.className = `image-card${index === representativeIndex ? " is-representative" : ""}`;
+
+          const preview = document.createElement("img");
+          preview.src = image.url;
+          preview.alt = `${image.file.name} 미리보기${index === representativeIndex ? ", 대표 이미지" : ""}`;
+
+          const order = document.createElement("span");
+          order.className = "image-order";
+          order.textContent = String(index + 1);
+
+          const representativeButton = document.createElement("button");
+          representativeButton.className = "representative-button";
+          representativeButton.type = "button";
+          representativeButton.textContent = index === representativeIndex ? "대표 이미지" : "대표 이미지 지정";
+          representativeButton.setAttribute("aria-pressed", String(index === representativeIndex));
+          representativeButton.addEventListener("click", () => {
+            representativeIndex = index;
+            renderImages();
+          });
+
+          const removeButton = document.createElement("button");
+          removeButton.className = "remove-button";
+          removeButton.type = "button";
+          removeButton.textContent = "×";
+          removeButton.setAttribute("aria-label", `${image.file.name} 삭제`);
+          removeButton.addEventListener("click", () => removeImage(index));
+
+          card.append(preview, order, representativeButton, removeButton);
+          imageList.append(card);
+        });
+      }
+
+      function removeImage(index) {
+        URL.revokeObjectURL(images[index].url);
+        images.splice(index, 1);
+
+        if (images.length === 0) {
+          representativeIndex = null;
+        } else if (representativeIndex === index) {
+          representativeIndex = 0;
+        } else if (representativeIndex > index) {
+          representativeIndex -= 1;
+        }
+
+        showMessage("");
+        renderImages();
+      }
+
+      function addFiles(fileList) {
+        const files = Array.from(fileList);
+        const combined = [...images.map((image) => image.file), ...files];
+
+        if (combined.length > MAX_FILE_COUNT) {
+          showMessage("상품 이미지는 최대 10장까지 등록할 수 있습니다.");
+          return;
+        }
+
+        if (files.some((file) => !SUPPORTED_TYPES.has(file.type))) {
+          showMessage("JPEG, PNG, WebP 형식의 이미지만 등록할 수 있습니다.");
+          return;
+        }
+
+        if (files.some((file) => file.size === 0 || file.size > MAX_FILE_SIZE)) {
+          showMessage("각 이미지는 1바이트 이상 10MB 이하여야 합니다.");
+          return;
+        }
+
+        if (combined.reduce((total, file) => total + file.size, 0) > MAX_TOTAL_SIZE) {
+          showMessage("전체 이미지 크기는 50MB 이하여야 합니다.");
+          return;
+        }
+
+        images.push(...files.map((file) => ({ file, url: URL.createObjectURL(file) })));
+        if (representativeIndex === null && images.length > 0) representativeIndex = 0;
+        imageInput.value = "";
+        showMessage("");
+        renderImages();
+      }
+
+      nameInput.addEventListener("input", () => {
+        nameCount.textContent = String(nameInput.value.length);
+      });
+
+      descriptionInput.addEventListener("input", () => {
+        descriptionCount.textContent = String(descriptionInput.value.length);
+      });
+
+      imageInput.addEventListener("change", () => addFiles(imageInput.files));
+
+      uploadZone.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          imageInput.click();
+        }
+      });
+
+      ["dragenter", "dragover"].forEach((eventName) => {
+        uploadZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          uploadZone.classList.add("is-dragging");
+        });
+      });
+
+      ["dragleave", "drop"].forEach((eventName) => {
+        uploadZone.addEventListener(eventName, (event) => {
+          event.preventDefault();
+          uploadZone.classList.remove("is-dragging");
+        });
+      });
+
+      uploadZone.addEventListener("drop", (event) => addFiles(event.dataTransfer.files));
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        if (!nameInput.value.trim()) {
+          showMessage("상품명을 입력해 주세요.");
+          nameInput.focus();
+          return;
+        }
+
+        if (images.length === 0 || representativeIndex === null) {
+          showMessage("상품 이미지와 대표 이미지를 지정해 주세요.");
+          uploadZone.focus();
+          return;
+        }
+
+        submitButton.disabled = true;
+        submitButton.textContent = "등록 중...";
+        nameInput.disabled = true;
+        descriptionInput.disabled = true;
+        cancelButton.disabled = true;
+        showMessage("상품 정보를 저장한 뒤 이미지를 등록하는 중입니다.");
+
+        window.setTimeout(() => {
+          submitButton.disabled = false;
+          submitButton.textContent = "상품 등록";
+          nameInput.disabled = false;
+          descriptionInput.disabled = false;
+          cancelButton.disabled = false;
+          showMessage("상품 등록이 완료되었습니다.");
+        }, 1200);
+      });
+
+      cancelButton.addEventListener("click", () => {
+        images.forEach((image) => URL.revokeObjectURL(image.url));
+        images = [];
+        representativeIndex = null;
+        form.reset();
+        nameCount.textContent = "0";
+        descriptionCount.textContent = "0";
+        showMessage("");
+        renderImages();
+      });
+
+      window.addEventListener("beforeunload", () => {
+        images.forEach((image) => URL.revokeObjectURL(image.url));
+      });
+    </script>
+  </body>
+</html>
