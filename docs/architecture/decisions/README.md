@@ -41,3 +41,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 009 | [상품 원본과 판매 일정의 도메인 경계 분리](ADR-009-product-and-sale-domain-boundaries.md) | backend | 승인 |
 | 010 | [구매자 판매 상품 목록을 조회 전용 projection으로 구성](ADR-010-buyer-sale-product-query-model.md) | backend | 승인 |
 | 011 | [상품 이미지 조회 정보로 상대 경로 반환](ADR-011-product-image-relative-path-response.md) | backend | 승인 |
+| 012 | [프론트엔드 클라이언트 라우팅에 React Router 사용](ADR-012-frontend-routing-with-react-router.md) | frontend | 승인 |

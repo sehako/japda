@@ -6,6 +6,8 @@
 
 프로젝트는 `apps/frontend`에 위치하며 Vite로 개발 서버와 빌드를 실행한다. 패키지는 npm으로 관리하고 TailwindCSS는 공식 Vite 플러그인으로 연동한다. [ADR-001](decisions/ADR-001-frontend-vite.md)을 따른다.
 
+클라이언트 라우팅에는 `react-router-dom`을 사용한다. [ADR-012](decisions/ADR-012-frontend-routing-with-react-router.md)을 따른다.
+
 패키지는 기능 또는 도메인 단위로 구성한다.
 
 ```text
@@ -46,6 +48,16 @@ app → pages → features → shared
 * 환경 및 전역 설정
 
 도메인 로직을 작성하지 않는다.
+
+---
+
+## 라우팅
+
+`BrowserRouter`와 route 선언은 `app` 계층에서 관리하고 각 URL은 `pages` 계층의 페이지 컴포넌트에 연결한다. 페이지 또는 feature가 라우터를 직접 생성하지 않는다.
+
+애플리케이션 내부 이동에는 React Router의 링크와 탐색 API를 사용한다. 정의하지 않은 경로는 Not Found 페이지로 처리한다.
+
+배포 환경은 하위 경로 직접 접근과 새로고침을 위해 애플리케이션 경로 요청을 `index.html`로 전달하는 SPA fallback을 제공해야 한다. 배포 플랫폼별 rewrite 설정은 프론트엔드 정적 빌드와 별도로 관리한다.
 
 ---
 
