@@ -15,10 +15,13 @@
 
 필요하지 않은 계층이나 패키지는 미리 만들지 않는다.
 
+기능별 예외는 `{domain}/exception`에 둔다. Spring에 의존하지 않는 공통 예외 추상화는 `global/exception`에 두고, Spring `ProblemDetail`을 사용하는 HTTP 오류 변환은 `global/error`에 둔다.
+
 의존성 방향:
 
 presentation → application → domain
 infrastructure → domain
+domain → {domain}.exception → global.exception
 
 ## 계층 책임
 
@@ -100,6 +103,17 @@ HTTP Request
 
 - 여러 도메인에서 실제로 공유되는 기술 코드만 공통 영역으로 이동한다.
 - 두 곳에서 사용된다는 이유만으로 바로 공통화하지 않는다.
+- 기능별 오류 타입은 Spring HTTP 타입에 의존하지 않는다.
+- HTTP 오류 응답은 Spring `ProblemDetail`을 사용한다.
+
+## API 문서화
+
+- 백엔드 HTTP API 문서는 Spring REST Docs로 생성한다.
+- MockMvc 기반 Presentation Test에서 요청과 응답을 검증하고 문서 스니펫을 생성한다.
+- 요청 헤더, 경로·쿼리 매개변수, 요청·응답 필드와 오류 응답 중 해당 API가 공개하는 계약을 문서화한다.
+- Asciidoctor로 HTML 문서를 생성하고, 문서 생성과 검증을 Gradle `build`에 포함한다.
+- 생성된 스니펫과 HTML 문서는 빌드 산출물로 취급하며 Git에 포함하지 않는다.
+- OpenAPI 변환, 대화형 문서와 외부 게시 방식은 별도 결정이 있기 전까지 기본 범위에 포함하지 않는다.
 
 ## 테스트
 
