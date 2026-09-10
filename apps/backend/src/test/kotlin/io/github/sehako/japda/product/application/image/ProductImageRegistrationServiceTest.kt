@@ -89,6 +89,7 @@ class ProductImageRegistrationServiceTest {
 		override fun save(product: Product) = product
 		override fun findById(id: Long) = product.takeIf { it.id == id }
 		override fun findByIdForUpdate(id: Long) = findById(id)
+		override fun findReadyProducts(query: io.github.sehako.japda.product.domain.ReadyProductQuery) = emptyList<io.github.sehako.japda.product.domain.ReadyProductSummary>()
 	}
 
 	private class ProductImageRepositoryFake : ProductImageRepository {

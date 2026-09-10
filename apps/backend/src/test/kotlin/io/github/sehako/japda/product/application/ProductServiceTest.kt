@@ -3,6 +3,8 @@ package io.github.sehako.japda.product.application
 import io.github.sehako.japda.product.domain.Product
 import io.github.sehako.japda.product.domain.ProductRepository
 import io.github.sehako.japda.product.domain.ProductStatus
+import io.github.sehako.japda.product.domain.ReadyProductQuery
+import io.github.sehako.japda.product.domain.ReadyProductSummary
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -10,6 +12,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import org.junit.jupiter.api.DisplayName
+import tools.jackson.databind.json.JsonMapper
 
 @DisplayName("상품 서비스")
 class ProductServiceTest {
@@ -19,7 +22,7 @@ class ProductServiceTest {
 	fun 상품_등록_현재_시각으로_생성한_상품을_저장하고_응답한다() {
 		val now = Instant.parse("2026-09-10T00:00:00Z")
 		val repository = RecordingProductRepository(7L)
-		val service = ProductService(repository, Clock.fixed(now, ZoneOffset.UTC))
+		val service = ProductService(repository, Clock.fixed(now, ZoneOffset.UTC), ReadyProductCursorCodec(JsonMapper.builder().build()))
 
 		val response = service.create(CreateProductDto(1L, "  한정판 상품  ", "  설명  "))
 
@@ -55,5 +58,6 @@ class ProductServiceTest {
 
 		override fun findById(id: Long): Product? = null
 		override fun findByIdForUpdate(id: Long): Product? = null
+		override fun findReadyProducts(query: ReadyProductQuery): List<ReadyProductSummary> = emptyList()
 	}
 }
