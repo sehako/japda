@@ -6,4 +6,6 @@ interface ProductRepository {
 	fun findById(id: Long): Product?
 
 	fun findByIdForUpdate(id: Long): Product?
+
+	fun findReadyProducts(query: ReadyProductQuery): List<ReadyProductSummary>
 }
