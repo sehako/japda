@@ -38,6 +38,8 @@ domain → {domain}.exception → global.exception
 - Dto 입력 관리
 - Domain 결과를 Response로 변환
 - Entity 상태 직접 변경 금지
+- Spring Web과 HTTP 전송 타입에 의존하지 않는다. Presentation이 Request와 파일 입력을 application Dto 및 입력 인터페이스로 변환한다.
+- `@Service`, `@Transactional` 등 유스케이스 실행과 트랜잭션 지원을 위한 Spring 기능은 사용할 수 있다. [ADR-007](decisions/ADR-007-application-layer-spring-web-independence.md)을 따른다.
 
 ### domain
 - JPA Entity = Domain Entity
@@ -67,6 +69,7 @@ HTTP Request
 - Request는 presentation
 - Dto와 Response는 application
 - Entity를 API Response로 직접 반환하지 않는다.
+- 파일 업로드는 application이 입력 인터페이스를 정의하고 presentation이 Spring Web 파일 타입을 어댑터로 변환한다.
 
 ## Repository 규칙
 
@@ -98,6 +101,8 @@ HTTP Request
 - PG 등 핵심 흐름에 영향을 주는 외부 시스템은 필요하면 Interface로 추상화한다.
 - 모든 기술 요소에 불필요한 Interface를 만들지 않는다.
 - 외부 API 호출을 DB Transaction 안에 장시간 포함하지 않는다.
+- 상품 이미지 원본은 비공개 AWS S3에 백엔드 검증 후 저장하고, DB에는 접근 URL 대신 객체 키와 메타데이터를 저장한다. [ADR-005](decisions/ADR-005-product-image-storage-with-s3.md)를 따른다.
+- 상품 이미지 S3 업로드는 DB Transaction 밖에서 수행하고, 메타데이터 저장과 상품 상태 전환은 짧은 DB Transaction으로 처리한다. 확정된 실패는 보상 삭제하며 커밋 결과가 불명확하면 DB 참조 확인 전 객체를 삭제하지 않는다.
 
 ## 공통 코드
 
