@@ -1,0 +1,70 @@
+package io.github.sehako.japda.global.config
+
+import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.product.application.ProductService
+import io.github.sehako.japda.product.presentation.ProductController
+import org.hamcrest.Matchers.containsString
+import org.junit.jupiter.api.DisplayName
+import org.junit.jupiter.api.Test
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
+import org.springframework.context.annotation.Import
+import org.springframework.http.HttpHeaders
+import org.springframework.test.context.bean.override.mockito.MockitoBean
+import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
+
+@DisplayName("CORS 설정")
+@WebMvcTest(
+	controllers = [ProductController::class],
+	properties = [
+		"cors.allowed-origins[0]=http://localhost:5173",
+		"cors.allowed-origins[1]=https://frontend.example.com",
+	],
+)
+@Import(ProblemDetailFactory::class)
+class CorsConfigTest {
+	@Autowired
+	private lateinit var mockMvc: MockMvc
+
+	@MockitoBean
+	private lateinit var productService: ProductService
+
+	@Test
+	@DisplayName("설정된 여러 origin의 API preflight 요청을 허용한다")
+	fun 설정된_여러_origin_API_preflight_요청_허용한다() {
+		listOf("http://localhost:5173", "https://frontend.example.com").forEach { origin ->
+			mockMvc.perform(preflightRequest(origin))
+				.andExpect(status().isOk)
+				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin))
+				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
+				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("X-Seller-Id")))
+		}
+	}
+
+	@Test
+	@DisplayName("설정되지 않은 origin의 API preflight 요청을 거부한다")
+	fun 설정되지_않은_origin_API_preflight_요청_거부한다() {
+		mockMvc.perform(preflightRequest("http://localhost:5174"))
+			.andExpect(status().isForbidden)
+			.andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+	}
+
+	@Test
+	@DisplayName("API가 아닌 경로에는 CORS를 적용하지 않는다")
+	fun API가_아닌_경로_CORS를_적용하지_않는다() {
+		mockMvc.perform(
+			get("/docs/index.html")
+				.header(HttpHeaders.ORIGIN, "http://localhost:5173"),
+		)
+			.andExpect(header().doesNotExist(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN))
+	}
+
+	private fun preflightRequest(origin: String) = options("/api/products")
+		.header(HttpHeaders.ORIGIN, origin)
+		.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
+		.header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Seller-Id, Content-Type")
+}

@@ -24,3 +24,7 @@ product:
 
 sale:
   daily-capacity: ${SALE_DAILY_CAPACITY:20}
+
+cors:
+  allowed-origins:
+    - http://localhost:5173
