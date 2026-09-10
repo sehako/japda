@@ -15,3 +15,13 @@ operation::product-create[snippets='http-request,request-headers,request-fields,
 === 상품명 누락
 
 operation::product-create-name-required[snippets='http-request,http-response,response-fields']
+
+== 판매자 상품 이미지 최초 등록
+
+=== 성공
+
+operation::product-image-register[snippets='http-request,request-headers,path-parameters,request-parts,http-response,response-fields']
+
+=== 대표 이미지 지정 오류
+
+operation::product-image-register-representative-invalid[snippets='http-request,http-response,response-fields']
