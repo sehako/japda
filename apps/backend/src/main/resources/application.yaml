@@ -21,3 +21,6 @@ product:
     s3:
       bucket: ${AWS_S3_BUCKET}
       region: ${AWS_REGION}
+
+sale:
+  daily-capacity: ${SALE_DAILY_CAPACITY:20}
