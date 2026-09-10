@@ -212,9 +212,11 @@ class ProductControllerTest {
 	@DisplayName("예상하지 못한 저장 실패면 내부 정보를 숨긴 서버 오류를 반환한다")
 	fun 예상하지_못한_저장_실패_내부_정보를_숨긴_서버_오류를_반환한다() {
 		val failingRepository = object : ProductRepository {
-			override fun save(product: Product): Product {
+				override fun save(product: Product): Product {
 				throw IllegalStateException("민감한 SQL 오류")
 			}
+			override fun findById(id: Long): Product? = null
+			override fun findByIdForUpdate(id: Long): Product? = null
 		}
 		val service = ProductService(
 			failingRepository,
@@ -277,5 +279,8 @@ class ProductControllerTest {
 			}
 			return product
 		}
+
+		override fun findById(id: Long): Product? = null
+		override fun findByIdForUpdate(id: Long): Product? = null
 	}
 }

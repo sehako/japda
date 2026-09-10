@@ -22,9 +22,7 @@ class Product private constructor(
     val name: String,
     @field:Column(length = MAX_DESCRIPTION_LENGTH)
     val description: String?,
-    @field:Enumerated(EnumType.STRING)
-    @field:Column(nullable = false, length = MAX_STATUS_LENGTH)
-    val status: ProductStatus,
+    status: ProductStatus,
     @field:Column(name = "created_at", nullable = false)
     val createdAt: Instant,
 ) {
@@ -32,6 +30,18 @@ class Product private constructor(
     @field:GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = id
         protected set
+
+    @field:Enumerated(EnumType.STRING)
+    @field:Column(nullable = false, length = MAX_STATUS_LENGTH)
+    var status: ProductStatus = status
+        protected set
+
+    fun markReady() {
+        if (status != ProductStatus.DRAFT) {
+            throw ProductException(ProductErrorCode.IMAGES_ALREADY_REGISTERED)
+        }
+        status = ProductStatus.READY
+    }
 
     companion object {
         private const val MAX_NAME_LENGTH = 100

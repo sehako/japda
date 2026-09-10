@@ -71,14 +71,14 @@ class ProductRepositoryTest {
 	}
 
 	@Test
-	@DisplayName("허용되지 않은 상품 상태면 데이터베이스가 저장을 거부한다")
-	fun 허용되지_않은_상품_상태_데이터베이스가_저장을_거부한다() {
+	@DisplayName("정의되지 않은 상품 상태면 데이터베이스가 저장을 거부한다")
+	fun 정의되지_않은_상품_상태_데이터베이스가_저장을_거부한다() {
 		assertFailsWith<DataIntegrityViolationException> {
 			jdbcTemplate.update(
 				"INSERT INTO products (seller_id, name, status, created_at) VALUES (?, ?, ?, ?)",
 				1L,
 				"상품",
-				"READY",
+				"PUBLISHED",
 				java.time.OffsetDateTime.parse("2026-09-10T00:00:00Z"),
 			)
 		}

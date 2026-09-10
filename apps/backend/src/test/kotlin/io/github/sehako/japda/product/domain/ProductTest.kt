@@ -88,4 +88,25 @@ class ProductTest {
 		assertEquals(100, product.name.length)
 		assertEquals(3000, product.description?.length)
 	}
+
+	@Test
+	@DisplayName("초안 상품을 준비 상태로 전환한다")
+	fun 초안_상품_준비_상태로_전환한다() {
+		val product = Product.create(1L, "상품", null, createdAt)
+
+		product.markReady()
+
+		assertEquals(ProductStatus.READY, product.status)
+	}
+
+	@Test
+	@DisplayName("준비 상태 상품의 중복 이미지 등록을 거부한다")
+	fun 준비_상태_상품_중복_전환을_거부한다() {
+		val product = Product.create(1L, "상품", null, createdAt)
+		product.markReady()
+
+		val exception = assertFailsWith<ProductException> { product.markReady() }
+
+		assertEquals(ProductErrorCode.IMAGES_ALREADY_REGISTERED, exception.errorCode)
+	}
 }
