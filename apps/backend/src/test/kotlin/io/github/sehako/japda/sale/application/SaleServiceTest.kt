@@ -128,6 +128,7 @@ class SaleServiceTest {
         override fun save(product: Product): Product = product
         override fun findById(id: Long): Product? = product
         override fun findByIdForUpdate(id: Long): Product? = product
+        override fun findReadyProducts(query: io.github.sehako.japda.product.domain.ReadyProductQuery) = emptyList<io.github.sehako.japda.product.domain.ReadyProductSummary>()
     }
 
     private class RecordingSaleRepository(

@@ -2,15 +2,20 @@ package io.github.sehako.japda.product.presentation
 
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.product.application.ReadyProductCursorCodec
 import io.github.sehako.japda.product.application.ProductService
 import io.github.sehako.japda.product.domain.Product
 import io.github.sehako.japda.product.domain.ProductRepository
+import io.github.sehako.japda.product.domain.ReadyProductQuery
+import io.github.sehako.japda.product.domain.ReadyProductSort
+import io.github.sehako.japda.product.domain.ReadyProductSummary
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.http.MediaType
 import org.springframework.restdocs.RestDocumentationContextProvider
@@ -26,9 +31,12 @@ import org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPri
 import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
+import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
+import org.springframework.restdocs.request.RequestDocumentation.queryParameters
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.ResultActions
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.content
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -36,18 +44,21 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.test.web.servlet.setup.MockMvcConfigurer
 import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
+import tools.jackson.databind.json.JsonMapper
 
-@DisplayName("상품 등록 API")
+@DisplayName("상품 API")
 @ExtendWith(RestDocumentationExtension::class)
 class ProductControllerTest {
 	private lateinit var mockMvc: MockMvc
+	private lateinit var repository: IdAssigningProductRepository
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
-		val repository = IdAssigningProductRepository(1L)
+		repository = IdAssigningProductRepository(1L)
 		val service = ProductService(
 			repository,
 			Clock.fixed(Instant.parse("2026-09-10T00:00:00Z"), ZoneOffset.UTC),
+			ReadyProductCursorCodec(JsonMapper.builder().build()),
 		)
 		val restDocsConfigurer: MockMvcConfigurer = documentationConfiguration(restDocumentation)
 		mockMvc = MockMvcBuilders
@@ -55,6 +66,134 @@ class ProductControllerTest {
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.apply<StandaloneMockMvcBuilder>(restDocsConfigurer)
 			.build()
+	}
+
+	@Test
+	@DisplayName("쿼리 매개변수를 생략하면 기본값으로 READY 상품 목록을 반환한다")
+	fun 쿼리_매개변수를_생략_기본값으로_READY_상품_목록을_반환한다() {
+		repository.readyProducts = listOf(
+			ReadyProductSummary(41L, "한정판 상품"),
+			ReadyProductSummary(37L, "콜라보 상품"),
+		)
+
+		mockMvc.perform(get("/api/products/ready").header("X-Seller-Id", "1"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items[0].id").value(41))
+			.andExpect(jsonPath("$.items[0].name").value("한정판 상품"))
+			.andExpect(jsonPath("$.items[1].id").value(37))
+			.andExpect(jsonPath("$.items[1].name").value("콜라보 상품"))
+			.andExpect(jsonPath("$.nextCursor").value(null))
+
+		assertEquals(ReadyProductQuery(1L, ReadyProductSort.LATEST, null, 21), repository.readyQuery)
+	}
+
+	@Test
+	@DisplayName("정렬과 커서와 크기를 전달하면 다음 페이지와 커서를 반환하고 계약을 문서화한다")
+	fun 정렬_커서_크기를_전달_다음_페이지와_커서를_반환하고_문서화한다() {
+		val codec = ReadyProductCursorCodec(JsonMapper.builder().build())
+		val cursor = codec.encode(ReadyProductSort.NAME_ASC, ReadyProductSummary(20L, "가 상품"))
+		repository.readyProducts = listOf(
+			ReadyProductSummary(21L, "나 상품"),
+			ReadyProductSummary(22L, "다 상품"),
+		)
+
+		mockMvc.perform(
+			get("/api/products/ready")
+				.header("X-Seller-Id", "1")
+				.queryParam("sort", "name-asc")
+				.queryParam("cursor", cursor)
+				.queryParam("size", "1"),
+		)
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items.length()").value(1))
+			.andExpect(jsonPath("$.items[0].id").value(21))
+			.andExpect(jsonPath("$.nextCursor").isString)
+			.andDo(
+				document(
+					"product-ready-list",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					requestHeaders(headerWithName("X-Seller-Id").description("임시 판매자 식별자")),
+					queryParameters(
+						parameterWithName("sort").description("정렬 방식: latest, oldest, name-asc, name-desc").optional(),
+						parameterWithName("cursor").description("직전 응답에서 받은 불투명 커서").optional(),
+						parameterWithName("size").description("페이지 크기(1~100, 기본값 20)").optional(),
+					),
+					responseFields(
+						fieldWithPath("items").description("판매 준비 완료 상품 목록"),
+						fieldWithPath("items[].id").description("상품 식별자"),
+						fieldWithPath("items[].name").description("상품명"),
+						fieldWithPath("nextCursor").description("다음 페이지 커서, 마지막 페이지이면 null"),
+					),
+				),
+			)
+	}
+
+	@Test
+	@DisplayName("판매자 헤더가 없으면 READY 목록 요청에 헤더 누락 ProblemDetail을 반환한다")
+	fun READY_목록_판매자_헤더가_없음_헤더_누락_오류를_반환한다() {
+		assertReadyInvalidRequest(expectedCode = "COMMON_REQUEST_HEADER_MISSING")
+	}
+
+	@Test
+	@DisplayName("판매자 헤더가 Long 형식이 아니면 READY 목록 요청에 헤더 형식 ProblemDetail을 반환한다")
+	fun READY_목록_판매자_헤더가_Long_형식이_아님_헤더_형식_오류를_반환한다() {
+		assertReadyInvalidRequest(sellerId = "9223372036854775808", expectedCode = "COMMON_REQUEST_HEADER_INVALID")
+	}
+
+	@Test
+	@DisplayName("페이지 크기가 Int 형식이 아니면 공통 쿼리 매개변수 ProblemDetail을 반환한다")
+	fun READY_목록_페이지_크기가_Int_형식이_아님_공통_매개변수_오류를_반환한다() {
+		assertReadyInvalidRequest(sellerId = "1", size = "2147483648", expectedCode = "COMMON_REQUEST_PARAMETER_INVALID")
+	}
+
+	@Test
+	@DisplayName("지원하지 않는 정렬이면 상품 정렬 ProblemDetail을 반환한다")
+	fun READY_목록_지원하지_않는_정렬_상품_정렬_오류를_반환한다() {
+		assertReadyInvalidRequest(sellerId = "1", sort = "newest", expectedCode = "PRODUCT_SORT_INVALID", expectedProperty = "sort")
+			.andDo(
+				document(
+					"product-ready-list-sort-invalid",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					responseFields(
+						fieldWithPath("type").description("오류 유형 URI"),
+						fieldWithPath("title").description("오류 제목"),
+						fieldWithPath("status").description("HTTP 상태 코드"),
+						fieldWithPath("detail").description("오류 설명"),
+						fieldWithPath("instance").description("오류가 발생한 요청 경로"),
+						fieldWithPath("code").description("안정적인 오류 코드"),
+						fieldWithPath("errors.sort").description("정렬 방식 오류 메시지"),
+					),
+				),
+			)
+	}
+
+	@Test
+	@DisplayName("페이지 크기가 허용 범위 밖이면 상품 페이지 크기 ProblemDetail을 반환한다")
+	fun READY_목록_페이지_크기가_범위_밖_상품_페이지_크기_오류를_반환한다() {
+		assertReadyInvalidRequest(sellerId = "1", size = "101", expectedCode = "PRODUCT_PAGE_SIZE_INVALID", expectedProperty = "size")
+	}
+
+	private fun assertReadyInvalidRequest(
+		sellerId: String? = null,
+		sort: String? = null,
+		size: String? = null,
+		expectedCode: String,
+		expectedProperty: String? = null,
+	): ResultActions {
+		val request = get("/api/products/ready")
+		if (sellerId != null) request.header("X-Seller-Id", sellerId)
+		if (sort != null) request.queryParam("sort", sort)
+		if (size != null) request.queryParam("size", size)
+
+		val result = mockMvc.perform(request)
+			.andExpect(status().isBadRequest)
+			.andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+			.andExpect(jsonPath("$.instance").value("/api/products/ready"))
+			.andExpect(jsonPath("$.code").value(expectedCode))
+		if (expectedProperty != null) result.andExpect(jsonPath("$.errors.$expectedProperty").exists())
+		return result
 	}
 
 	@Test
@@ -217,10 +356,12 @@ class ProductControllerTest {
 			}
 			override fun findById(id: Long): Product? = null
 			override fun findByIdForUpdate(id: Long): Product? = null
+			override fun findReadyProducts(query: ReadyProductQuery): List<ReadyProductSummary> = emptyList()
 		}
 		val service = ProductService(
 			failingRepository,
 			Clock.fixed(Instant.parse("2026-09-10T00:00:00Z"), ZoneOffset.UTC),
+			ReadyProductCursorCodec(JsonMapper.builder().build()),
 		)
 		val failingMockMvc = MockMvcBuilders
 			.standaloneSetup(ProductController(service))
@@ -272,6 +413,9 @@ class ProductControllerTest {
 	private class IdAssigningProductRepository(
 		private val generatedId: Long,
 	) : ProductRepository {
+		var readyProducts: List<ReadyProductSummary> = emptyList()
+		var readyQuery: ReadyProductQuery? = null
+
 		override fun save(product: Product): Product {
 			Product::class.java.getDeclaredField("id").apply {
 				isAccessible = true
@@ -282,5 +426,9 @@ class ProductControllerTest {
 
 		override fun findById(id: Long): Product? = null
 		override fun findByIdForUpdate(id: Long): Product? = null
+		override fun findReadyProducts(query: ReadyProductQuery): List<ReadyProductSummary> {
+			readyQuery = query
+			return readyProducts
+		}
 	}
 }
