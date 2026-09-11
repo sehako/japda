@@ -60,7 +60,7 @@ API 응답의 `quantity`는 판매 등록 당시의 최초 판매 수량이며 �
 - pagination과 무한 스크롤
 - 백엔드 API, 데이터베이스와 판매 시간 정책 변경
 - CloudFront 배포와 이미지 저장소 구성
-- 새로운 상태 관리, 달력 또는 UI dependency 도입
+- 새로운 달력 또는 UI dependency 도입
 - 공통 디자인 시스템이나 전역 layout으로의 선행 추출
 
 ## 라우팅과 호환성
@@ -232,6 +232,8 @@ BuyerMainPage
      ↓
 useBuyerSales(selectedDate)
      ↓
+TanStack Query
+     ↓
 fetchBuyerSales(saleDate, AbortSignal)
      ↓
 GET /api/sales?saleDate=YYYY-MM-DD
@@ -239,7 +241,9 @@ GET /api/sales?saleDate=YYYY-MM-DD
 loading / empty / error / BuyerSaleCard 목록
 ```
 
-선택한 날짜만 요청하고 오늘·내일 또는 인접 월을 미리 조회하지 않는다. 같은 날짜를 다시 선택하는 동작은 없으므로 별도 응답 cache나 Query library를 도입하지 않는다.
+선택한 날짜만 요청하고 오늘·내일 또는 인접 월을 미리 조회하지 않는다. 서버 상태는 [ADR-013](../../../architecture/decisions/ADR-013-frontend-server-state-with-tanstack-query.md)에 따라 TanStack Query로 관리한다. query key에 선택 날짜를 포함하고 query function의 `AbortSignal`을 API 모듈에 전달한다.
+
+이 화면은 날짜가 바뀔 때 loading 상태에서 새 응답을 기다리는 계약을 유지한다. 비활성 날짜의 응답 cache는 보존하지 않으며 자동 retry, window focus와 network reconnect 재조회는 사용하지 않는다. 재조회는 오류 상태의 `다시 시도`와 한국 시간 자정 갱신으로 제한한다.
 
 ## 프론트엔드 구조와 책임
 
@@ -274,7 +278,7 @@ src/
 - `app/router.tsx`: `/`를 구매자 페이지에 연결하고 기존 route를 보존한다.
 - `BuyerMainPage`: 헤더와 `3:7` 본문 안의 달력·상품 목록을 조합한다. API를 직접 호출하지 않는다.
 - `buyerSaleApi`: 요청 URL 구성, `AbortSignal` 전달과 성공 응답의 런타임 형상 검사를 담당한다.
-- `useBuyerSales`: 한국 시간의 오늘, 표시 월, 선택 날짜, 목록 요청 상태, 요청 취소, 재시도와 자정 경계 갱신을 조율한다.
+- `useBuyerSales`: 한국 시간의 오늘, 표시 월과 선택 날짜를 관리하고 TanStack Query를 통해 목록 요청 상태, 요청 취소, 재시도와 자정 경계 갱신을 조율한다.
 - `buyerSale` model: 한국 날짜 문자열과 달력 월 계산, 선택 가능 여부, 가격·상태 표시 변환 및 이미지 URL 결합을 담당한다.
 - `BuyerSaleCalendar`: 계산된 날짜와 상태를 렌더링하고 월 이동·날짜 선택 event만 전달한다.
 - `BuyerSaleList`: loading, 빈 결과, 오류와 카드 목록을 구분한다.
@@ -282,7 +286,7 @@ src/
 
 로그인 버튼과 구매자 헤더는 현재 구매자 메인 한 곳에서만 사용하므로 페이지 내부에 둔다. 실제로 둘 이상의 페이지에서 동일한 역할로 재사용될 때 별도 feature 또는 shared UI 추출을 검토한다.
 
-이번 설계는 기존 계층과 API·이미지 계약을 적용하는 프론트엔드 기능이므로 새로운 계층, 모듈 경계 또는 외부 시스템 연동 방식을 결정하지 않는다. 별도 ADR은 작성하지 않는다.
+서버 상태의 표준 Query 라이브러리 선택은 [ADR-013](../../../architecture/decisions/ADR-013-frontend-server-state-with-tanstack-query.md), React 테스트 환경 선택은 [ADR-014](../../../architecture/decisions/ADR-014-frontend-testing-with-vitest-and-testing-library.md)에 기록한다. 기존 계층과 API·이미지 계약은 변경하지 않는다.
 
 ## 접근성과 반응형 동작
 

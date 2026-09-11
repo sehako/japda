@@ -201,7 +201,11 @@ API 구현 세부사항이 UI까지 노출되지 않도록 한다.
 * 결제
 * 사용자 정보
 
-Query 라이브러리를 통해 관리한다.
+`@tanstack/react-query` v5를 통해 관리한다. [ADR-013](decisions/ADR-013-frontend-server-state-with-tanstack-query.md)을 따른다.
+
+`QueryClientProvider`는 `app` 계층에서 구성한다. feature의 Query와 Mutation은 query key, 요청 상태와 cache 무효화를 관리하고 API 모듈은 HTTP 요청과 응답 계약 검증에 집중한다. Query function이 제공하는 `AbortSignal`은 API 모듈까지 전달한다.
+
+cache 유지 시간, 자동 재조회와 retry는 라이브러리 기본값에 암묵적으로 의존하지 않고 각 API와 화면의 계약에 맞게 설정한다.
 
 서버 데이터를 별도의 전역 상태에 불필요하게 복제하지 않는다.
 
@@ -251,6 +255,14 @@ Query 갱신
 ```
 
 Mutation 성공 후 영향을 받는 Query를 갱신하거나 무효화한다.
+
+---
+
+## 테스트
+
+프론트엔드 테스트 runner는 `Vitest`를 사용한다. React hook과 UI 동작은 `@testing-library/react`와 `jsdom` 환경에서 검증한다. [ADR-014](decisions/ADR-014-frontend-testing-with-vitest-and-testing-library.md)를 따른다.
+
+순수 model, API 계약, hook과 사용자에게 보이는 UI 동작을 변경 위험에 맞게 검증한다. jsdom이 실제 layout을 계산하지 못하는 반응형 배치와 시각적 상태는 build와 실제 브라우저 확인을 함께 사용한다.
 
 ---
 
