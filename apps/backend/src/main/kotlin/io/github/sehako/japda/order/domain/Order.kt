@@ -23,6 +23,8 @@ import java.util.UUID
 )
 class Order private constructor(
 	id: Long?,
+	@field:Column(name = "payment_order_id", nullable = false, length = 64, unique = true)
+	val paymentOrderId: String,
 	@field:Column(name = "sale_id", nullable = false)
 	val saleId: Long,
 	@field:Column(name = "buyer_id", nullable = false)
@@ -71,6 +73,7 @@ class Order private constructor(
 			if (unitPrice <= 0 || totalPrice <= 0) throw OrderException(OrderErrorCode.TOTAL_PRICE_INVALID)
 			return Order(
 				id = null,
+				paymentOrderId = UUID.randomUUID().toString(),
 				saleId = request.saleId,
 				buyerId = request.buyerId,
 				idempotencyKey = request.idempotencyKey,

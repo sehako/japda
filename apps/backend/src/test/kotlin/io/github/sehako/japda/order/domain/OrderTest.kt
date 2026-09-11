@@ -8,6 +8,7 @@ import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.DisplayName
@@ -41,6 +42,27 @@ class OrderTest {
 		assertEquals(OrderStatus.PENDING_PAYMENT, order.status)
 		assertEquals(70_000L, order.totalPrice)
 		assertEquals(Duration.ofMinutes(3), Duration.between(order.createdAt, order.expiresAt))
+	}
+
+	@Test
+	@DisplayName("주문을 생성하면 토스페이먼츠 규격의 UUID v4 결제 주문 식별자를 만든다")
+	fun 주문_생성_토스페이먼츠_규격_UUID_v4_결제_주문_식별자를_만든다() {
+		val order = Order.create(request(), "한정판 상품", 35_000L, CREATED_AT)
+
+		val paymentOrderId = order.paymentOrderId
+		val uuid = UUID.fromString(paymentOrderId)
+		assertEquals(paymentOrderId, uuid.toString())
+		assertEquals(4, uuid.version())
+		assertTrue(paymentOrderId.matches(Regex("^[A-Za-z0-9_=-]{6,64}$")))
+	}
+
+	@Test
+	@DisplayName("서로 다른 주문을 생성하면 서로 다른 결제 주문 식별자를 만든다")
+	fun 서로_다른_주문_생성_서로_다른_결제_주문_식별자를_만든다() {
+		val first = Order.create(request(), "한정판 상품", 35_000L, CREATED_AT)
+		val second = Order.create(request(), "한정판 상품", 35_000L, CREATED_AT)
+
+		assertNotEquals(first.paymentOrderId, second.paymentOrderId)
 	}
 
 	@Test
