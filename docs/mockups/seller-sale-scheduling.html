@@ -1,0 +1,1223 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JAPDA 판매자 판매 일정 등록</title>
+    <style>
+      :root {
+        --obsidian: #111111;
+        --paper-white: #ffffff;
+        --concrete-gray: #e5e5e5;
+        --soft-mist: #f5f5f5;
+        --steel: #707072;
+        --faint-gray: #9e9ea0;
+        --signal: #d92d20;
+        --font: Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+
+      button,
+      a {
+        color: inherit;
+      }
+
+      .topbar {
+        height: 72px;
+        border-bottom: 1px solid var(--concrete-gray);
+      }
+
+      .topbar-inner {
+        width: min(100% - 64px, 1440px);
+        height: 100%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 32px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        text-decoration: none;
+      }
+
+      .brand-logo {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.04em;
+      }
+
+      .brand-context {
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+      }
+
+      .seller-nav {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+      }
+
+      .seller-nav a {
+        color: var(--steel);
+        font-size: 13px;
+        text-decoration: none;
+      }
+
+      .seller-nav a:hover,
+      .seller-nav a:focus-visible,
+      .seller-nav .is-current {
+        color: var(--obsidian);
+      }
+
+      .seller-nav .is-current {
+        font-weight: 600;
+      }
+
+      .page {
+        width: min(100% - 64px, 1120px);
+        margin: 0 auto;
+        padding: 64px 0 80px;
+      }
+
+      .page-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 32px;
+        margin-bottom: 36px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(32px, 4vw, 48px);
+        font-weight: 600;
+        line-height: 1.1;
+        letter-spacing: -0.04em;
+      }
+
+      .window-notice {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 24px;
+        padding: 16px 20px;
+        border: 1px solid var(--concrete-gray);
+        background: var(--soft-mist);
+      }
+
+      .window-copy {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--obsidian);
+      }
+
+      .window-notice.is-closed .status-dot {
+        background: var(--faint-gray);
+      }
+
+      .window-title {
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .window-description {
+        margin: 2px 0 0;
+        color: var(--steel);
+        font-size: 13px;
+      }
+
+      .window-time {
+        flex: 0 0 auto;
+        color: var(--steel);
+        font-size: 12px;
+      }
+
+      .window-warning {
+        margin: 0 0 0 auto;
+        color: var(--signal);
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .form-shell {
+        border-top: 1px solid var(--obsidian);
+        border-bottom: 1px solid var(--obsidian);
+      }
+
+      .form-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(360px, 0.8fr);
+      }
+
+      .section {
+        padding: 36px 0 44px;
+      }
+
+      .product-section {
+        padding-right: 48px;
+        border-right: 1px solid var(--concrete-gray);
+      }
+
+      .schedule-section {
+        padding-left: 48px;
+      }
+
+      .section-heading {
+        margin-bottom: 24px;
+      }
+
+      .product-heading-row {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      .sort-field {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .sort-label {
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+      }
+
+      .sort-select {
+        min-width: 144px;
+        height: 40px;
+        padding: 0 34px 0 12px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+      }
+
+      .sort-select:focus-visible {
+        border-color: var(--obsidian);
+        outline: 2px solid var(--obsidian);
+        outline-offset: 2px;
+      }
+
+      .sort-select:disabled {
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
+      .section-description {
+        margin: 6px 0 0;
+        color: var(--steel);
+        font-size: 13px;
+      }
+
+      .field {
+        margin-bottom: 28px;
+      }
+
+      .field:last-child {
+        margin-bottom: 0;
+      }
+
+      .field-label {
+        display: inline-block;
+        margin-bottom: 10px;
+        font-weight: 500;
+      }
+
+      .required {
+        color: var(--signal);
+      }
+
+      .input-wrap {
+        position: relative;
+      }
+
+      .text-input {
+        width: 100%;
+        height: 52px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        outline: none;
+      }
+
+      .text-input {
+        padding: 0 16px;
+      }
+
+      .text-input.has-unit {
+        padding-right: 46px;
+      }
+
+      .text-input:focus {
+        border-color: var(--obsidian);
+      }
+
+      .text-input[aria-invalid="true"] {
+        border-color: var(--signal);
+      }
+
+      .text-input:disabled {
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        cursor: not-allowed;
+      }
+
+      .unit {
+        position: absolute;
+        top: 50%;
+        right: 16px;
+        color: var(--steel);
+        pointer-events: none;
+        transform: translateY(-50%);
+      }
+
+      .field-error {
+        margin: 8px 0 0;
+        font-size: 12px;
+      }
+
+      .field-error {
+        min-height: 19px;
+        color: var(--signal);
+      }
+
+      .product-picker {
+        min-width: 0;
+        margin: 0;
+        padding: 0;
+        border: 0;
+      }
+
+      .product-picker[aria-invalid="true"] .product-table-wrap {
+        border-color: var(--signal);
+      }
+
+      .product-table-wrap {
+        height: 370px;
+        overflow: auto;
+        border: 1px solid var(--concrete-gray);
+      }
+
+      .product-table-wrap:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 2px;
+      }
+
+      .product-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+      }
+
+      .product-table th,
+      .product-table td {
+        height: 54px;
+        padding: 10px 14px;
+        border-bottom: 1px solid var(--concrete-gray);
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .product-table tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .product-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        height: 46px;
+        color: var(--steel);
+        background: var(--soft-mist);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      .product-table .check-column {
+        width: 64px;
+        text-align: center;
+      }
+
+      .product-name {
+        margin: 0;
+      }
+
+      .product-checkbox {
+        width: 18px;
+        height: 18px;
+        margin: 0;
+        accent-color: var(--obsidian);
+        cursor: pointer;
+      }
+
+      .product-checkbox:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
+      }
+
+      .product-checkbox:disabled {
+        cursor: not-allowed;
+      }
+
+      .product-loading {
+        height: 226px;
+        color: var(--steel);
+        text-align: center;
+      }
+
+      .product-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-top: 14px;
+      }
+
+      .page-status {
+        color: var(--steel);
+        font-size: 12px;
+      }
+
+      .pagination-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .page-button {
+        min-width: 60px;
+        min-height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--concrete-gray);
+        background: transparent;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .page-button:disabled {
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        cursor: wait;
+      }
+
+      .selected-product {
+        margin-top: 28px;
+        padding: 20px;
+        border: 1px solid var(--concrete-gray);
+        background: var(--soft-mist);
+      }
+
+      .selected-label {
+        margin: 0 0 12px;
+        color: var(--steel);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+      }
+
+      .selected-name {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .selected-product.is-empty .selected-name {
+        color: var(--faint-gray);
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .form-error {
+        display: none;
+        margin: 20px 0 0;
+        padding: 14px 16px;
+        border-left: 3px solid var(--signal);
+        background: var(--soft-mist);
+      }
+
+      .form-error.is-visible {
+        display: block;
+      }
+
+      .form-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 8px;
+        padding-top: 28px;
+        border-top: 1px solid var(--concrete-gray);
+      }
+
+      .button {
+        min-height: 48px;
+        padding: 0 26px;
+        border-radius: 30px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .button-primary {
+        min-width: 176px;
+        border: 1px solid var(--obsidian);
+        color: var(--paper-white);
+        background: var(--obsidian);
+      }
+
+      .button-secondary {
+        border: 1px solid var(--concrete-gray);
+        background: var(--paper-white);
+      }
+
+      .button:hover:not(:disabled) {
+        opacity: 0.78;
+      }
+
+      .button:disabled {
+        border-color: var(--faint-gray);
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        cursor: not-allowed;
+      }
+
+      .button:focus-visible,
+      .page-button:focus-visible,
+      a:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
+      }
+
+      .success-panel {
+        display: none;
+        padding: 48px 0;
+        border-top: 1px solid var(--obsidian);
+        border-bottom: 1px solid var(--obsidian);
+      }
+
+      .success-panel.is-visible {
+        display: block;
+      }
+
+      .success-title {
+        margin: 0;
+        font-size: clamp(28px, 4vw, 40px);
+        font-weight: 600;
+        line-height: 1.2;
+        letter-spacing: -0.03em;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin: 36px 0 28px;
+        border-top: 1px solid var(--concrete-gray);
+      }
+
+      .summary-item {
+        padding: 20px 20px 20px 0;
+        border-bottom: 1px solid var(--concrete-gray);
+      }
+
+      .summary-label {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--steel);
+        font-size: 12px;
+      }
+
+      .summary-value {
+        font-size: 15px;
+        font-weight: 500;
+      }
+
+      .success-actions {
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      @media (max-width: 800px) {
+        .topbar {
+          height: auto;
+        }
+
+        .topbar-inner {
+          width: min(100% - 40px, 100%);
+          min-height: 64px;
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 12px;
+          padding: 16px 0;
+        }
+
+        .seller-nav {
+          width: 100%;
+          gap: 20px;
+          overflow-x: auto;
+        }
+
+        .page {
+          width: min(100% - 40px, 100%);
+          padding: 40px 0 56px;
+        }
+
+        .page-heading {
+          display: block;
+          margin-bottom: 28px;
+        }
+
+        .window-notice {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .window-time {
+          padding-left: 20px;
+        }
+
+        .window-warning {
+          margin-left: 0;
+          padding-left: 20px;
+          white-space: normal;
+        }
+
+        .form-layout {
+          display: block;
+        }
+
+        .section {
+          padding: 28px 0 36px;
+        }
+
+        .product-section {
+          padding-right: 0;
+          border-right: 0;
+          border-bottom: 1px solid var(--concrete-gray);
+        }
+
+        .product-heading-row {
+          align-items: stretch;
+          flex-direction: column;
+          gap: 16px;
+        }
+
+        .sort-field {
+          justify-content: space-between;
+        }
+
+        .sort-select {
+          min-width: 0;
+          width: min(220px, 64vw);
+        }
+
+        .product-table-wrap {
+          height: 370px;
+        }
+
+        .schedule-section {
+          padding-left: 0;
+        }
+
+        .field-grid,
+        .summary {
+          grid-template-columns: 1fr;
+        }
+
+        .form-actions {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .button-primary {
+          width: 100%;
+        }
+
+        .success-actions .button {
+          width: 100%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="/seller/products/new" aria-label="JAPDA 판매자 센터">
+          <span class="brand-logo">JAPDA</span>
+          <span class="brand-context">SELLER</span>
+        </a>
+        <nav class="seller-nav" aria-label="판매자 메뉴">
+          <a href="/seller/products/new">상품 등록</a>
+          <a class="is-current" href="/seller/sales/new" aria-current="page">판매 일정 등록</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page">
+      <header class="page-heading">
+        <div>
+          <h1>판매 일정 등록</h1>
+        </div>
+      </header>
+
+      <section class="window-notice" id="window-notice" aria-live="polite">
+        <div class="window-copy">
+          <span class="status-dot" aria-hidden="true"></span>
+          <div>
+            <p class="window-title" id="window-title">등록 가능 시간을 확인하는 중입니다.</p>
+            <p class="window-description" id="window-description">한국 표준시를 기준으로 확인합니다.</p>
+          </div>
+        </div>
+        <p class="window-warning">같은 판매일에는 일정 하나만 등록할 수 있습니다.</p>
+        <span class="window-time" id="window-time"></span>
+      </section>
+
+      <form id="sale-form" novalidate>
+        <div class="form-shell" id="form-shell">
+          <div class="form-layout">
+            <section class="section product-section" aria-labelledby="product-heading">
+              <div class="section-heading product-heading-row">
+                <h2 id="product-heading">판매 상품</h2>
+                <div class="sort-field">
+                  <label class="sort-label" for="product-sort">정렬</label>
+                  <select class="sort-select" id="product-sort" name="productSort">
+                    <option value="latest">최신 등록순</option>
+                    <option value="oldest">오래된 등록순</option>
+                    <option value="name-asc">상품명 오름차순</option>
+                    <option value="name-desc">상품명 내림차순</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <fieldset
+                  class="product-picker"
+                  id="product-picker"
+                  aria-label="판매 상품, 한 개만 선택"
+                  aria-describedby="product-error product-page-status"
+                >
+                  <legend class="field-label">
+                    상품 <span class="required" aria-hidden="true">*</span>
+                  </legend>
+                  <div class="product-table-wrap" role="region" aria-label="판매 상품 목록" tabindex="0">
+                    <table class="product-table">
+                      <thead>
+                        <tr>
+                          <th class="check-column" scope="col">선택</th>
+                          <th scope="col">상품명</th>
+                        </tr>
+                      </thead>
+                      <tbody id="product-list">
+                        <tr>
+                          <td class="product-loading" colspan="3">상품을 불러오는 중...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="product-pagination" aria-label="상품 목록 페이지 이동">
+                    <span class="page-status" id="product-page-status" aria-live="polite">첫 페이지 조회 중</span>
+                    <div class="pagination-actions">
+                      <button class="page-button" id="previous-button" type="button" disabled>이전</button>
+                      <button class="page-button" id="next-button" type="button" disabled>다음</button>
+                    </div>
+                  </div>
+                  <p class="field-error" id="product-error"></p>
+                </fieldset>
+              </div>
+
+              <div class="selected-product is-empty" id="selected-product">
+                <p class="selected-label">SELECTED PRODUCT</p>
+                <p class="selected-name" id="selected-name">선택된 상품이 없습니다.</p>
+              </div>
+            </section>
+
+            <section class="section schedule-section" aria-labelledby="schedule-heading">
+              <div class="section-heading">
+                <h2 id="schedule-heading">일정과 재고</h2>
+                <p class="section-description">판매는 등록한 날짜의 00:00부터 24시간 동안 진행됩니다.</p>
+              </div>
+
+              <div class="field">
+                <label class="field-label" for="sale-date">
+                  판매일 <span class="required" aria-hidden="true">*</span>
+                </label>
+                <input
+                  class="text-input"
+                  id="sale-date"
+                  name="saleDate"
+                  type="date"
+                  required
+                  aria-describedby="sale-date-error"
+                />
+                <p class="field-error" id="sale-date-error"></p>
+              </div>
+
+              <div class="field-grid">
+                <div class="field">
+                  <label class="field-label" for="price">
+                    판매 가격 <span class="required" aria-hidden="true">*</span>
+                  </label>
+                  <div class="input-wrap">
+                    <input
+                      class="text-input has-unit"
+                      id="price"
+                      name="price"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      placeholder="35000"
+                      required
+                      aria-describedby="price-error"
+                    />
+                    <span class="unit">원</span>
+                  </div>
+                  <p class="field-error" id="price-error"></p>
+                </div>
+
+                <div class="field">
+                  <label class="field-label" for="quantity">
+                    판매 수량 <span class="required" aria-hidden="true">*</span>
+                  </label>
+                  <div class="input-wrap">
+                    <input
+                      class="text-input has-unit"
+                      id="quantity"
+                      name="quantity"
+                      type="text"
+                      inputmode="numeric"
+                      autocomplete="off"
+                      placeholder="100"
+                      required
+                      aria-describedby="quantity-error"
+                    />
+                    <span class="unit">개</span>
+                  </div>
+                  <p class="field-error" id="quantity-error"></p>
+                </div>
+              </div>
+
+              <div class="form-actions">
+                <button class="button button-primary" id="submit-button" type="submit">판매 일정 등록</button>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <p class="form-error" id="form-error" role="alert" tabindex="-1"></p>
+      </form>
+
+      <section class="success-panel" id="success-panel" aria-labelledby="success-title" tabindex="-1">
+        <h2 class="success-title" id="success-title">판매 일정이 등록되었습니다.</h2>
+        <div class="summary">
+          <div class="summary-item">
+            <span class="summary-label">상품</span>
+            <span class="summary-value" id="summary-product"></span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">판매 일정 ID</span>
+            <span class="summary-value">100</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">판매일</span>
+            <span class="summary-value" id="summary-date"></span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">판매 가격</span>
+            <span class="summary-value" id="summary-price"></span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">판매 수량</span>
+            <span class="summary-value" id="summary-quantity"></span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">판매 시간</span>
+            <span class="summary-value">00:00–24:00 KST</span>
+          </div>
+        </div>
+        <div class="success-actions">
+          <a class="button button-secondary" href="/seller/products/new">상품 등록으로 이동</a>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const MOCK_PRODUCTS = [
+        { id: 241, name: "한정판 그래픽 후디" },
+        { id: 237, name: "콜라보 레더 스니커즈" },
+        { id: 231, name: "시그니처 메탈 텀블러" },
+        { id: 226, name: "아티스트 에디션 포스터" },
+        { id: 219, name: "넘버링 볼캡" },
+        { id: 214, name: "빈티지 워시드 티셔츠" },
+        { id: 208, name: "리미티드 캔버스 백" },
+        { id: 197, name: "오리지널 로고 머그" },
+        { id: 193, name: "그래픽 스케이트 데크" },
+        { id: 188, name: "스튜디오 트랙 재킷" },
+        { id: 181, name: "리버서블 버킷 햇" },
+        { id: 176, name: "레터링 폰 케이스" },
+        { id: 169, name: "커스텀 키링 세트" },
+        { id: 163, name: "오버사이즈 스웨트셔츠" },
+        { id: 158, name: "아카이브 포토 북" },
+        { id: 151, name: "로고 스포츠 삭스" },
+        { id: 147, name: "크롬 메탈 배지" },
+        { id: 139, name: "시즌 그래픽 타월" },
+        { id: 132, name: "클래식 로고 티셔츠" },
+        { id: 125, name: "캔버스 드로스트링 백" },
+        { id: 119, name: "리미티드 캔버스 백" },
+        { id: 112, name: "아티스트 사인 엽서" },
+        { id: 104, name: "오리지널 스티커 팩" },
+      ];
+
+      function createMockProductPages(sort) {
+        const products = [...MOCK_PRODUCTS].sort((left, right) => {
+          if (sort === "oldest") return left.id - right.id;
+          if (sort === "name-asc") return left.name < right.name ? -1 : left.name > right.name ? 1 : left.id - right.id;
+          if (sort === "name-desc") return left.name > right.name ? -1 : left.name < right.name ? 1 : right.id - left.id;
+          return right.id - left.id;
+        });
+
+        return [
+          { items: products.slice(0, 20), nextCursor: products.length > 20 ? `demo-${sort}-cursor-1` : null },
+          { items: products.slice(20), nextCursor: null },
+        ];
+      }
+
+      const form = document.querySelector("#sale-form");
+      const formShell = document.querySelector("#form-shell");
+      const formError = document.querySelector("#form-error");
+      const productPicker = document.querySelector("#product-picker");
+      const productList = document.querySelector("#product-list");
+      const productPageStatus = document.querySelector("#product-page-status");
+      const productSort = document.querySelector("#product-sort");
+      const previousButton = document.querySelector("#previous-button");
+      const nextButton = document.querySelector("#next-button");
+      const selectedProduct = document.querySelector("#selected-product");
+      const selectedName = document.querySelector("#selected-name");
+      const saleDateInput = document.querySelector("#sale-date");
+      const priceInput = document.querySelector("#price");
+      const quantityInput = document.querySelector("#quantity");
+      const submitButton = document.querySelector("#submit-button");
+      const windowNotice = document.querySelector("#window-notice");
+      const windowTitle = document.querySelector("#window-title");
+      const windowDescription = document.querySelector("#window-description");
+      const windowTime = document.querySelector("#window-time");
+      const successPanel = document.querySelector("#success-panel");
+
+      let productPages = [];
+      let mockProductPages = createMockProductPages(productSort.value);
+      let currentPageIndex = 0;
+      let selectedProductValue = null;
+      let selectedProductRecord = null;
+      let loadingProducts = true;
+      let registrationOpen = false;
+      let submitting = false;
+
+      function getKstParts(date = new Date()) {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Seoul",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hourCycle: "h23",
+        }).formatToParts(date);
+        return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+      }
+
+      function addDays(year, month, day, amount) {
+        const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day) + amount));
+        return date.toISOString().slice(0, 10);
+      }
+
+      function formatKoreanDate(value) {
+        const [year, month, day] = value.split("-").map(Number);
+        return `${year}년 ${month}월 ${day}일`;
+      }
+
+      function updateRegistrationWindow() {
+        const now = getKstParts();
+        const hour = Number(now.hour);
+        const today = `${now.year}-${now.month}-${now.day}`;
+        const nextSaleDate = addDays(now.year, now.month, now.day, 1);
+        registrationOpen = hour >= 9;
+
+        windowTime.textContent = `현재 ${now.hour}:${now.minute} KST`;
+        windowNotice.classList.toggle("is-closed", !registrationOpen);
+
+        if (registrationOpen) {
+          saleDateInput.value = nextSaleDate;
+          saleDateInput.min = nextSaleDate;
+          saleDateInput.max = nextSaleDate;
+          windowTitle.textContent = "판매 일정을 등록할 수 있습니다.";
+          windowDescription.textContent = `${formatKoreanDate(nextSaleDate)} 판매 일정을 오늘 24:00 전까지 등록하세요.`;
+        } else {
+          saleDateInput.value = "";
+          saleDateInput.removeAttribute("min");
+          saleDateInput.removeAttribute("max");
+          windowTitle.textContent = "아직 등록 시간이 아닙니다.";
+          windowDescription.textContent = `${formatKoreanDate(today)} 09:00부터 다음 날 판매 일정을 등록할 수 있습니다.`;
+        }
+
+        [saleDateInput, priceInput, quantityInput].forEach((input) => {
+          input.disabled = !registrationOpen || submitting;
+        });
+        submitButton.disabled = !registrationOpen || submitting;
+      }
+
+      function findProduct(productId) {
+        return productPages.flatMap((page) => page.items).find((product) => String(product.id) === productId)
+          ?? (String(selectedProductRecord?.id) === productId ? selectedProductRecord : null);
+      }
+
+      function renderSelectedProduct() {
+        const product = findProduct(selectedProductValue);
+        selectedProduct.classList.toggle("is-empty", !product);
+        selectedName.textContent = product?.name ?? "선택된 상품이 없습니다.";
+      }
+
+      function renderProductPage() {
+        const page = productPages[currentPageIndex];
+        productList.replaceChildren();
+
+        if (!page) {
+          const row = productList.insertRow();
+          const cell = row.insertCell();
+          cell.className = "product-loading";
+          cell.colSpan = 2;
+          cell.textContent = "상품을 불러오는 중...";
+          productPageStatus.textContent = "상품 목록 조회 중";
+        } else {
+          page.items.forEach((product) => {
+            const row = productList.insertRow();
+            const checkCell = row.insertCell();
+            const nameCell = row.insertCell();
+            const checkbox = document.createElement("input");
+            const name = document.createElement("p");
+
+            checkCell.className = "check-column";
+            name.className = "product-name";
+            checkbox.className = "product-checkbox";
+            checkbox.type = "checkbox";
+            checkbox.name = "productId";
+            checkbox.value = String(product.id);
+            checkbox.checked = selectedProductValue === checkbox.value;
+            checkbox.disabled = submitting;
+            checkbox.setAttribute("aria-label", `${product.name} 선택`);
+            checkCell.append(checkbox);
+            name.textContent = product.name;
+            nameCell.append(name);
+          });
+          productPageStatus.textContent = `${currentPageIndex + 1}페이지 · ${page.items.length}개 상품`;
+        }
+
+        previousButton.disabled = loadingProducts || submitting || currentPageIndex === 0;
+        nextButton.disabled = loadingProducts || submitting || !page?.nextCursor;
+      }
+
+      function setFieldError(fieldName, message) {
+        const error = document.querySelector(`#${fieldName === "productId" ? "product" : fieldName.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}-error`);
+        if (fieldName === "productId") {
+          productPicker.setAttribute("aria-invalid", String(Boolean(message)));
+        } else {
+          document.querySelector(`[name="${fieldName}"]`).setAttribute("aria-invalid", String(Boolean(message)));
+        }
+        error.textContent = message;
+      }
+
+      function clearErrors() {
+        ["productId", "saleDate", "price", "quantity"].forEach((name) => setFieldError(name, ""));
+        formError.textContent = "";
+        formError.classList.remove("is-visible");
+      }
+
+      function showFormError(message) {
+        formError.textContent = message;
+        formError.classList.add("is-visible");
+        formError.focus();
+      }
+
+      function validateInteger(value, max) {
+        if (!/^[1-9]\d*$/.test(value)) return false;
+        const number = Number(value);
+        return Number.isSafeInteger(number) && number <= max;
+      }
+
+      function validateForm() {
+        clearErrors();
+        let firstInvalid = null;
+
+        if (!selectedProductValue) {
+          setFieldError("productId", "판매할 상품을 선택해 주세요.");
+          firstInvalid ??= productList.querySelector(".product-checkbox");
+        }
+        if (!registrationOpen || !saleDateInput.value) {
+          setFieldError("saleDate", "현재 등록 가능한 판매일이 없습니다.");
+          firstInvalid ??= saleDateInput;
+        }
+        if (!validateInteger(priceInput.value, Number.MAX_SAFE_INTEGER)) {
+          setFieldError("price", "가격은 1원 이상의 정수로 입력해 주세요.");
+          firstInvalid ??= priceInput;
+        }
+        if (!validateInteger(quantityInput.value, 2147483647)) {
+          setFieldError("quantity", "수량은 1개 이상의 정수로 입력해 주세요.");
+          firstInvalid ??= quantityInput;
+        }
+
+        firstInvalid?.focus();
+        return firstInvalid === null;
+      }
+
+      productList.addEventListener("change", (event) => {
+        if (!event.target.matches(".product-checkbox")) return;
+        selectedProductValue = event.target.checked ? event.target.value : null;
+        selectedProductRecord = selectedProductValue ? findProduct(selectedProductValue) : null;
+        setFieldError("productId", "");
+        renderProductPage();
+        renderSelectedProduct();
+      });
+
+      productSort.addEventListener("change", () => {
+        if (submitting) return;
+        const nextMockProductPages = createMockProductPages(productSort.value);
+        loadingProducts = true;
+        productSort.disabled = true;
+        renderProductPage();
+        productPageStatus.textContent = `${productSort.selectedOptions[0].textContent} 첫 페이지 조회 중...`;
+
+        window.setTimeout(() => {
+          mockProductPages = nextMockProductPages;
+          productPages = [mockProductPages[0]];
+          currentPageIndex = 0;
+          loadingProducts = false;
+          productSort.disabled = false;
+          renderProductPage();
+          renderSelectedProduct();
+        }, 500);
+      });
+
+      previousButton.addEventListener("click", () => {
+        if (currentPageIndex === 0 || loadingProducts || submitting) return;
+        currentPageIndex -= 1;
+        renderProductPage();
+      });
+
+      nextButton.addEventListener("click", () => {
+        const currentPage = productPages[currentPageIndex];
+        if (!currentPage?.nextCursor || loadingProducts || submitting) return;
+
+        if (productPages[currentPageIndex + 1]) {
+          currentPageIndex += 1;
+          renderProductPage();
+          return;
+        }
+
+        loadingProducts = true;
+        renderProductPage();
+        productPageStatus.textContent = "다음 페이지 조회 중...";
+        window.setTimeout(() => {
+          productPages.push(mockProductPages[productPages.length]);
+          currentPageIndex += 1;
+          loadingProducts = false;
+          renderProductPage();
+        }, 650);
+      });
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        updateRegistrationWindow();
+        if (!validateForm()) return;
+
+        const selected = findProduct(selectedProductValue);
+        submitting = true;
+        const fields = [
+          ...productList.querySelectorAll(".product-checkbox"),
+          saleDateInput,
+          priceInput,
+          quantityInput,
+          previousButton,
+          nextButton,
+          productSort,
+        ];
+        fields.forEach((field) => {
+          field.disabled = true;
+        });
+        submitButton.disabled = true;
+        submitButton.textContent = "등록 중...";
+
+        window.setTimeout(() => {
+          document.querySelector("#summary-product").textContent = selected.name;
+          document.querySelector("#summary-date").textContent = formatKoreanDate(saleDateInput.value);
+          document.querySelector("#summary-price").textContent = `${Number(priceInput.value).toLocaleString("ko-KR")}원`;
+          document.querySelector("#summary-quantity").textContent = `${Number(quantityInput.value).toLocaleString("ko-KR")}개`;
+          form.hidden = true;
+          successPanel.classList.add("is-visible");
+          successPanel.focus();
+        }, 900);
+      });
+
+      [priceInput, quantityInput].forEach((input) => {
+        input.addEventListener("input", () => setFieldError(input.name, ""));
+      });
+
+      window.setTimeout(() => {
+        productPages.push(mockProductPages[0]);
+        loadingProducts = false;
+        renderProductPage();
+      }, 500);
+
+      updateRegistrationWindow();
+      window.setInterval(updateRegistrationWindow, 30000);
+    </script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
-import { SellerProductRegistrationPage } from './pages/seller-product-registration/SellerProductRegistrationPage'
+import { AppRouter } from './app/router.tsx'
 
 function App() {
-  return <SellerProductRegistrationPage />
+  return <AppRouter />
 }
 
 export default App

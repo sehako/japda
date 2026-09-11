@@ -12,14 +12,16 @@ export class ApiError extends Error {
   readonly code?: string
   readonly detail?: string
   readonly fieldErrors: Record<string, string>
+  readonly isNetworkError: boolean
 
-  constructor(message: string, problem: ProblemDetailData = {}) {
+  constructor(message: string, problem: ProblemDetailData = {}, isNetworkError = false) {
     super(message)
     this.name = 'ApiError'
     this.status = problem.status
     this.code = problem.code
     this.detail = problem.detail
     this.fieldErrors = problem.errors ?? {}
+    this.isNetworkError = isNetworkError
   }
 }
 
@@ -60,7 +62,7 @@ export async function requestApi<T>(
     response = await fetcher(buildUrl(options.baseUrl ?? '', path), init)
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
-    throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+    throw new ApiError(DEFAULT_API_ERROR_MESSAGE, {}, true)
   }
 
   if (!response.ok) {

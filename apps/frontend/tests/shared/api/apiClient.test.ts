@@ -41,3 +41,8 @@ test('정상 JSON 응답을 반환하고 기준 URL의 슬래시를 중복하지
   assert.deepEqual(result, { id: 42 })
   assert.equal(requestedUrl, 'http://localhost:8080/api/products')
 })
+
+test('요청이 서버에 도달했는지 알 수 없는 네트워크 오류를 구분한다', async () => {
+  const fetcher: typeof fetch = async () => { throw new TypeError('network down') }
+  await assert.rejects(requestApi('/api/sales', { method: 'POST' }, { fetcher }), (error: unknown) => error instanceof ApiError && error.isNetworkError)
+})
