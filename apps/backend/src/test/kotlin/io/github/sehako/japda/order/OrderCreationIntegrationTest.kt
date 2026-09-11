@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.springframework.beans.factory.annotation.Autowired
@@ -78,17 +79,22 @@ class OrderCreationIntegrationTest {
 	@Test
 	@DisplayName("HTTP 주문 생성은 서버 가격과 배송 스냅샷을 PostgreSQL에 저장한다")
 	fun HTTP_주문_생성_서버_가격과_배송_스냅샷을_PostgreSQL에_저장한다() {
-		mockMvc.perform(request(UUID.randomUUID(), quantity = 2))
+		val response = mockMvc.perform(request(UUID.randomUUID(), quantity = 2))
 			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.paymentOrderId").isString)
 			.andExpect(jsonPath("$.productName").value("통합 상품"))
 			.andExpect(jsonPath("$.unitPrice").value(35000))
 			.andExpect(jsonPath("$.totalPrice").value(70000))
 			.andExpect(jsonPath("$.expiresAt").value(NOW.plusSeconds(180).toString()))
 			.andExpect(jsonPath("$.shippingAddress").doesNotExist())
+			.andReturn()
 
 		val row = jdbcTemplate.queryForMap(
-			"SELECT product_name, recipient_name, delivery_message, status FROM orders",
+			"SELECT payment_order_id, product_name, recipient_name, delivery_message, status FROM orders",
 		)
+		val paymentOrderId = row["payment_order_id"] as String
+		assertTrue(response.response.contentAsString.contains(paymentOrderId))
+		assertEquals(4, UUID.fromString(paymentOrderId).version())
 		assertEquals("통합 상품", row["product_name"])
 		assertEquals("홍길동", row["recipient_name"])
 		assertEquals("문 앞", row["delivery_message"])

@@ -52,6 +52,7 @@ class OrderServiceTest {
 		val response = service(orderRepository, saleRepository).create(dto())
 
 		assertEquals(9L, response.orderId)
+		assertEquals(existing.paymentOrderId, response.paymentOrderId)
 		assertEquals(NOW.plusSeconds(180), response.expiresAt)
 		assertEquals(0, saleRepository.lockCount)
 		assertNull(orderRepository.savedOrder)

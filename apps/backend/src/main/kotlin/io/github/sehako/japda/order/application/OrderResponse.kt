@@ -6,6 +6,7 @@ import java.time.Instant
 
 data class OrderResponse(
 	val orderId: Long,
+	val paymentOrderId: String,
 	val status: OrderStatus,
 	val productName: String,
 	val quantity: Int,
@@ -16,6 +17,7 @@ data class OrderResponse(
 
 internal fun Order.toResponse(): OrderResponse = OrderResponse(
 	orderId = requireNotNull(id),
+	paymentOrderId = paymentOrderId,
 	status = status,
 	productName = productName,
 	quantity = quantity,

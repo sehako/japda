@@ -2,7 +2,7 @@
 
 ## 목적과 완료 조건
 
-구매자가 판매 중인 단일 상품의 결제를 시작하기 직전에 주문 정보와 배송지 스냅샷을 저장하고, 결제 대기 시간 동안 요청 수량을 예약하는 API를 제공한다. 별도 재고·예약 테이블 없이 주문 행을 예약 기록으로 사용하고, 같은 판매 일정에 대한 동시 주문을 직렬화해 초과 판매를 막는다.
+구매자가 판매 중인 단일 상품의 결제를 시작하기 직전에 주문 정보와 배송지 스냅샷을 저장하고, 결제 대기 시간 동안 요청 수량을 예약하는 API를 제공한다. 주문 생성 시 토스페이먼츠 결제 요청의 `orderId`로 사용할 `paymentOrderId`도 서버에서 생성해 주문과 함께 저장하고 응답한다. 별도 재고·예약 테이블 없이 주문 행을 예약 기록으로 사용하고, 같은 판매 일정에 대한 동시 주문을 직렬화해 초과 판매를 막는다.
 
 다음 조건을 모두 만족하면 완료된 것으로 본다.
 
@@ -12,6 +12,8 @@
 - 생성된 주문은 `PENDING_PAYMENT` 상태로 3분 동안 판매 수량을 예약한다.
 - 같은 `sale` 행을 잠근 상태에서 유효한 예약 수량을 집계해 동시 요청에서도 초과 판매를 막는다.
 - 동일 구매자의 같은 멱등성 키와 동일 요청에는 기존 주문을 반환하고, 요청 내용이 다르면 충돌로 거절한다.
+- 토스페이먼츠 규격을 만족하는 전역 고유 `paymentOrderId`를 서버에서 생성해 주문에 저장하고 성공 응답으로 반환한다.
+- 동일한 멱등 요청에는 최초 주문에 저장된 `paymentOrderId`를 그대로 반환한다.
 - PostgreSQL 영속성, 동시성, HTTP 계약과 Spring REST Docs 문서 생성을 검증한다.
 
 ## 기존 구조와 결정
@@ -24,12 +26,12 @@
 
 ## 범위
 
-포함 범위는 `POST /api/orders`, 단일 판매 상품 주문, 배송 정보 스냅샷, 가격 계산, 3분 재고 예약, 판매 일정 잠금, 멱등성 처리, 오류 응답, PostgreSQL 테스트와 API 문서이다.
+포함 범위는 `POST /api/orders`, 단일 판매 상품 주문, 배송 정보 스냅샷, 가격 계산, 3분 재고 예약, 판매 일정 잠금, 멱등성 처리, 결제 요청용 주문 식별자 생성·저장·응답, 오류 응답, PostgreSQL 테스트와 API 문서이다.
 
 다음은 제외한다.
 
 - 주문 조회·수정·취소 API
-- 결제 승인·실패 처리와 PG 연동
+- 토스페이먼츠 SDK 호출과 결제 승인·실패 처리 등 실제 PG 연동
 - 만료된 주문의 상태를 갱신하는 Scheduler 또는 배치
 - 복수 상품 주문, `order_items`와 장바구니
 - 별도 재고·예약 테이블
@@ -91,6 +93,7 @@ Content-Type: application/json
 ```json
 {
   "orderId": 1000,
+  "paymentOrderId": "550e8400-e29b-41d4-a716-446655440000",
   "status": "PENDING_PAYMENT",
   "productName": "한정판 상품",
   "quantity": 2,
@@ -100,15 +103,18 @@ Content-Type: application/json
 }
 ```
 
+`paymentOrderId`는 토스페이먼츠 결제 요청의 `orderId`로 전달할 서버 생성 식별자이다. canonical UUID v4 문자열을 사용해 토스페이먼츠의 6~64자 및 영문 대소문자·숫자·`-`, `_`, `=` 허용 규격을 만족한다. 내부 DB 식별자인 숫자형 `orderId`, 구매자가 제공하는 `Idempotency-Key`와는 서로 다른 목적과 수명주기를 가지므로 재사용하지 않는다.
+
 `totalPrice`는 `Sale.price × quantity`이며 `Long` 범위를 넘지 않는지 검사한다. `expiresAt`은 주문 생성에 사용한 UTC `Instant`에서 3분을 더한 값이다. 배송 정보는 저장하지만 결제 시작에 필요한 성공 응답에는 반환하지 않는다.
 
-동일 구매자가 같은 `Idempotency-Key`와 동일한 정규화 요청을 다시 보내면 새 주문을 만들거나 만료 시간을 연장하지 않고 최초 주문과 같은 응답을 `201 Created`로 반환한다. 최초 주문이 이미 만료됐어도 기존 주문과 과거 `expiresAt`을 반환하며, 새 예약에는 새 멱등성 키가 필요하다.
+동일 구매자가 같은 `Idempotency-Key`와 동일한 정규화 요청을 다시 보내면 새 주문이나 새 `paymentOrderId`를 만들지 않고, 만료 시간도 연장하지 않은 채 최초 주문과 같은 응답을 `201 Created`로 반환한다. 최초 주문이 이미 만료됐어도 기존 주문의 `paymentOrderId`와 과거 `expiresAt`을 반환하며, 새 예약에는 새 멱등성 키가 필요하다.
 
 ## 주문 모델과 영속성
 
 `orders` 테이블과 이에 대응하는 `Order` Entity는 다음 값을 저장한다.
 
 - 내부 생성 식별자 `id`
+- 토스페이먼츠 결제 요청용 식별자 `payment_order_id`
 - 참조 식별자 `sale_id`
 - 임시 구매자 식별자 `buyer_id`
 - UUID `idempotency_key`
@@ -122,6 +128,12 @@ Content-Type: application/json
 - 예약 만료 시각 `expires_at`
 
 `sale_id`는 `sales.id`를 참조하는 FK로 둔다. `product_id`와 `seller_id`는 `sale_id`로 식별할 수 있고 현재 주문 규칙에 독립적으로 필요하지 않으므로 중복 저장하지 않는다. 주문에 복사한 `product_name`, `unit_price`, `total_price`와 배송 정보는 원본 데이터가 이후 변경되더라도 수정하지 않는다.
+
+`payment_order_id`는 `VARCHAR(64) NOT NULL`로 저장하고 전역 unique 제약을 둔다. 6~64자 길이와 영문 대소문자·숫자·`-`, `_`, `=`만 허용하는 check 제약으로 토스페이먼츠 형식 규칙을 보호한다. 신규 주문은 canonical UUID v4 문자열을 사용한다. `Order.create`가 주문마다 한 번 생성하며 application이나 presentation이 값을 입력하지 않는다.
+
+이미 적용된 주문 테이블 migration은 수정하지 않고 후속 migration에서 `payment_order_id`를 추가한다. 기존 주문에는 `legacy_<id>` 형식의 전역 고유 값을 채운 뒤 `NOT NULL`, 형식 check와 unique 제약을 적용한다. 이 값은 토스페이먼츠 허용 형식을 만족하며 기존 주문도 동일한 영속성 불변식을 갖게 한다.
+
+UUID 충돌은 현실적으로 무시할 수 있을 만큼 희박하므로 별도 재시도 흐름을 추가하지 않는다. DB unique 제약을 최종 방어선으로 두며, 충돌이 발생하면 멱등성 충돌로 잘못 변환하지 않고 예상하지 못한 내부 오류로 처리한다.
 
 `(buyer_id, idempotency_key)` unique 제약으로 멱등성을 최종 보장한다. 유효한 예약 수량 집계를 위해 `status = 'PENDING_PAYMENT'`인 행의 `(sale_id, expires_at)` 부분 인덱스를 둔다. 양수 식별자·수량·가격과 문자열 길이는 애플리케이션 규칙뿐 아니라 가능한 범위에서 DB 제약으로도 보호한다.
 
@@ -139,7 +151,7 @@ Content-Type: application/json
 4. 주문 Repository에서 `sale_id`가 같고 `status = PENDING_PAYMENT`이며 `expires_at > now`인 수량의 합을 조회한다.
 5. `Sale.quantity - reservedQuantity`가 요청 수량 이상인지 확인한다.
 6. `ProductRepository.findById(sale.productId)`로 상품명을 조회한다.
-7. 서버 단가, 상품명과 배송 정보로 주문을 생성하고 저장한다.
+7. canonical UUID v4 `paymentOrderId`와 서버 단가, 상품명, 배송 정보로 주문을 생성하고 저장한다.
 
 모든 주문 생성이 예약 수량 조회 전에 같은 `sales` 행을 잠그므로, 같은 판매 일정의 요청은 직렬화된다. 별도 예약 수량 카운터를 갱신하지 않아 만료 시 되돌릴 상태가 없으며, `expires_at <= now`인 주문은 즉시 집계에서 제외된다. Scheduler 지연이나 서버 재시작이 예약 해제의 정확성에 영향을 주지 않는다.
 
@@ -162,10 +174,10 @@ Content-Type: application/json
 
 1. 주문 application이 요청을 정규화하고 도메인 입력 규칙을 검증한다.
 2. `(buyerId, idempotencyKey)`로 기존 주문을 조회한다.
-3. 기존 주문이 있으면 요청 값과 비교해 동일하면 기존 응답을 반환하고 다르면 멱등성 충돌을 반환한다.
+3. 기존 주문이 있으면 요청 값과 비교해 동일하면 저장된 `paymentOrderId`를 포함한 기존 응답을 반환하고 다르면 멱등성 충돌을 반환한다.
 4. 기존 주문이 없으면 트랜잭션 서비스가 `sale` 행을 잠근다.
 5. 같은 `sale` 잠금을 기다린 동일 키 요청을 처리하기 위해 기존 주문을 다시 조회하고, 있으면 동일 요청 반환 또는 충돌로 처리한다.
-6. 기존 주문이 없으면 판매 시간과 재고를 확인하고 주문을 저장한다.
+6. 기존 주문이 없으면 판매 시간과 재고를 확인하고 `paymentOrderId`를 생성해 주문과 함께 저장한다.
 7. 서로 다른 `sale`을 대상으로 같은 키를 동시에 사용해 unique 제약에서 충돌하면 infrastructure가 제약 이름을 확인해 전용 persistence 예외로 변환한다.
 8. 바깥 application 서비스가 새 트랜잭션에서 기존 주문을 다시 조회하고 동일 요청 반환 또는 충돌로 변환한다.
 
@@ -174,8 +186,8 @@ Content-Type: application/json
 ## 계층과 데이터 흐름
 
 - `presentation`: `OrderController`가 `X-Buyer-Id`, `Idempotency-Key`와 `CreateOrderRequest`를 받고 application DTO로 변환한다. 비즈니스 로직과 JPA 타입을 포함하지 않는다.
-- `application`: `OrderService`가 선행 멱등성 조회와 persistence 충돌 처리를 담당하고, 주문 생성 트랜잭션 서비스가 판매 잠금, 시간·재고 검증, 상품 조회와 저장을 조율한다. 응답은 `OrderResponse`로 변환한다.
-- `domain`: `Order`, `ShippingAddress`, `OrderStatus`, `OrderRepository`가 주문 상태와 생성 규칙, 입력 정규화, 금액 계산 및 영속성 계약을 관리한다.
+- `application`: `OrderService`가 선행 멱등성 조회와 persistence 충돌 처리를 담당하고, 주문 생성 트랜잭션 서비스가 판매 잠금, 시간·재고 검증, 상품 조회와 저장을 조율한다. 응답은 저장된 `paymentOrderId`를 포함한 `OrderResponse`로 변환한다.
+- `domain`: `Order`, `ShippingAddress`, `OrderStatus`, `OrderRepository`가 주문 상태와 생성 규칙, `paymentOrderId` 생성, 입력 정규화, 금액 계산 및 영속성 계약을 관리한다.
 - `infrastructure`: Spring Data JPA 기반 주문 저장·조회·예약 수량 집계와 unique 제약 변환을 구현한다. 기존 `SaleRepository`의 비관적 잠금 조회 구현도 infrastructure에 둔다.
 
 의존 방향은 `order.presentation → order.application → order.domain`을 따른다. 주문 application은 유스케이스 조율을 위해 `sale.domain`, `product.domain`의 Repository와 Entity를 사용할 수 있지만, `Order` Entity가 다른 도메인의 Entity나 Repository에 의존하지 않는다. `sale`과 `product`는 `order`를 의존하지 않는다.
@@ -199,11 +211,13 @@ Content-Type: application/json
 | 계산된 총액이 `Long` 범위를 초과함 | 409 | `ORDER_TOTAL_PRICE_INVALID` | 없음 |
 | 예상하지 못한 DB·내부 오류 | 500 | `COMMON_INTERNAL_SERVER_ERROR` | 없음 |
 
-오류 응답에는 배송 정보, 원본 persistence 예외, SQL과 내부 잠금 정보를 포함하지 않는다. 상품이 FK 불변식과 다르게 존재하지 않는 경우는 예상하지 못한 내부 데이터 오류로 처리한다.
+`paymentOrderId`의 극히 드문 unique 충돌은 `ORDER_IDEMPOTENCY_CONFLICT`로 변환하지 않고 예상하지 못한 DB·내부 오류로 처리한다. 오류 응답에는 배송 정보, `paymentOrderId`, 원본 persistence 예외, SQL과 내부 잠금 정보를 포함하지 않는다. 상품이 FK 불변식과 다르게 존재하지 않는 경우도 예상하지 못한 내부 데이터 오류로 처리한다.
 
 ## 호환성과 확장 방향
 
 - 기존 상품·판매 API의 요청과 응답 계약을 변경하지 않는다.
+- 주문 생성 요청 계약과 기존 성공 응답 필드는 유지하고 `paymentOrderId`만 추가한다.
+- 클라이언트는 `paymentOrderId`를 생성하거나 요청으로 보내지 않으며, 응답값을 토스페이먼츠 결제 요청의 `orderId`로 전달한다.
 - `Sale.quantity`는 계속 최초 판매 수량을 의미하며 남은 수량으로 재해석하지 않는다.
 - `SaleRepository`에는 주문 흐름에 필요한 ID 기반 비관적 잠금 조회만 추가한다.
 - 새 dependency를 추가하지 않는다.
@@ -220,6 +234,8 @@ Content-Type: application/json
 - 문자열 앞뒤 공백 제거와 빈 배송 메모의 `null` 변환을 확인한다.
 - 상품명과 단가로 총액을 계산하고 곱셈 범위 초과를 거절하는지 확인한다.
 - 생성 상태가 `PENDING_PAYMENT`이고 `expiresAt`이 생성 시각에서 정확히 3분 뒤인지 확인한다.
+- 생성된 `paymentOrderId`가 canonical UUID v4이며 토스페이먼츠 길이·문자 규격을 만족하는지 확인한다.
+- 서로 다른 신규 주문에는 서로 다른 `paymentOrderId`가 생성되는지 확인한다.
 - 저장된 주문과 정규화된 재요청의 동일성 비교를 확인한다.
 
 ### 애플리케이션
@@ -229,12 +245,15 @@ Content-Type: application/json
 - 존재하지 않는 판매 일정, 판매 시간 외 요청과 부족한 수량을 계약된 오류로 변환하는지 확인한다.
 - 상품명과 단가를 서버 Repository 값으로 사용하고 클라이언트 입력으로 받지 않는지 확인한다.
 - 같은 멱등성 키와 동일 요청은 기존 주문을 반환하고 다른 요청은 충돌하는지 확인한다.
+- 같은 멱등성 키와 동일 요청에는 기존 주문의 `paymentOrderId`를 반환하고 새 값을 생성하지 않는지 확인한다.
 - 최초 조회 뒤 같은 판매 일정의 잠금을 기다린 동일 키 요청도 재고 부족보다 기존 주문을 우선 반환하는지 확인한다.
 - 멱등성 재요청이 만료 시각을 연장하지 않는지 확인한다.
 
 ### PostgreSQL 영속성과 동시성
 
-- migration의 FK, unique, check 제약과 부분 인덱스를 검증한다.
+- migration의 FK, `payment_order_id`의 `NOT NULL`·형식 check·unique 제약과 부분 인덱스를 검증한다.
+- 기존 주문에 `legacy_<id>` 형식의 `payment_order_id`가 채워지고 신규 불변식이 적용되는지 확인한다.
+- 같은 `payment_order_id` 저장을 DB unique 제약이 거절하고 이를 멱등성 persistence 충돌로 잘못 변환하지 않는지 확인한다.
 - 만료되지 않은 `PENDING_PAYMENT` 주문만 예약 수량에 포함되고 `expiresAt == now`는 제외되는지 확인한다.
 - 같은 판매 일정에 판매 수량을 초과하도록 동시에 요청해 성공 수량 합이 `Sale.quantity`를 넘지 않는지 확인한다.
 - 서로 다른 판매 일정의 주문이 독립적으로 처리되는지 확인한다.
@@ -244,6 +263,7 @@ Content-Type: application/json
 ### HTTP·문서
 
 - MockMvc로 필수 헤더, UUID와 구매자 ID 형식, 요청 필드, 성공 상태·필드와 대표 오류를 검증한다.
+- 성공 응답과 Spring REST Docs에 `paymentOrderId`가 필수 문자열 필드로 포함되는지 확인한다.
 - 가격과 상품명 필드를 요청으로 받지 않고 서버 계산 결과만 응답하는지 확인한다.
 - 배송 정보가 성공 응답과 오류 응답에 노출되지 않는지 확인한다.
 - Spring REST Docs로 요청 헤더, 요청·응답 필드와 오류 응답을 문서화한다.
@@ -253,4 +273,6 @@ Content-Type: application/json
 
 ## 주요 결정
 
-주문 행을 예약 기록으로 사용하고 판매 일정 행 잠금으로 동시 주문을 직렬화하는 결정은 ADR-013으로 기록한다. 이 결정은 현재 단일 상품 주문의 정합성을 단순한 구조로 보장하며, 결제 상태 전이·취소·복수 상품이 추가될 때 해당 요구사항과 함께 다시 검토한다.
+주문 행을 예약 기록으로 사용하고 판매 일정 행 잠금으로 동시 주문을 직렬화하는 결정은 ADR-015로 기록했다. 이 결정은 현재 단일 상품 주문의 정합성을 단순한 구조로 보장하며, 결제 상태 전이·취소·복수 상품이 추가될 때 해당 요구사항과 함께 다시 검토한다.
+
+결제 요청용 식별자는 내부 주문 ID나 구매자 제공 멱등성 키를 재사용하지 않고 서버가 생성한 canonical UUID v4로 관리한다. 이는 [토스페이먼츠 주문서형 결제 JavaScript SDK](https://docs.tosspayments.com/sdk/v2/js/payment-widget)의 `orderId` 규격을 만족하면서 내부 식별자와 외부 결제 프로토콜의 역할을 분리한다. 이번 변경은 기존 주문 모델 내부의 필드와 API 응답을 확장할 뿐 도메인 경계나 외부 시스템 연동 구조를 변경하지 않으므로 별도 ADR을 작성하지 않는다.

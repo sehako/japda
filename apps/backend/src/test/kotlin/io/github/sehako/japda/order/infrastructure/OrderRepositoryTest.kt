@@ -67,7 +67,38 @@ class OrderRepositoryTest {
 		val found = orderRepository.findByBuyerIdAndIdempotencyKey(123L, IDEMPOTENCY_KEY)
 
 		assertEquals(saved.id, found?.id)
-		assertEquals("홍길동", found?.shippingAddress?.recipientName)
+		assertEquals(saved.paymentOrderId, requireNotNull(found).paymentOrderId)
+		assertEquals("홍길동", found.shippingAddress.recipientName)
+	}
+
+	@Test
+	@DisplayName("결제 주문 식별자는 필수 형식 제약으로 보호한다")
+	fun 결제_주문_식별자_필수_형식_제약으로_보호한다() {
+		val columns = jdbcTemplate.queryForList(
+			"SELECT is_nullable, character_maximum_length FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'payment_order_id'",
+		)
+		assertEquals("NO", columns.single()["is_nullable"])
+		assertEquals(64, columns.single()["character_maximum_length"])
+
+		orderRepository.save(order())
+		assertFailsWith<DataIntegrityViolationException> {
+			jdbcTemplate.update(
+				"UPDATE orders SET payment_order_id = ? WHERE id = (SELECT id FROM orders LIMIT 1)",
+				"허용되지 않는 값!",
+			)
+		}
+	}
+
+	@Test
+	@DisplayName("같은 결제 주문 식별자 저장은 멱등성 오류가 아닌 DB unique 오류로 거절한다")
+	fun 같은_결제_주문_식별자_저장_멱등성_오류가_아닌_DB_unique_오류로_거절한다() {
+		val saved = orderRepository.save(order())
+		val duplicate = order(buyerId = 124L, idempotencyKey = UUID.randomUUID())
+		setPaymentOrderId(duplicate, saved.paymentOrderId)
+
+		assertFailsWith<DataIntegrityViolationException> {
+			orderRepository.save(duplicate)
+		}
 	}
 
 	@Test
@@ -104,11 +135,12 @@ class OrderRepositoryTest {
 		assertFailsWith<DataIntegrityViolationException> {
 			jdbcTemplate.update(
 				"""INSERT INTO orders (
-					sale_id, buyer_id, idempotency_key, quantity, product_name, unit_price, total_price, status,
+					sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
 					recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-				) VALUES (?, 0, ?, 0, '상품', 35000, 35000, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
+				) VALUES (?, 0, ?, ?, 0, '상품', 35000, 35000, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
 				saleId,
 				UUID.randomUUID(),
+				UUID.randomUUID().toString(),
 				java.sql.Timestamp.from(NOW),
 				java.sql.Timestamp.from(NOW.plusSeconds(180)),
 			)
@@ -128,10 +160,14 @@ class OrderRepositoryTest {
 		assertTrue(definition.contains("PENDING_PAYMENT"))
 	}
 
-	private fun order(saleId: Long = this.saleId): Order = Order.create(
+	private fun order(
+		saleId: Long = this.saleId,
+		buyerId: Long = 123L,
+		idempotencyKey: UUID = IDEMPOTENCY_KEY,
+	): Order = Order.create(
 		OrderRequest.create(
-			123L,
-			IDEMPOTENCY_KEY,
+			buyerId,
+			idempotencyKey,
 			saleId,
 			2,
 			"홍길동",
@@ -146,15 +182,23 @@ class OrderRepositoryTest {
 		NOW,
 	)
 
+	private fun setPaymentOrderId(order: Order, paymentOrderId: String) {
+		order::class.java.getDeclaredField("paymentOrderId").apply {
+			isAccessible = true
+			set(order, paymentOrderId)
+		}
+	}
+
 	private fun insertOrder(key: UUID, quantity: Int, expiresAt: Instant) {
 		jdbcTemplate.update(
 			"""INSERT INTO orders (
-				sale_id, buyer_id, idempotency_key, quantity, product_name, unit_price, total_price, status,
+				sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
 				recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-			) VALUES (?, ?, ?, ?, '상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
+			) VALUES (?, ?, ?, ?, ?, '상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
 			saleId,
 			key.mostSignificantBits.and(Long.MAX_VALUE) + 1,
 			key,
+			UUID.randomUUID().toString(),
 			quantity,
 			35_000L * quantity,
 			java.sql.Timestamp.from(NOW.minusSeconds(60)),

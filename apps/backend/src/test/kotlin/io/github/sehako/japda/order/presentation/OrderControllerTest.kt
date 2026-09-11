@@ -57,13 +57,14 @@ class OrderControllerTest {
 	@DisplayName("유효한 요청이면 주문을 생성하고 배송 정보 없이 201 응답을 반환한다")
 	fun 유효한_요청_주문_생성_배송_정보_없이_201을_반환한다() {
 		`when`(orderService.create(EXPECTED_DTO)).thenReturn(
-			OrderResponse(1000L, OrderStatus.PENDING_PAYMENT, "한정판 상품", 2, 35_000L, 70_000L, EXPIRES_AT),
+			OrderResponse(1000L, PAYMENT_ORDER_ID, OrderStatus.PENDING_PAYMENT, "한정판 상품", 2, 35_000L, 70_000L, EXPIRES_AT),
 		)
 
 		mockMvc.perform(validRequest())
 			.andExpect(status().isCreated)
 			.andExpect(header().doesNotExist("Location"))
 			.andExpect(jsonPath("$.orderId").value(1000))
+			.andExpect(jsonPath("$.paymentOrderId").value(PAYMENT_ORDER_ID))
 			.andExpect(jsonPath("$.status").value("PENDING_PAYMENT"))
 			.andExpect(jsonPath("$.productName").value("한정판 상품"))
 			.andExpect(jsonPath("$.quantity").value(2))
@@ -92,6 +93,7 @@ class OrderControllerTest {
 					),
 					responseFields(
 						fieldWithPath("orderId").description("주문 식별자"),
+						fieldWithPath("paymentOrderId").description("토스페이먼츠 결제 요청용 주문 식별자"),
 						fieldWithPath("status").description("주문 상태"),
 						fieldWithPath("productName").description("주문 시점 상품명"),
 						fieldWithPath("quantity").description("주문 수량"),
@@ -191,6 +193,7 @@ class OrderControllerTest {
 
 	private companion object {
 		const val IDEMPOTENCY_KEY = "550e8400-e29b-41d4-a716-446655440000"
+		const val PAYMENT_ORDER_ID = "6f9619ff-8b86-4e7b-a273-63f667a76a88"
 		val EXPIRES_AT: Instant = Instant.parse("2026-09-11T06:03:00Z")
 		val VALID_BODY = """{"saleId":100,"quantity":2,"shippingAddress":{"recipientName":"홍길동","phoneNumber":"010-1234-5678","postalCode":"06236","address":"서울특별시 강남구 테헤란로 123","detailAddress":"101동 1001호","deliveryMessage":"문 앞"}}"""
 		val EXPECTED_DTO = CreateOrderDto(
