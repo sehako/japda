@@ -1,0 +1,27 @@
+package io.github.sehako.japda.order.application.response
+
+import io.github.sehako.japda.order.domain.model.Order
+import io.github.sehako.japda.order.domain.model.OrderStatus
+import java.time.Instant
+
+data class OrderResponse(
+	val orderId: Long,
+	val paymentOrderId: String,
+	val status: OrderStatus,
+	val productName: String,
+	val quantity: Int,
+	val unitPrice: Long,
+	val totalPrice: Long,
+	val expiresAt: Instant,
+)
+
+internal fun Order.toResponse(): OrderResponse = OrderResponse(
+	orderId = requireNotNull(id),
+	paymentOrderId = paymentOrderId,
+	status = status,
+	productName = productName,
+	quantity = quantity,
+	unitPrice = unitPrice,
+	totalPrice = totalPrice,
+	expiresAt = expiresAt,
+)

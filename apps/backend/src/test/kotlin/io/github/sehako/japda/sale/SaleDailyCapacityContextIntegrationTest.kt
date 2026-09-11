@@ -1,8 +1,8 @@
 package io.github.sehako.japda.sale
 
 import io.github.sehako.japda.BackendApplication
-import io.github.sehako.japda.sale.application.CreateSaleDto
-import io.github.sehako.japda.sale.application.SaleService
+import io.github.sehako.japda.sale.application.dto.CreateSaleDto
+import io.github.sehako.japda.sale.application.service.SaleService
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate

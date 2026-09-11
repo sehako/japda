@@ -1,8 +1,8 @@
 package io.github.sehako.japda.global.config
 
 import io.github.sehako.japda.global.error.ProblemDetailFactory
-import io.github.sehako.japda.product.application.ProductService
-import io.github.sehako.japda.product.presentation.ProductController
+import io.github.sehako.japda.product.application.service.ProductService
+import io.github.sehako.japda.product.presentation.controller.ProductController
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test

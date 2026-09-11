@@ -1,11 +1,11 @@
 package io.github.sehako.japda.product
 
-import io.github.sehako.japda.product.application.image.ProductImageFile
-import io.github.sehako.japda.product.application.image.ProductImageRegistrationCommitService
-import io.github.sehako.japda.product.application.image.ProductImageRegistrationService
-import io.github.sehako.japda.product.application.image.ProductImageStorage
-import io.github.sehako.japda.product.application.image.RegisterProductImagesDto
-import io.github.sehako.japda.product.application.image.UploadedProductImage
+import io.github.sehako.japda.product.application.image.dto.UploadedProductImage
+import io.github.sehako.japda.product.application.image.file.ProductImageFile
+import io.github.sehako.japda.product.application.image.service.ProductImageRegistrationCommitService
+import io.github.sehako.japda.product.application.image.service.ProductImageRegistrationService
+import io.github.sehako.japda.product.application.image.storage.ProductImageStorage
+import io.github.sehako.japda.product.application.image.dto.RegisterProductImagesDto
 import io.github.sehako.japda.product.exception.ProductErrorCode
 import io.github.sehako.japda.product.exception.ProductException
 import java.io.ByteArrayInputStream

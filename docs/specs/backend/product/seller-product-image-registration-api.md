@@ -16,7 +16,7 @@
 
 기존 `POST /api/products`는 상품명과 선택적인 설명을 받아 `DRAFT` 상품을 생성한다. 해당 요청·응답 계약은 유지하며, 생성된 상품 ID로 별도 이미지 등록 API를 호출한다. 이미지가 없는 `DRAFT` 상품은 허용하지만 `READY` 상품에는 이미지 1~10장과 대표 이미지 정확히 1장이 필요하다.
 
-기존 [상품 기본 정보 등록 스펙](seller-product-registration-api.md), [백엔드 아키텍처](../../../architecture/backend.md), [S3 저장 결정](../../../architecture/decisions/ADR-005-product-image-storage-with-s3.md), [상품 이미지 패키지 구성 결정](../../../architecture/decisions/ADR-006-product-image-package-structure.md), [Application 계층의 Spring Web 타입 분리 결정](../../../architecture/decisions/ADR-007-application-layer-spring-web-independence.md), [파일 시그니처 검증 결정](../../../architecture/decisions/ADR-008-product-image-signature-validation.md)을 따른다.
+기존 [상품 기본 정보 등록 스펙](seller-product-registration-api.md), [백엔드 아키텍처](../../../architecture/backend.md), [S3 저장 결정](../../../architecture/decisions/ADR-005-product-image-storage-with-s3.md), [상품 이미지 패키지 구성 결정](../../../architecture/decisions/ADR-006-product-image-package-structure.md), [Application 계층의 Spring Web 타입 분리 결정](../../../architecture/decisions/ADR-007-application-layer-spring-web-independence.md), [파일 시그니처 검증 결정](../../../architecture/decisions/ADR-008-product-image-signature-validation.md), [역할별 하위 패키지 구성 결정](../../../architecture/decisions/ADR-016-backend-role-based-package-structure.md)을 따른다.
 
 포함 범위는 백엔드 최초 이미지 등록 API, 파일 검증, S3 저장, DB 메타데이터, 상태 전환, 실패 시 보상 삭제, 관련 테스트와 API 문서이다.
 
@@ -106,7 +106,7 @@ Application의 `ProductImageFile` 입력 인터페이스는 파일 크기와 매
 
 `ProductImageRegistrationService`는 트랜잭션 없이 사전 확인, 최소 파일 검증, S3 업로드와 실패 보상을 조율한다. 별도 Spring Bean인 `ProductImageRegistrationCommitService`가 상품 행 잠금, 소유권과 상태 재확인, 이미지 메타데이터 저장 및 `READY` 전환을 하나의 짧은 `@Transactional` 메서드에서 수행한다. 동일 객체 내부 호출에 의존하지 않고 Service 사이 호출로 Spring transaction proxy를 적용한다.
 
-이미지 기능은 별도 최상위 도메인으로 분리하지 않는다. 기존 `product` 도메인의 계층 구조를 유지하면서 이미지 관련 파일을 각각 `product/presentation/image`, `product/application/image`, `product/domain/image`, `product/infrastructure/image`에 둔다. `Product`와 `ProductStatus`는 기존 `product/domain`에 유지한다.
+이미지 기능은 별도 최상위 도메인으로 분리하지 않는다. 기존 `product` 도메인의 계층 구조를 유지하면서 이미지 관련 파일을 `product/{layer}/image/{role}` 순서의 역할별 하위 패키지에 둔다. `Product`와 `ProductStatus`는 `product/domain/model`에 둔다.
 
 S3 저장·삭제는 상품 영역의 저장소 인터페이스로 추상화한다. 인터페이스에는 AWS SDK 타입을 노출하지 않으며, 실제로 다른 도메인이 공유하기 전에는 공통 파일 업로드 모듈로 확장하지 않는다.
 
