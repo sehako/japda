@@ -26,7 +26,12 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.postgresql.PostgreSQLContainer
 
-@SpringBootTest
+@SpringBootTest(
+	properties = [
+		"product.image.s3.region=ap-northeast-2",
+		"product.image.s3.bucket=test-product-images",
+	],
+)
 @AutoConfigureMockMvc
 @Import(ProductRegistrationIntegrationTest.FixedClockConfig::class)
 @Testcontainers(disabledWithoutDocker = true)

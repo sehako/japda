@@ -13,3 +13,4 @@ export function parseSellerId(value: string | undefined): SellerIdConfig {
 
 export const sellerIdConfig = parseSellerId(import.meta.env?.VITE_SELLER_ID)
 export const apiBaseUrl = import.meta.env?.VITE_API_BASE_URL ?? ''
+export const imageBaseUrl = import.meta.env?.VITE_IMAGE_BASE_URL ?? ''
