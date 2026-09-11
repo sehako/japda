@@ -4,11 +4,13 @@ import {
   buildCalendarDays,
   buildProductImageUrl,
   canMoveToNextMonth,
+  formatKoreanSaleDateTime,
   formatKoreanPrice,
   getKoreanToday,
   getSaleStatusLabel,
   isSelectableSaleDate,
   millisecondsUntilNextKoreanMidnight,
+  parseBuyerSaleId,
 } from '../../../../src/features/buyer-sale/model/buyerSale.ts'
 
 describe('구매자 판매일 계산', () => {
@@ -61,5 +63,19 @@ describe('구매자 판매 상품 표시 변환', () => {
     expect(buildProductImageUrl('', '/products/10/main.webp')).toBeNull()
     expect(buildProductImageUrl('not-a-url', '/products/10/main.webp')).toBeNull()
     expect(buildProductImageUrl('ftp://images.example.com', '/products/10/main.webp')).toBeNull()
+  })
+
+  test('route parameter는 양의 안전한 정수인 십진수 문자열만 saleId로 변환한다', () => {
+    expect(parseBuyerSaleId('11')).toBe(11)
+    expect(parseBuyerSaleId('0')).toBeNull()
+    expect(parseBuyerSaleId('-1')).toBeNull()
+    expect(parseBuyerSaleId('1.5')).toBeNull()
+    expect(parseBuyerSaleId('01')).toBeNull()
+    expect(parseBuyerSaleId('9007199254740992')).toBeNull()
+    expect(parseBuyerSaleId(undefined)).toBeNull()
+  })
+
+  test('UTC Instant를 한국 판매 기간에 표시할 날짜와 시각으로 변환한다', () => {
+    expect(formatKoreanSaleDateTime('2026-09-10T15:00:00Z')).toBe('2026. 09. 11. 00:00')
   })
 })

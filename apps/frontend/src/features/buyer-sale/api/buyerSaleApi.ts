@@ -1,6 +1,12 @@
 import { ApiError, DEFAULT_API_ERROR_MESSAGE, requestApi } from '../../../shared/api/apiClient.ts'
 import type { ApiClientOptions } from '../../../shared/api/apiClient.ts'
-import type { BuyerSaleProduct, BuyerSaleProductListResponse, BuyerSaleStatus } from '../model/buyerSale.ts'
+import type {
+  BuyerSaleProduct,
+  BuyerSaleProductDetail,
+  BuyerSaleProductImage,
+  BuyerSaleProductListResponse,
+  BuyerSaleStatus,
+} from '../model/buyerSale.ts'
 
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
 const INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?Z$/
@@ -49,6 +55,36 @@ function isBuyerSaleProductListResponse(value: unknown): value is BuyerSaleProdu
   return Array.isArray(response.sales) && response.sales.every(isBuyerSaleProduct)
 }
 
+function isBuyerSaleProductImage(value: unknown): value is BuyerSaleProductImage {
+  if (typeof value !== 'object' || value === null) return false
+  const image = value as Record<string, unknown>
+  return typeof image.path === 'string' && image.path.startsWith('/')
+    && typeof image.displayOrder === 'number' && Number.isSafeInteger(image.displayOrder) && image.displayOrder >= 0
+    && typeof image.isRepresentative === 'boolean'
+}
+
+function isBuyerSaleProductDetail(value: unknown): value is BuyerSaleProductDetail {
+  if (typeof value !== 'object' || value === null) return false
+  const sale = value as Record<string, unknown>
+  if (!isPositiveInteger(sale.saleId)
+    || !isPositiveInteger(sale.productId)
+    || typeof sale.name !== 'string'
+    || (sale.description !== null && typeof sale.description !== 'string')
+    || !isPositiveInteger(sale.price)
+    || !isPositiveInteger(sale.quantity)
+    || !isValidDate(sale.saleDate)
+    || !isValidInstant(sale.startsAt)
+    || !isValidInstant(sale.endsAt)
+    || typeof sale.status !== 'string' || !STATUSES.has(sale.status as BuyerSaleStatus)
+    || !Array.isArray(sale.images)
+    || sale.images.length < 1 || sale.images.length > 10
+    || !sale.images.every(isBuyerSaleProductImage)) return false
+
+  const images = sale.images as BuyerSaleProductImage[]
+  return images.filter(({ isRepresentative }) => isRepresentative).length === 1
+    && images.every((image, index) => index === 0 || images[index - 1].displayOrder <= image.displayOrder)
+}
+
 export async function fetchBuyerSales(
   saleDate: string,
   signal?: AbortSignal,
@@ -57,5 +93,16 @@ export async function fetchBuyerSales(
   const query = new URLSearchParams({ saleDate })
   const response = await requestApi<unknown>(`/api/sales?${query}`, { method: 'GET', signal }, options)
   if (!isBuyerSaleProductListResponse(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+  return response
+}
+
+export async function fetchBuyerSaleDetail(
+  saleId: number,
+  signal?: AbortSignal,
+  options?: ApiClientOptions,
+): Promise<BuyerSaleProductDetail> {
+  if (!isPositiveInteger(saleId)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+  const response = await requestApi<unknown>(`/api/sales/${saleId}`, { method: 'GET', signal }, options)
+  if (!isBuyerSaleProductDetail(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }

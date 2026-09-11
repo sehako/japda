@@ -18,6 +18,26 @@ export interface BuyerSaleProductListResponse {
   sales: BuyerSaleProduct[]
 }
 
+export interface BuyerSaleProductImage {
+  path: string
+  displayOrder: number
+  isRepresentative: boolean
+}
+
+export interface BuyerSaleProductDetail {
+  saleId: number
+  productId: number
+  name: string
+  description: string | null
+  price: number
+  quantity: number
+  saleDate: string
+  startsAt: string
+  endsAt: string
+  status: BuyerSaleStatus
+  images: BuyerSaleProductImage[]
+}
+
 export interface CalendarMonth {
   year: number
   month: number
@@ -102,6 +122,26 @@ export function formatKoreanPrice(price: number): string {
 
 export function getSaleStatusLabel(status: BuyerSaleStatus): string {
   return status === 'ON_SALE' ? 'LIVE' : status
+}
+
+export function parseBuyerSaleId(value: string | undefined): number | null {
+  if (!value || !/^[1-9]\d*$/.test(value)) return null
+  const saleId = Number(value)
+  return Number.isSafeInteger(saleId) ? saleId : null
+}
+
+export function formatKoreanSaleDateTime(value: string): string {
+  const parts = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: KOREAN_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(value))
+  const values = Object.fromEntries(parts.map(({ type, value: partValue }) => [type, partValue]))
+  return `${values.year}. ${values.month}. ${values.day}. ${values.hour}:${values.minute}`
 }
 
 export function buildProductImageUrl(baseUrl: string, relativePath: string): string | null {
