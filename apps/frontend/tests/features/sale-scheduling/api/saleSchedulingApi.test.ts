@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import { createSale, fetchReadyProducts } from '../../../../src/features/sale-scheduling/api/saleSchedulingApi.ts'
 import { ApiError } from '../../../../src/shared/api/apiClient.ts'
