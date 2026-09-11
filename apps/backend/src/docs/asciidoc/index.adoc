@@ -81,3 +81,13 @@ operation::buyer-sale-product-detail-id-invalid[snippets='http-request,http-resp
 === 판매 상품 없음
 
 operation::buyer-sale-product-detail-not-found[snippets='http-request,http-response,response-fields']
+
+== 구매자 주문 생성
+
+=== 성공
+
+operation::order-create[snippets='http-request,request-headers,request-fields,http-response,response-fields']
+
+=== 수령인 이름 오류
+
+operation::order-create-recipient-name-invalid[snippets='http-request,http-response,response-fields']

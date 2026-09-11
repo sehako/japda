@@ -6,4 +6,6 @@ interface SaleRepository {
 	fun save(sale: Sale): Sale
 
 	fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate): Boolean
+
+	fun findByIdForUpdate(id: Long): Sale?
 }

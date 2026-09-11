@@ -147,6 +147,8 @@ class SaleServiceTest {
 
         override fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate): Boolean = alreadyRegistered
 
+        override fun findByIdForUpdate(id: Long): Sale? = null
+
         private fun setId(sale: Sale, id: Long) {
             Sale::class.java.getDeclaredField("id").apply {
                 isAccessible = true
