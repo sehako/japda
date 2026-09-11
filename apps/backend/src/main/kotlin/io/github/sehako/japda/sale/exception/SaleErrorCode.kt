@@ -20,5 +20,7 @@ enum class SaleErrorCode(
 	SELLER_ALREADY_REGISTERED("SALE_SELLER_ALREADY_REGISTERED", "같은 판매일에 이미 판매 일정을 등록했습니다.", "sellerId", ErrorCategory.CONFLICT),
 	CAPACITY_EXCEEDED("SALE_CAPACITY_EXCEEDED", "판매일별 등록 정원을 초과했습니다.", "saleDate", ErrorCategory.CONFLICT),
 	DATE_OUT_OF_RANGE("SALE_DATE_OUT_OF_RANGE", "판매일은 내일까지 조회할 수 있습니다.", "saleDate"),
+	ID_INVALID("SALE_ID_INVALID", "판매 일정 식별자는 양수여야 합니다.", "saleId"),
+	NOT_FOUND("SALE_NOT_FOUND", "판매 상품을 찾을 수 없습니다.", "saleId", ErrorCategory.NOT_FOUND),
 	;
 }

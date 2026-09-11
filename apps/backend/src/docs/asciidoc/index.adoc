@@ -67,3 +67,17 @@ operation::buyer-sale-product-list-parameter-invalid[snippets='http-request,http
 === 판매일 조회 범위 초과
 
 operation::buyer-sale-product-list-date-out-of-range[snippets='http-request,http-response,response-fields']
+
+== 구매자 판매 상품 상세 조회
+
+=== 성공
+
+operation::buyer-sale-product-detail[snippets='http-request,path-parameters,http-response,response-fields']
+
+=== 판매 일정 식별자 오류
+
+operation::buyer-sale-product-detail-id-invalid[snippets='http-request,http-response,response-fields']
+
+=== 판매 상품 없음
+
+operation::buyer-sale-product-detail-not-found[snippets='http-request,http-response,response-fields']
