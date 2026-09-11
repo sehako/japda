@@ -391,13 +391,6 @@
         margin: 0;
       }
 
-      .product-reference {
-        display: block;
-        margin-top: 2px;
-        color: var(--steel);
-        font-size: 11px;
-      }
-
       .product-checkbox {
         width: 18px;
         height: 18px;
@@ -477,14 +470,7 @@
         font-weight: 600;
       }
 
-      .selected-reference {
-        margin: 4px 0 0;
-        color: var(--steel);
-        font-size: 12px;
-      }
-
-      .selected-product.is-empty .selected-name,
-      .selected-product.is-empty .selected-reference {
+      .selected-product.is-empty .selected-name {
         color: var(--faint-gray);
       }
 
@@ -792,7 +778,6 @@
               <div class="selected-product is-empty" id="selected-product">
                 <p class="selected-label">SELECTED PRODUCT</p>
                 <p class="selected-name" id="selected-name">선택된 상품이 없습니다.</p>
-                <p class="selected-reference" id="selected-reference"></p>
               </div>
             </section>
 
@@ -933,14 +918,7 @@
       ];
 
       function createMockProductPages(sort) {
-        const nameCounts = MOCK_PRODUCTS.reduce((counts, product) => {
-          counts.set(product.name, (counts.get(product.name) ?? 0) + 1);
-          return counts;
-        }, new Map());
-        const products = MOCK_PRODUCTS.map((product) => ({
-          ...product,
-          hasDuplicateName: nameCounts.get(product.name) > 1,
-        })).sort((left, right) => {
+        const products = [...MOCK_PRODUCTS].sort((left, right) => {
           if (sort === "oldest") return left.id - right.id;
           if (sort === "name-asc") return left.name < right.name ? -1 : left.name > right.name ? 1 : left.id - right.id;
           if (sort === "name-desc") return left.name > right.name ? -1 : left.name < right.name ? 1 : right.id - left.id;
@@ -964,7 +942,6 @@
       const nextButton = document.querySelector("#next-button");
       const selectedProduct = document.querySelector("#selected-product");
       const selectedName = document.querySelector("#selected-name");
-      const selectedReference = document.querySelector("#selected-reference");
       const saleDateInput = document.querySelector("#sale-date");
       const priceInput = document.querySelector("#price");
       const quantityInput = document.querySelector("#quantity");
@@ -1047,7 +1024,6 @@
         const product = findProduct(selectedProductValue);
         selectedProduct.classList.toggle("is-empty", !product);
         selectedName.textContent = product?.name ?? "선택된 상품이 없습니다.";
-        selectedReference.textContent = product?.hasDuplicateName ? `상품 #${product.id}` : "";
       }
 
       function renderProductPage() {
@@ -1077,16 +1053,10 @@
             checkbox.value = String(product.id);
             checkbox.checked = selectedProductValue === checkbox.value;
             checkbox.disabled = submitting;
-            checkbox.setAttribute("aria-label", `${product.name}${product.hasDuplicateName ? ` 상품 번호 ${product.id}` : ""} 선택`);
+            checkbox.setAttribute("aria-label", `${product.name} 선택`);
             checkCell.append(checkbox);
             name.textContent = product.name;
             nameCell.append(name);
-            if (product.hasDuplicateName) {
-              const reference = document.createElement("span");
-              reference.className = "product-reference";
-              reference.textContent = `상품 #${product.id}`;
-              nameCell.append(reference);
-            }
           });
           productPageStatus.textContent = `${currentPageIndex + 1}페이지 · ${page.items.length}개 상품`;
         }
@@ -1226,7 +1196,7 @@
         submitButton.textContent = "등록 중...";
 
         window.setTimeout(() => {
-          document.querySelector("#summary-product").textContent = `${selected.name}${selected.hasDuplicateName ? ` · 상품 #${selected.id}` : ""}`;
+          document.querySelector("#summary-product").textContent = selected.name;
           document.querySelector("#summary-date").textContent = formatKoreanDate(saleDateInput.value);
           document.querySelector("#summary-price").textContent = `${Number(priceInput.value).toLocaleString("ko-KR")}원`;
           document.querySelector("#summary-quantity").textContent = `${Number(quantityInput.value).toLocaleString("ko-KR")}개`;
