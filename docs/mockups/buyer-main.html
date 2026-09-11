@@ -1,0 +1,858 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JAPDA 구매자 메인</title>
+    <style>
+      :root {
+        --obsidian: #111111;
+        --paper-white: #ffffff;
+        --concrete-gray: #e5e5e5;
+        --soft-mist: #f5f5f5;
+        --steel: #707072;
+        --faint-gray: #9e9ea0;
+        --signal: #d92d20;
+        --font: Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        color-scheme: light;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        font-family: var(--font);
+        font-size: 14px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      button {
+        color: inherit;
+        font: inherit;
+      }
+
+      button:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
+      }
+
+      .topbar {
+        height: 72px;
+        border-bottom: 1px solid var(--concrete-gray);
+        background: var(--paper-white);
+      }
+
+      .topbar-inner {
+        width: min(100% - 64px, 1440px);
+        height: 100%;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .brand {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.04em;
+      }
+
+      .login-button {
+        min-width: 92px;
+        min-height: 42px;
+        padding: 0 22px;
+        border: 1px solid var(--obsidian);
+        border-radius: 30px;
+        color: var(--paper-white);
+        background: var(--obsidian);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      .login-button:hover {
+        opacity: 0.78;
+      }
+
+      .page {
+        width: min(100% - 64px, 1440px);
+        margin: 0 auto;
+        padding: 48px 0 96px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 3vw, 40px);
+        font-weight: 600;
+        line-height: 1.12;
+        letter-spacing: -0.04em;
+      }
+
+      .main-layout {
+        display: grid;
+        grid-template-columns: minmax(300px, 3fr) minmax(0, 7fr);
+        border-top: 1px solid var(--obsidian);
+      }
+
+      .calendar-panel {
+        padding: 40px 48px 72px 0;
+        border-right: 1px solid var(--concrete-gray);
+      }
+
+      .calendar-panel-inner {
+        position: sticky;
+        top: 32px;
+      }
+
+      .schedule-heading {
+        margin-bottom: 24px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: clamp(28px, 4vw, 44px);
+        font-weight: 600;
+        line-height: 1.12;
+        letter-spacing: -0.04em;
+      }
+
+      .calendar {
+        border-top: 1px solid var(--concrete-gray);
+        border-bottom: 1px solid var(--concrete-gray);
+      }
+
+      .calendar-header {
+        min-height: 64px;
+        display: grid;
+        grid-template-columns: 48px 1fr 48px;
+        align-items: center;
+        border-bottom: 1px solid var(--concrete-gray);
+      }
+
+      .month-title {
+        margin: 0;
+        text-align: center;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+      }
+
+      .month-button {
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .month-button:hover:not(:disabled) {
+        background: var(--soft-mist);
+      }
+
+      .month-button:disabled {
+        color: var(--faint-gray);
+        cursor: not-allowed;
+      }
+
+      .month-button svg {
+        display: block;
+        margin: auto;
+      }
+
+      .weekday-grid,
+      .day-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+      }
+
+      .weekday {
+        padding: 14px 4px 10px;
+        color: var(--steel);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-align: center;
+      }
+
+      .day-cell {
+        min-width: 0;
+        aspect-ratio: 1;
+        padding: 2px;
+      }
+
+      .day-button {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-height: 38px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .day-button:hover:not(:disabled):not(.is-selected) {
+        border-color: var(--obsidian);
+      }
+
+      .day-button.is-today {
+        border-color: var(--obsidian);
+      }
+
+      .day-button.is-selected {
+        color: var(--paper-white);
+        background: var(--obsidian);
+      }
+
+      .day-button:disabled {
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        cursor: not-allowed;
+      }
+
+      .products-section {
+        min-width: 0;
+        padding: 40px 0 96px 48px;
+      }
+
+      .products-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 32px;
+        margin-bottom: 28px;
+      }
+
+      .selected-date-label {
+        margin: 0 0 8px;
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+      }
+
+      .products-title {
+        font-size: clamp(26px, 3.5vw, 40px);
+      }
+
+      .product-count {
+        margin: 0 0 4px;
+        color: var(--steel);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        white-space: nowrap;
+      }
+
+      .product-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 36px 16px;
+      }
+
+      .product-card {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        border: 1px solid var(--concrete-gray);
+        background: var(--paper-white);
+      }
+
+      .product-image-wrap {
+        position: relative;
+        overflow: hidden;
+        aspect-ratio: 1;
+        background: var(--soft-mist);
+      }
+
+      .product-image {
+        width: 100%;
+        height: 100%;
+        display: block;
+        object-fit: cover;
+      }
+
+      .product-image-wrap.has-error .product-image {
+        display: none;
+      }
+
+      .image-fallback {
+        position: absolute;
+        inset: 0;
+        display: none;
+        place-items: center;
+        color: var(--faint-gray);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+      }
+
+      .product-image-wrap.has-error .image-fallback {
+        display: grid;
+      }
+
+      .product-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+      }
+
+      .status {
+        width: fit-content;
+        min-height: 24px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 14px;
+        padding: 2px 9px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 30px;
+        color: var(--steel);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+      }
+
+      .status.is-live {
+        border-color: color-mix(in srgb, var(--signal) 28%, white);
+        color: var(--signal);
+      }
+
+      .status.is-live::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--signal);
+      }
+
+      .status.is-ended {
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+      }
+
+      .product-name {
+        min-height: 48px;
+        margin: 0;
+        display: -webkit-box;
+        overflow: hidden;
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 1.5;
+        letter-spacing: -0.015em;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+
+      .product-price {
+        margin: auto 0 0;
+        padding-top: 12px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .list-state {
+        min-height: 360px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-top: 1px solid var(--concrete-gray);
+        border-bottom: 1px solid var(--concrete-gray);
+        text-align: center;
+      }
+
+      .state-title {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .loading-mark {
+        width: 24px;
+        height: 24px;
+        margin: 0 auto 16px;
+        border: 1px solid var(--concrete-gray);
+        border-top-color: var(--obsidian);
+        border-radius: 50%;
+        animation: rotate 0.8s linear infinite;
+      }
+
+      .retry-button {
+        min-height: 42px;
+        margin-top: 20px;
+        padding: 0 20px;
+        border: 1px solid var(--obsidian);
+        border-radius: 30px;
+        color: var(--paper-white);
+        background: var(--obsidian);
+        cursor: pointer;
+      }
+
+      .retry-button:hover {
+        opacity: 0.78;
+      }
+
+      @keyframes rotate {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .loading-mark {
+          animation: none;
+          border-top-color: var(--concrete-gray);
+          border-right-color: var(--obsidian);
+        }
+      }
+
+      @media (max-width: 980px) {
+        .main-layout {
+          grid-template-columns: minmax(260px, 3fr) minmax(0, 7fr);
+        }
+
+        .calendar-panel {
+          padding-right: 28px;
+        }
+
+        .products-section {
+          padding-left: 28px;
+        }
+
+        .product-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 720px) {
+        .topbar {
+          height: 64px;
+        }
+
+        .topbar-inner {
+          width: min(100% - 40px, 100%);
+        }
+
+        .page {
+          width: min(100% - 40px, 100%);
+          padding: 32px 0 64px;
+        }
+
+        .main-layout {
+          display: block;
+        }
+
+        .calendar-panel {
+          padding: 28px 0 48px;
+          border-right: 0;
+          border-bottom: 1px solid var(--obsidian);
+        }
+
+        .calendar-panel-inner {
+          position: static;
+        }
+
+        .schedule-heading {
+          margin-bottom: 32px;
+        }
+
+        .calendar-header {
+          min-height: 62px;
+        }
+
+        .day-cell {
+          padding: 2px;
+        }
+
+        .products-section {
+          padding: 48px 0 64px;
+        }
+
+        .product-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 24px 10px;
+        }
+
+        .product-info {
+          padding: 12px;
+        }
+
+      }
+
+      @media (max-width: 420px) {
+        .page,
+        .topbar-inner {
+          width: min(100% - 28px, 100%);
+        }
+
+        .login-button {
+          min-width: 80px;
+          min-height: 40px;
+          padding: 0 18px;
+        }
+
+        .day-cell {
+          aspect-ratio: 1;
+          padding: 1px;
+        }
+
+        .day-button {
+          min-height: 40px;
+          font-size: 12px;
+        }
+
+        .products-heading {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .product-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .product-name {
+          min-height: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand" aria-label="JAPDA 홈">JAPDA</span>
+        <button class="login-button" type="button">로그인</button>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="main-layout">
+        <section class="calendar-panel" aria-labelledby="schedule-title">
+          <div class="calendar-panel-inner">
+            <header class="schedule-heading">
+              <h1 id="schedule-title">판매 일정</h1>
+            </header>
+
+            <div class="calendar" aria-label="상품 판매 일정 달력">
+              <div class="calendar-header">
+                <button class="month-button" id="previous-month" type="button" aria-label="이전 달">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                    <path d="M11.25 3.75 6 9l5.25 5.25" stroke="currentColor" stroke-width="1.5" />
+                  </svg>
+                </button>
+                <p class="month-title" id="month-title" aria-live="polite"></p>
+                <button class="month-button" id="next-month" type="button" aria-label="다음 달">
+                  <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+                    <path d="M6.75 3.75 12 9l-5.25 5.25" stroke="currentColor" stroke-width="1.5" />
+                  </svg>
+                </button>
+              </div>
+              <div class="weekday-grid" aria-hidden="true">
+                <span class="weekday">일</span>
+                <span class="weekday">월</span>
+                <span class="weekday">화</span>
+                <span class="weekday">수</span>
+                <span class="weekday">목</span>
+                <span class="weekday">금</span>
+                <span class="weekday">토</span>
+              </div>
+              <div class="day-grid" id="day-grid" role="group" aria-labelledby="month-title"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="products-section" aria-labelledby="products-title">
+          <header class="products-heading">
+            <div>
+              <p class="selected-date-label" id="selected-date-label"></p>
+              <h2 class="products-title" id="products-title">오늘의 상품</h2>
+            </div>
+            <p class="product-count" id="product-count" aria-live="polite"></p>
+          </header>
+          <div id="product-content" aria-live="polite" aria-busy="false"></div>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const PRODUCT_CATALOG = [
+        {
+          name: "JAPDA × ORBIT 레더 스니커즈",
+          price: 189000,
+          image: "https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "아카이브 크로노그래프 워치",
+          price: 248000,
+          image: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "스튜디오 오버이어 헤드폰",
+          price: 159000,
+          image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "에디션 01 필름 카메라",
+          price: 319000,
+          image: "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "클래식 아세테이트 선글라스",
+          price: 128000,
+          image: "https://images.unsplash.com/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "시그니처 캔버스 데이백",
+          price: 98000,
+          image: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "넘버링 로우 스니커즈",
+          price: 139000,
+          image: "https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=900&q=85",
+        },
+        {
+          name: "오브제 테이블 램프",
+          price: 87000,
+          image: "https://images.unsplash.com/photo-1507473885765-e6ed057f782c?auto=format&fit=crop&w=900&q=85",
+        },
+      ];
+
+      const monthTitle = document.querySelector("#month-title");
+      const dayGrid = document.querySelector("#day-grid");
+      const previousMonthButton = document.querySelector("#previous-month");
+      const nextMonthButton = document.querySelector("#next-month");
+      const selectedDateLabel = document.querySelector("#selected-date-label");
+      const productsTitle = document.querySelector("#products-title");
+      const productCount = document.querySelector("#product-count");
+      const productContent = document.querySelector("#product-content");
+
+      function getKstDateKey(date = new Date()) {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Seoul",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }).formatToParts(date);
+        const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+        return `${values.year}-${values.month}-${values.day}`;
+      }
+
+      function addDays(dateKey, amount) {
+        const [year, month, day] = dateKey.split("-").map(Number);
+        return new Date(Date.UTC(year, month - 1, day + amount)).toISOString().slice(0, 10);
+      }
+
+      function parseDateKey(dateKey) {
+        const [year, month, day] = dateKey.split("-").map(Number);
+        return { year, month: month - 1, day };
+      }
+
+      function createDateKey(year, month, day) {
+        return new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
+      }
+
+      function formatKoreanDate(dateKey) {
+        const { year, month, day } = parseDateKey(dateKey);
+        return `${year}년 ${month + 1}월 ${day}일`;
+      }
+
+      function formatMonth(year, month) {
+        return `${year}년 ${month + 1}월`;
+      }
+
+      const today = getKstDateKey();
+      const tomorrow = addDays(today, 1);
+      const yesterday = addDays(today, -1);
+      const twoDaysAgo = addDays(today, -2);
+      const todayParts = parseDateKey(today);
+
+      const MOCK_SALES = {
+        [today]: PRODUCT_CATALOG.slice(0, 6).map((product) => ({ ...product, status: "ON_SALE" })),
+        [tomorrow]: PRODUCT_CATALOG.slice(2, 6).map((product) => ({ ...product, status: "UPCOMING" })),
+        [yesterday]: PRODUCT_CATALOG.slice(4, 8).map((product) => ({ ...product, status: "ENDED" })),
+        [twoDaysAgo]: PRODUCT_CATALOG.slice(0, 3).map((product) => ({ ...product, status: "ENDED" })),
+      };
+
+      let selectedDate = today;
+      let visibleYear = todayParts.year;
+      let visibleMonth = todayParts.month;
+      let renderRequestId = 0;
+      let mockErrorPending = new URLSearchParams(window.location.search).get("state") === "error";
+
+      function canMoveToNextMonth() {
+        const nextMonthStart = createDateKey(visibleYear, visibleMonth + 1, 1);
+        return nextMonthStart <= tomorrow;
+      }
+
+      function moveMonth(amount) {
+        const next = new Date(Date.UTC(visibleYear, visibleMonth + amount, 1));
+        visibleYear = next.getUTCFullYear();
+        visibleMonth = next.getUTCMonth();
+        renderCalendar();
+      }
+
+      function renderCalendar() {
+        monthTitle.textContent = formatMonth(visibleYear, visibleMonth);
+        dayGrid.replaceChildren();
+
+        const firstWeekday = new Date(Date.UTC(visibleYear, visibleMonth, 1)).getUTCDay();
+        const daysInMonth = new Date(Date.UTC(visibleYear, visibleMonth + 1, 0)).getUTCDate();
+        const cellCount = Math.ceil((firstWeekday + daysInMonth) / 7) * 7;
+
+        for (let index = 0; index < cellCount; index += 1) {
+          const cell = document.createElement("div");
+          cell.className = "day-cell";
+          const day = index - firstWeekday + 1;
+
+          if (day >= 1 && day <= daysInMonth) {
+            const dateKey = createDateKey(visibleYear, visibleMonth, day);
+            const button = document.createElement("button");
+            const isToday = dateKey === today;
+            const isSelected = dateKey === selectedDate;
+
+            button.className = "day-button";
+            button.type = "button";
+            button.textContent = String(day);
+            button.disabled = dateKey > tomorrow;
+            button.setAttribute("aria-label", `${formatKoreanDate(dateKey)}${isToday ? ", 오늘" : ""}`);
+            button.setAttribute("aria-pressed", String(isSelected));
+            button.classList.toggle("is-today", isToday);
+            button.classList.toggle("is-selected", isSelected);
+            button.addEventListener("click", () => selectDate(dateKey));
+            cell.append(button);
+          }
+
+          dayGrid.append(cell);
+        }
+
+        nextMonthButton.disabled = !canMoveToNextMonth();
+      }
+
+      function getTitleForDate(dateKey) {
+        if (dateKey === today) return "오늘의 상품";
+        if (dateKey === tomorrow) return "내일의 상품";
+        return "판매 상품";
+      }
+
+      function renderLoading() {
+        productContent.setAttribute("aria-busy", "true");
+        productContent.innerHTML = `
+          <div class="list-state">
+            <div>
+              <div class="loading-mark" aria-hidden="true"></div>
+              <p class="state-title">상품을 불러오는 중입니다.</p>
+            </div>
+          </div>
+        `;
+        productCount.textContent = "";
+      }
+
+      function renderEmpty() {
+        productContent.setAttribute("aria-busy", "false");
+        productContent.innerHTML = `
+          <div class="list-state">
+            <div>
+              <p class="state-title">선택한 날짜에 판매 상품이 없습니다.</p>
+            </div>
+          </div>
+        `;
+        productCount.textContent = "";
+      }
+
+      function renderError() {
+        productContent.setAttribute("aria-busy", "false");
+        productContent.innerHTML = `
+          <div class="list-state" role="alert">
+            <div>
+              <p class="state-title">상품을 불러오지 못했습니다.</p>
+              <button class="retry-button" id="retry-button" type="button">다시 시도</button>
+            </div>
+          </div>
+        `;
+        productCount.textContent = "";
+        document.querySelector("#retry-button").addEventListener("click", () => renderProducts(selectedDate));
+      }
+
+      function renderProductGrid(products) {
+        const grid = document.createElement("div");
+        grid.className = "product-grid";
+
+        products.forEach((product) => {
+          const card = document.createElement("article");
+          const statusClass = product.status === "ON_SALE" ? "is-live" : product.status === "ENDED" ? "is-ended" : "";
+          const statusLabel = product.status === "ON_SALE" ? "LIVE" : product.status;
+
+          card.className = "product-card";
+          card.innerHTML = `
+            <div class="product-image-wrap">
+              <img class="product-image" src="${product.image}" alt="${product.name}" loading="lazy" />
+              <span class="image-fallback" aria-hidden="true"></span>
+            </div>
+            <div class="product-info">
+              <span class="status ${statusClass}">${statusLabel}</span>
+              <h3 class="product-name">${product.name}</h3>
+              <p class="product-price">${product.price.toLocaleString("ko-KR")}원</p>
+            </div>
+          `;
+          card.querySelector("img").addEventListener("error", (event) => {
+            event.currentTarget.closest(".product-image-wrap").classList.add("has-error");
+          });
+          grid.append(card);
+        });
+
+        productContent.setAttribute("aria-busy", "false");
+        productContent.replaceChildren(grid);
+        productCount.textContent = `상품 ${products.length}개`;
+      }
+
+      function renderProducts(dateKey) {
+        const requestId = ++renderRequestId;
+        selectedDateLabel.textContent = formatKoreanDate(dateKey);
+        productsTitle.textContent = getTitleForDate(dateKey);
+        renderLoading();
+
+        window.setTimeout(() => {
+          if (requestId !== renderRequestId) return;
+          if (mockErrorPending) {
+            mockErrorPending = false;
+            renderError();
+            return;
+          }
+          const products = MOCK_SALES[dateKey] ?? [];
+          if (products.length === 0) {
+            renderEmpty();
+            return;
+          }
+          renderProductGrid(products);
+        }, 380);
+      }
+
+      function selectDate(dateKey) {
+        if (dateKey === selectedDate || dateKey > tomorrow) return;
+        selectedDate = dateKey;
+        renderCalendar();
+        renderProducts(dateKey);
+      }
+
+      previousMonthButton.addEventListener("click", () => moveMonth(-1));
+      nextMonthButton.addEventListener("click", () => {
+        if (canMoveToNextMonth()) moveMonth(1);
+      });
+
+      renderCalendar();
+      renderProducts(selectedDate);
+    </script>
+  </body>
+</html>
