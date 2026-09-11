@@ -2,18 +2,29 @@
 
 ## 기본 구조
 
-패키지는 기능 또는 도메인 단위로 구성한다.
+패키지는 기능 또는 도메인 단위로 구성하고, 각 계층 내부는 역할 또는 구체적인 책임별 하위 패키지로 나눈다. [ADR-016](decisions/ADR-016-backend-role-based-package-structure.md)을 따른다.
 
 각 도메인은 필요에 따라 다음 계층을 가진다.
 
 {domain}
 ├── presentation
+│   ├── controller
+│   ├── request
+│   └── serializer
 ├── application
+│   ├── service
+│   ├── dto
+│   └── response
 ├── domain
+│   ├── model
+│   └── repository
 ├── infrastructure
-└── util
+│   └── persistence
+└── exception
 
-필요하지 않은 계층이나 패키지는 미리 만들지 않는다.
+역할별 하위 패키지는 클래스나 파일 수와 관계없이 사용한다. 단일 파일이라는 이유로 계층 패키지 바로 아래에 배치하지 않는다. 실제 파일이 생길 때만 패키지를 만들며 빈 패키지는 미리 만들지 않는다.
+
+도메인 내부에 별도의 기능 경계가 필요하면 `{domain}/{layer}/{feature}/{role}` 순서로 구성한다. `util`, `helper`, `common`처럼 범위가 불명확한 패키지는 사용하지 않고 `cursor`, `serializer`, `config`처럼 구체적인 책임이 드러나는 이름을 사용한다.
 
 기능별 예외는 `{domain}/exception`에 둔다. Spring에 의존하지 않는 공통 예외 추상화는 `global/exception`에 두고, Spring `ProblemDetail`을 사용하는 HTTP 오류 변환은 `global/error`에 둔다.
 
@@ -52,10 +63,6 @@ domain → {domain}.exception → global.exception
 - Spring Data JPA, QueryDSL, Redis, PG, Kafka 등 기술 구현
 - Domain Repository Interface 구현
 - 외부 시스템 Client 구현
-
-### util
-- 해당 도메인의 단순 보조 기능만 관리
-- 비즈니스 규칙 작성 금지
 
 ## DTO 규칙
 
@@ -129,6 +136,7 @@ HTTP Request
 - 테스트 클래스와 메서드에 @DisplayName을 사용한다.
 - 테스트 메서드 이름은 한글로 작성한다.
 - 형식은 `동작_기대결과`를 기본으로 한다.
+- 테스트 코드는 대상 프로덕션 코드의 패키지를 따른다. 여러 계층을 함께 검증하는 통합 테스트는 해당 도메인 패키지에 둘 수 있다.
 - Domain Test는 가능하면 Spring Context 없이 작성한다.
 - Persistence Test는 PostgreSQL Testcontainers 사용을 우선한다.
 
@@ -153,5 +161,5 @@ Repository 구현체: {Domain}RepositoryImpl
 - application에서 JpaRepository 직접 사용
 - 무분별한 @OneToMany / 양방향 연관관계 / CascadeType.ALL
 - 패턴을 맞추기 위한 불필요한 Interface, Mapper, Facade 생성
-- 비즈니스 규칙을 util에 작성
+- `util`, `helper`, `common`처럼 책임이 불명확한 패키지 생성
 - 도메인 규칙·프로토콜·설정의 의미를 가진 문자열과 숫자 리터럴은 코드에 직접 작성하지 않고, 의도가 드러나는 이름의 상수 또는 설정값으로 관리한다.
