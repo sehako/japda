@@ -27,6 +27,8 @@ class SaleRepositoryImpl(
 	override fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate): Boolean =
 		saleJpaRepository.existsBySellerIdAndSaleDate(sellerId, saleDate)
 
+	override fun findByIdForUpdate(id: Long): Sale? = saleJpaRepository.findByIdForUpdate(id)
+
 	private companion object {
 		const val SELLER_SALE_DATE_UNIQUE_CONSTRAINT = "sales_seller_sale_date_unique"
 	}
