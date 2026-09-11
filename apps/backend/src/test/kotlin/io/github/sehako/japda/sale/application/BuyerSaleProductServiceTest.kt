@@ -1,6 +1,7 @@
 package io.github.sehako.japda.sale.application
 
 import io.github.sehako.japda.sale.domain.BuyerSaleProductQueryRepository
+import io.github.sehako.japda.sale.domain.BuyerSaleProductDetailQueryResult
 import io.github.sehako.japda.sale.domain.BuyerSaleProductQueryResult
 import io.github.sehako.japda.sale.exception.SaleErrorCode
 import io.github.sehako.japda.sale.exception.SaleException
@@ -102,5 +103,7 @@ class BuyerSaleProductServiceTest {
             requestedDates += saleDate
             return results
         }
+
+		override fun findDetailBySaleId(saleId: Long): BuyerSaleProductDetailQueryResult? = null
     }
 }

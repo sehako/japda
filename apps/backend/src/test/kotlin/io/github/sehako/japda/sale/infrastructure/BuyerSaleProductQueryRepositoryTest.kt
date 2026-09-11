@@ -98,6 +98,76 @@ class BuyerSaleProductQueryRepositoryTest {
 		assertEquals(1L, statistics.prepareStatementCount)
 	}
 
+	@Test
+	@DisplayName("판매 상품 상세는 모든 이미지를 표시 순서와 대표 여부대로 조립한다")
+	fun 판매_상품_상세_모든_이미지를_표시_순서와_대표_여부대로_조립한다() {
+		val productId = insertProduct("상세 상품", null)
+		val otherProductId = insertProduct("다른 상품", "다른 설명")
+		insertImage(productId, "products/$productId/request/second", false, 1)
+		insertImage(otherProductId, "products/$otherProductId/request/other", true, 0)
+		insertImage(productId, "products/$productId/request/first", true, 0)
+		val saleId = insertSale(productId, 1L, SALE_DATE, 35_000L, 100, CREATED_AT)
+		insertSale(otherProductId, 2L, SALE_DATE, 20_000L, 10, CREATED_AT)
+
+		val result = repository.findDetailBySaleId(saleId)!!
+
+		assertEquals(saleId, result.saleId)
+		assertEquals(productId, result.productId)
+		assertEquals("상세 상품", result.name)
+		assertNull(result.description)
+		assertEquals(35_000L, result.price)
+		assertEquals(100, result.quantity)
+		assertEquals(SALE_DATE, result.saleDate)
+		assertEquals(listOf(0, 1), result.images.map { it.displayOrder })
+		assertEquals(listOf(true, false), result.images.map { it.isRepresentative })
+		assertEquals(
+			listOf("products/$productId/request/first", "products/$productId/request/second"),
+			result.images.map { it.objectKey },
+		)
+	}
+
+	@Test
+	@DisplayName("이미지가 한 장과 열 장인 판매 상품 상세를 모두 조회한다")
+	fun 이미지가_한장과_열장인_판매_상품_상세를_모두_조회한다() {
+		val oneImageProductId = insertProduct("한 장 상품", "설명")
+		val tenImageProductId = insertProduct("열 장 상품", "설명")
+		insertImage(oneImageProductId, "products/$oneImageProductId/request/0", true, 0)
+		repeat(10) { displayOrder ->
+			insertImage(
+				tenImageProductId,
+				"products/$tenImageProductId/request/$displayOrder",
+				displayOrder == 5,
+				displayOrder,
+			)
+		}
+		val oneImageSaleId = insertSale(oneImageProductId, 1L, SALE_DATE, 10_000L, 1, CREATED_AT)
+		val tenImageSaleId = insertSale(tenImageProductId, 2L, SALE_DATE, 20_000L, 10, CREATED_AT)
+
+		assertEquals(1, repository.findDetailBySaleId(oneImageSaleId)!!.images.size)
+		assertEquals((0..9).toList(), repository.findDetailBySaleId(tenImageSaleId)!!.images.map { it.displayOrder })
+	}
+
+	@Test
+	@DisplayName("존재하지 않는 판매 일정 상세는 null을 반환한다")
+	fun 존재하지_않는_판매_일정_상세_null을_반환한다() {
+		assertNull(repository.findDetailBySaleId(Long.MAX_VALUE))
+	}
+
+	@Test
+	@DisplayName("판매 상품 상세를 한 번의 join 쿼리로 조회한다")
+	fun 판매_상품_상세_한번의_join_쿼리로_조회한다() {
+		val productId = insertProduct("상품", "설명")
+		insertImage(productId, "products/$productId/request/representative", true, 0)
+		val saleId = insertSale(productId, 1L, SALE_DATE, 35_000L, 100, CREATED_AT)
+		val statistics = sessionFactory.statistics
+		statistics.clear()
+
+		val result = repository.findDetailBySaleId(saleId)
+
+		assertEquals(saleId, result?.saleId)
+		assertEquals(1L, statistics.prepareStatementCount)
+	}
+
 	private fun insertProduct(name: String, description: String?): Long = jdbcTemplate.queryForObject(
 		"INSERT INTO products (seller_id, name, description, status, created_at) VALUES (?, ?, ?, 'READY', ?) RETURNING id",
 		Long::class.java,

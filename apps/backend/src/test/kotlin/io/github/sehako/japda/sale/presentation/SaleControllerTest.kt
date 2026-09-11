@@ -3,6 +3,8 @@ package io.github.sehako.japda.sale.presentation
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.sale.application.BuyerSaleProductListResponse
+import io.github.sehako.japda.sale.application.BuyerSaleProductDetailImageResponse
+import io.github.sehako.japda.sale.application.BuyerSaleProductDetailResponse
 import io.github.sehako.japda.sale.application.BuyerSaleProductResponse
 import io.github.sehako.japda.sale.application.BuyerSaleStatus
 import io.github.sehako.japda.sale.application.CreateSaleDto
@@ -37,6 +39,7 @@ import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
 import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
+import org.springframework.restdocs.request.RequestDocumentation.pathParameters
 import org.springframework.restdocs.request.RequestDocumentation.queryParameters
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.ResultActions
@@ -234,6 +237,113 @@ class SaleControllerTest {
 
 		assertInvalidSaleListRequest("2026-09-12", "SALE_DATE_OUT_OF_RANGE", "saleDate", "판매일은 내일까지 조회할 수 있습니다.")
 			.andDo(documentBuyerSaleListError("buyer-sale-product-list-date-out-of-range", true))
+	}
+
+	@Test
+	@DisplayName("판매 상품 상세를 헤더 없이 공개 조회하고 문서화한다")
+	fun 판매_상품_상세를_헤더_없이_공개_조회하고_문서화한다() {
+		val saleId = 100L
+		`when`(saleService.findBuyerSaleProductDetail(saleId)).thenReturn(
+			BuyerSaleProductDetailResponse(
+				saleId = saleId,
+				productId = 42L,
+				name = "한정판 상품",
+				description = null,
+				price = 35_000L,
+				quantity = 100,
+				saleDate = LocalDate.parse("2026-09-10"),
+				startsAt = Instant.parse("2026-09-09T15:00:00Z"),
+				endsAt = Instant.parse("2026-09-10T15:00:00Z"),
+				status = BuyerSaleStatus.ENDED,
+				images = listOf(
+					BuyerSaleProductDetailImageResponse("/products/42/request/image-a", 0, true),
+					BuyerSaleProductDetailImageResponse("/products/42/request/image-b", 1, false),
+				),
+			),
+		)
+
+		mockMvc.perform(get("/api/sales/{saleId}", saleId))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.saleId").value(100))
+			.andExpect(jsonPath("$.productId").value(42))
+			.andExpect(jsonPath("$.name").value("한정판 상품"))
+			.andExpect(jsonPath("$.description").value(null))
+			.andExpect(jsonPath("$.price").value(35000))
+			.andExpect(jsonPath("$.quantity").value(100))
+			.andExpect(jsonPath("$.saleDate").value("2026-09-10"))
+			.andExpect(jsonPath("$.startsAt").value("2026-09-09T15:00:00Z"))
+			.andExpect(jsonPath("$.endsAt").value("2026-09-10T15:00:00Z"))
+			.andExpect(jsonPath("$.status").value("ENDED"))
+			.andExpect(jsonPath("$.images[0].path").value("/products/42/request/image-a"))
+			.andExpect(jsonPath("$.images[0].displayOrder").value(0))
+			.andExpect(jsonPath("$.images[0].isRepresentative").value(true))
+			.andExpect(jsonPath("$.images[1].path").value("/products/42/request/image-b"))
+			.andExpect(jsonPath("$.images[1].displayOrder").value(1))
+			.andExpect(jsonPath("$.images[1].isRepresentative").value(false))
+			.andDo(
+				document(
+					"buyer-sale-product-detail",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					pathParameters(parameterWithName("saleId").description("판매 일정 식별자")),
+					responseFields(
+						fieldWithPath("saleId").description("판매 일정 식별자"),
+						fieldWithPath("productId").description("상품 식별자"),
+						fieldWithPath("name").description("상품명"),
+						fieldWithPath("description").description("상품 설명").optional(),
+						fieldWithPath("price").description("원화 기준 판매 가격"),
+						fieldWithPath("quantity").description("최초 판매 수량"),
+						fieldWithPath("saleDate").description("Asia/Seoul 기준 판매일"),
+						fieldWithPath("startsAt").description("판매 시작 시각"),
+						fieldWithPath("endsAt").description("판매 종료 시각"),
+						fieldWithPath("status").description("판매 상태"),
+						fieldWithPath("images").description("표시 순서로 정렬된 전체 상품 이미지"),
+						fieldWithPath("images[].path").description("이미지 상대 경로"),
+						fieldWithPath("images[].displayOrder").description("이미지 표시 순서"),
+						fieldWithPath("images[].isRepresentative").description("대표 이미지 여부"),
+					),
+				),
+			)
+
+		verify(saleService).findBuyerSaleProductDetail(saleId)
+	}
+
+	@Test
+	@DisplayName("판매 일정 식별자가 Long 형식이 아니면 공통 요청 파라미터 오류를 반환한다")
+	fun 판매_일정_식별자가_Long_형식이_아님_공통_요청_파라미터_오류를_반환한다() {
+		assertInvalidSaleDetailRequest(
+			saleId = "9223372036854775808",
+			expectedCode = "COMMON_REQUEST_PARAMETER_INVALID",
+			expectedStatus = 400,
+		)
+	}
+
+	@Test
+	@DisplayName("판매 일정 식별자가 양수가 아니면 식별자 오류를 반환하고 문서화한다")
+	fun 판매_일정_식별자가_양수가_아님_식별자_오류를_반환하고_문서화한다() {
+		`when`(saleService.findBuyerSaleProductDetail(0L)).thenThrow(SaleException(SaleErrorCode.ID_INVALID))
+
+		assertInvalidSaleDetailRequest(
+			saleId = "0",
+			expectedCode = "SALE_ID_INVALID",
+			expectedStatus = 400,
+			expectedProperty = "saleId",
+			expectedMessage = "판매 일정 식별자는 양수여야 합니다.",
+		).andDo(documentBuyerSaleDetailError("buyer-sale-product-detail-id-invalid"))
+	}
+
+	@Test
+	@DisplayName("판매 일정이 존재하지 않으면 판매 상품 없음 오류를 반환하고 문서화한다")
+	fun 판매_일정이_존재하지_않음_판매_상품_없음_오류를_반환하고_문서화한다() {
+		`when`(saleService.findBuyerSaleProductDetail(999L)).thenThrow(SaleException(SaleErrorCode.NOT_FOUND))
+
+		assertInvalidSaleDetailRequest(
+			saleId = "999",
+			expectedCode = "SALE_NOT_FOUND",
+			expectedStatus = 404,
+			expectedProperty = "saleId",
+			expectedMessage = "판매 상품을 찾을 수 없습니다.",
+		).andDo(documentBuyerSaleDetailError("buyer-sale-product-detail-not-found"))
 	}
 
 	@Test
@@ -446,6 +556,42 @@ class SaleControllerTest {
 			responseFields(fields),
 		)
 	}
+
+	private fun assertInvalidSaleDetailRequest(
+		saleId: String,
+		expectedCode: String,
+		expectedStatus: Int,
+		expectedProperty: String? = null,
+		expectedMessage: String? = null,
+	): ResultActions {
+		val result = mockMvc.perform(get("/api/sales/{saleId}", saleId))
+			.andExpect(status().`is`(expectedStatus))
+			.andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+			.andExpect(jsonPath("$.type").value("about:blank"))
+			.andExpect(jsonPath("$.status").value(expectedStatus))
+			.andExpect(jsonPath("$.instance").value("/api/sales/$saleId"))
+			.andExpect(jsonPath("$.code").value(expectedCode))
+
+		if (expectedProperty != null && expectedMessage != null) {
+			result.andExpect(jsonPath("$.errors.$expectedProperty").value(expectedMessage))
+		}
+		return result
+	}
+
+	private fun documentBuyerSaleDetailError(identifier: String): RestDocumentationResultHandler = document(
+		identifier,
+		preprocessRequest(prettyPrint()),
+		preprocessResponse(prettyPrint()),
+		responseFields(
+			fieldWithPath("type").description("오류 유형 URI"),
+			fieldWithPath("title").description("오류 제목"),
+			fieldWithPath("status").description("HTTP 상태 코드"),
+			fieldWithPath("detail").description("오류 설명"),
+			fieldWithPath("instance").description("오류가 발생한 요청 경로"),
+			fieldWithPath("code").description("안정적인 오류 코드"),
+			fieldWithPath("errors.saleId").description("판매 일정 식별자 오류 메시지"),
+		),
+	)
 
 	private companion object {
 		const val validRequestBody =

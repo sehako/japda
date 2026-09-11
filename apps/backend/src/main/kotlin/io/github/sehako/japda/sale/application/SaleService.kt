@@ -1,6 +1,7 @@
 package io.github.sehako.japda.sale.application
 
 import io.github.sehako.japda.sale.domain.BuyerSaleProductQueryRepository
+import io.github.sehako.japda.sale.domain.BuyerSaleProductDetailQueryResult
 import io.github.sehako.japda.sale.domain.BuyerSaleProductQueryResult
 import io.github.sehako.japda.sale.domain.Sale
 import io.github.sehako.japda.sale.exception.SaleErrorCode
@@ -37,6 +38,15 @@ class SaleService(
 		return BuyerSaleProductListResponse(sales)
 	}
 
+	@Transactional(readOnly = true)
+	fun findBuyerSaleProductDetail(saleId: Long): BuyerSaleProductDetailResponse {
+		if (saleId <= 0) throw SaleException(SaleErrorCode.ID_INVALID)
+		val result = requireNotNull(buyerSaleProductQueryRepository)
+			.findDetailBySaleId(saleId)
+			?: throw SaleException(SaleErrorCode.NOT_FOUND)
+		return result.toResponse(clock.instant())
+	}
+
 	private fun BuyerSaleProductQueryResult.toResponse(now: Instant): BuyerSaleProductResponse {
 		val startsAt = Sale.startsAt(saleDate)
 		val endsAt = Sale.endsAt(saleDate)
@@ -57,6 +67,35 @@ class SaleService(
 			endsAt = endsAt,
 			status = status,
 			representativeImagePath = "/$representativeImageObjectKey",
+		)
+	}
+
+	private fun BuyerSaleProductDetailQueryResult.toResponse(now: Instant): BuyerSaleProductDetailResponse {
+		val startsAt = Sale.startsAt(saleDate)
+		val endsAt = Sale.endsAt(saleDate)
+		val status = when {
+			now < startsAt -> BuyerSaleStatus.UPCOMING
+			now < endsAt -> BuyerSaleStatus.ON_SALE
+			else -> BuyerSaleStatus.ENDED
+		}
+		return BuyerSaleProductDetailResponse(
+			saleId = saleId,
+			productId = productId,
+			name = name,
+			description = description,
+			price = price,
+			quantity = quantity,
+			saleDate = saleDate,
+			startsAt = startsAt,
+			endsAt = endsAt,
+			status = status,
+			images = images.map {
+				BuyerSaleProductDetailImageResponse(
+					path = "/${it.objectKey}",
+					displayOrder = it.displayOrder,
+					isRepresentative = it.isRepresentative,
+				)
+			},
 		)
 	}
 
