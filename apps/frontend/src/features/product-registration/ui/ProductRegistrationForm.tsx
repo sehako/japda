@@ -9,12 +9,13 @@ export interface ProductRegistrationFormProps {
   name: string; description: string; images: ProductRegistrationImage[]; representativeIndex: number | null
   submissionStage: ProductRegistrationStage; fieldErrors?: ProductRegistrationFieldErrors; formError?: string; createdProductId?: number | null
   onNameChange: (value: string) => void; onDescriptionChange: (value: string) => void; onImagesAdd: (files: File[]) => void
-  onImageRemove: (index: number) => void; onRepresentativeSelect: (index: number) => void; onSubmit: () => void; onCancel: () => void; onStartNew: () => void
+  onImageRemove: (index: number) => void; onRepresentativeSelect: (index: number) => void; onSubmit: () => void; onCancel: () => void
+  onScheduleSale: () => void; onStartNew: () => void
 }
 
 const SUBMISSION_MESSAGES: Partial<Record<ProductRegistrationStage, string>> = { 'creating-product': '상품 정보를 저장하는 중', 'registering-images': '이미지를 등록하는 중' }
 
-export function ProductRegistrationForm({ name, description, images, representativeIndex, submissionStage, fieldErrors = {}, formError, createdProductId, onNameChange, onDescriptionChange, onImagesAdd, onImageRemove, onRepresentativeSelect, onSubmit, onCancel, onStartNew }: ProductRegistrationFormProps) {
+export function ProductRegistrationForm({ name, description, images, representativeIndex, submissionStage, fieldErrors = {}, formError, createdProductId, onNameChange, onDescriptionChange, onImagesAdd, onImageRemove, onRepresentativeSelect, onSubmit, onCancel, onScheduleSale, onStartNew }: ProductRegistrationFormProps) {
   const formRef = useRef<HTMLFormElement>(null)
   const isSubmitting = submissionStage === 'creating-product' || submissionStage === 'registering-images'
   const isRetryPending = submissionStage === 'retry'
@@ -30,7 +31,10 @@ export function ProductRegistrationForm({ name, description, images, representat
       <p className="mb-2 text-xs font-semibold tracking-[0.12em] text-[var(--color-steel)]">REGISTRATION COMPLETE</p>
       <h2 id="registration-complete-heading" className="text-2xl font-semibold">상품 등록이 완료되었습니다.</h2>
       <dl className="mt-8 grid max-w-md grid-cols-[auto_1fr] gap-x-8 gap-y-3 border-y border-[var(--color-concrete-gray)] py-5 text-sm"><dt className="text-[var(--color-steel)]">상품 식별자</dt><dd className="font-medium">{createdProductId}</dd><dt className="text-[var(--color-steel)]">상품 상태</dt><dd className="font-medium">READY</dd></dl>
-      <button className="mt-8 min-h-12 rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-7 font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3" type="button" onClick={onStartNew}>새 상품 등록</button>
+      <div className="mt-8 flex flex-wrap gap-3">
+        <button className="min-h-12 rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-7 font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3" type="button" onClick={onScheduleSale}>판매 일정 등록</button>
+        <button className="min-h-12 rounded-full border border-[var(--color-obsidian)] bg-white px-7 font-medium text-[var(--color-obsidian)] hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3" type="button" onClick={onStartNew}>새 상품 등록</button>
+      </div>
     </section>
   }
 

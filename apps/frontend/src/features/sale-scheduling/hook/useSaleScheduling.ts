@@ -11,14 +11,15 @@ interface StoredProductPage extends ReadyProductPage { cursor: string | null }
 export interface CreatedSaleSummary extends CreateSaleResponse { product: ReadyProduct }
 export type ProductListStatus = 'loading' | 'ready' | 'loading-next' | 'changing-sort' | 'error' | 'next-error'
 
-export function useSaleScheduling() {
+export function useSaleScheduling(initialProduct?: ReadyProduct) {
   const [pages, setPages] = useState<StoredProductPage[]>([])
   const [pageIndex, setPageIndex] = useState(0)
   const [productSort, setProductSort] = useState<ProductSort>('latest')
   const [pendingSort, setPendingSort] = useState<ProductSort | null>(null)
   const [listStatus, setListStatus] = useState<ProductListStatus>('loading')
   const [listError, setListError] = useState<string | null>(null)
-  const [selectedProduct, setSelectedProduct] = useState<ReadyProduct | null>(null)
+  const [selectedProduct, setSelectedProduct] = useState<ReadyProduct | null>(initialProduct ?? null)
+  const [isPreselectedProduct, setPreselectedProduct] = useState(Boolean(initialProduct))
   const [windowState, setWindowState] = useState<RegistrationWindow>(() => getRegistrationWindow())
   const [saleDate, setSaleDate] = useState(() => getRegistrationWindow().saleDate ?? '')
   const [price, setPrice] = useState('')
@@ -99,6 +100,7 @@ export function useSaleScheduling() {
   const toggleProduct = useCallback((product: ReadyProduct) => {
     if (submittingRef.current) return
     setSelectedProduct((current) => current?.id === product.id ? null : product)
+    setPreselectedProduct(false)
     setFieldErrors((current) => ({ ...current, productId: undefined }))
   }, [])
 
@@ -141,7 +143,7 @@ export function useSaleScheduling() {
 
   const currentPage = pages[pageIndex]
   return {
-    currentPage, pageIndex, hasVisitedNext: Boolean(pages[pageIndex + 1]), productSort, pendingSort, listStatus, listError, selectedProduct, windowState,
+    currentPage, pageIndex, hasVisitedNext: Boolean(pages[pageIndex + 1]), productSort, pendingSort, listStatus, listError, selectedProduct, isPreselectedProduct, windowState,
     saleDate, price, quantity, fieldErrors, formError, refreshProductsRequired, isSubmitting, createdSale,
     changeSort, goPrevious, goNext, toggleProduct, refreshProducts, retryList: () => listStatus === 'next-error' ? void goNext() : void loadFirstPage(pendingSort ?? productSort, pendingSort !== null),
     changeSaleDate: setSaleDate,

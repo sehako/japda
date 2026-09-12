@@ -14,12 +14,21 @@ test('상품 생성은 정규화된 JSON과 판매자 헤더를 전송한다', a
   const result = await createProduct({ name: '상품', description: null }, 7, undefined, { baseUrl: 'http://localhost', fetcher })
 
   assert.equal(result.id, 42)
+  assert.equal(result.name, '상품')
   assert.equal(request && (request as Request).headers.get('X-Seller-Id'), '7')
   assert.deepEqual(JSON.parse(await (request as unknown as Request).text()), { name: '상품', description: null })
 })
 
 test('상품 생성 성공 응답이 DRAFT 계약과 다르면 실패한다', async () => {
   const fetcher: typeof fetch = async () => Response.json({ id: 42, status: 'READY' }, { status: 201 })
+  await assert.rejects(createProduct({ name: '상품', description: null }, 7, undefined, { fetcher }), ApiError)
+})
+
+test.each([
+  { id: 42, status: 'DRAFT' },
+  { id: 42, name: 42, status: 'DRAFT' },
+])('상품 생성 성공 응답의 상품명이 문자열이 아니면 실패한다', async (response) => {
+  const fetcher: typeof fetch = async () => Response.json(response, { status: 201 })
   await assert.rejects(createProduct({ name: '상품', description: null }, 7, undefined, { fetcher }), ApiError)
 })
 

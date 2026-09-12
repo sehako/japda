@@ -22,6 +22,7 @@ export interface ProductRegistrationResult {
   formError: string | null
   submissionStage: SubmissionStage
   createdProductId: number | null
+  registeredProduct: { id: number; name: string } | null
   isInputLocked: boolean
   isSubmitting: boolean
   isSubmissionBlocked: boolean
@@ -44,6 +45,7 @@ export function useProductRegistration(): ProductRegistrationResult {
   const imagesRef = useRef(images)
   const [representativeIndex, setRepresentativeIndex] = useState<number | null>(null)
   const [createdProductId, setCreatedProductId] = useState<number | null>(null)
+  const [registeredProduct, setRegisteredProduct] = useState<{ id: number; name: string } | null>(null)
   const [submissionStage, setSubmissionStage] = useState<SubmissionStage>(INITIAL_STAGE)
   const [fieldErrors, setFieldErrors] = useState<ProductRegistrationFieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
@@ -119,6 +121,7 @@ export function useProductRegistration(): ProductRegistrationResult {
     setDescription('')
     setRepresentativeIndex(null)
     setCreatedProductId(null)
+    setRegisteredProduct(null)
     setSubmissionStage(INITIAL_STAGE)
     setFieldErrors({})
     setFormError(null)
@@ -161,6 +164,7 @@ export function useProductRegistration(): ProductRegistrationResult {
         )
         productId = product.id
         setCreatedProductId(productId)
+        setRegisteredProduct({ id: product.id, name: product.name })
       }
       setSubmissionStage('registering-images')
       await registerProductImages(
@@ -209,6 +213,7 @@ export function useProductRegistration(): ProductRegistrationResult {
     formError,
     submissionStage,
     createdProductId,
+    registeredProduct,
     isInputLocked,
     isSubmitting,
     isSubmissionBlocked,
