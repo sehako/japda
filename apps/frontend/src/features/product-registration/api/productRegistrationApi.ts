@@ -34,7 +34,7 @@ function isPositiveInteger(value: unknown): value is number {
 function isCreateProductResponse(value: unknown): value is CreateProductResponse {
   if (typeof value !== 'object' || value === null) return false
   const response = value as Record<string, unknown>
-  return isPositiveInteger(response.id) && response.status === 'DRAFT'
+  return isPositiveInteger(response.id) && typeof response.name === 'string' && response.status === 'DRAFT'
 }
 
 function isRegisterImagesResponse(value: unknown, productId: number): value is RegisterProductImagesResponse {
