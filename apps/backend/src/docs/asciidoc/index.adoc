@@ -91,3 +91,17 @@ operation::order-create[snippets='http-request,request-headers,request-fields,ht
 === 수령인 이름 오류
 
 operation::order-create-recipient-name-invalid[snippets='http-request,http-response,response-fields']
+
+== 구매자 배송지 등록
+
+=== 성공
+
+operation::buyer-shipping-address-create[snippets='http-request,request-headers,request-fields,http-response,response-fields']
+
+=== 배송지명 중복
+
+operation::buyer-shipping-address-create-name-duplicated[snippets='http-request,http-response,response-fields']
+
+=== 배송지 개수 초과
+
+operation::buyer-shipping-address-create-limit-exceeded[snippets='http-request,http-response,response-fields']
