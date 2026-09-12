@@ -46,3 +46,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 014 | [프론트엔드 테스트에 Vitest와 Testing Library 사용](ADR-014-frontend-testing-with-vitest-and-testing-library.md) | frontend | 승인 |
 | 015 | [주문 행 기반 재고 예약과 판매 일정 잠금](ADR-015-order-row-reservation-with-sale-lock.md) | backend | 승인 |
 | 016 | [백엔드 계층 내부를 역할별 하위 패키지로 구성](ADR-016-backend-role-based-package-structure.md) | backend | 승인 |
+| 017 | [구매자 배송지 목록 도메인과 잠금 행 구성](ADR-017-buyer-shipping-address-book-domain-and-locking.md) | backend | 승인 |
