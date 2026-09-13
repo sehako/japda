@@ -95,6 +95,7 @@ HTTP Request
 - 연관관계 Fetch는 기본 LAZY로 한다.
 - 자식 목록은 Repository Query, Projection, Application 조립으로 조회한다.
 - 여러 도메인의 읽기 정보가 항상 함께 필요한 구매자 판매 상품 목록은 쓰기 Repository와 분리된 조회 전용 Repository 및 projection으로 단일 join 조회한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-010](decisions/ADR-010-buyer-sale-product-query-model.md)을 따른다.
+- 구매자 체크아웃은 `order` 영역의 조회 전용 Repository에서 판매·상품·대표 이미지·구매자 저장 배송지를 단일 읽기 쿼리로 조합한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-018](decisions/ADR-018-buyer-checkout-query-model.md)을 따른다.
 
 ## 도메인 규칙
 
