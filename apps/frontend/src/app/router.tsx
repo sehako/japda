@@ -6,7 +6,8 @@ import { BuyerSaleDetailPage } from '../pages/buyer-sale-detail/BuyerSaleDetailP
 import { NotFoundPage } from '../pages/not-found/NotFoundPage.tsx'
 import { SellerProductRegistrationPage } from '../pages/seller-product-registration/SellerProductRegistrationPage.tsx'
 import { SellerSaleSchedulingPage } from '../pages/seller-sale-scheduling/SellerSaleSchedulingPage.tsx'
+import { TossPaymentResultPage } from '../pages/toss-payment-result/TossPaymentResultPage.tsx'
 
 export function AppRouter() {
-  return <BrowserRouter><Routes><Route path="/" element={<BuyerMainPage />} /><Route path="/sales/:saleId" element={<BuyerSaleDetailPage />} /><Route path="/checkout/:saleId" element={<BuyerCheckoutPage />} /><Route path="/seller/products/new" element={<SellerProductRegistrationPage />} /><Route path="/seller/sales/new" element={<SellerSaleSchedulingPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></BrowserRouter>
+  return <BrowserRouter><Routes><Route path="/" element={<BuyerMainPage />} /><Route path="/sales/:saleId" element={<BuyerSaleDetailPage />} /><Route path="/checkout/:saleId" element={<BuyerCheckoutPage />} /><Route path="/payments/toss/success" element={<TossPaymentResultPage result="success" />} /><Route path="/payments/toss/fail" element={<TossPaymentResultPage result="fail" />} /><Route path="/seller/products/new" element={<SellerProductRegistrationPage />} /><Route path="/seller/sales/new" element={<SellerSaleSchedulingPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></BrowserRouter>
 }

@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { ApiError } from '../../../shared/api/apiClient.ts'
 import { imageBaseUrl } from '../../../shared/config/env.ts'
 import { useBuyerCheckout } from '../hook/useBuyerCheckout.ts'
+import { useBuyerPayment } from '../hook/useBuyerPayment.ts'
 import { shippingAddressFields, validateShippingAddress } from '../model/buyerCheckout.ts'
 import type { CreateShippingAddressRequest, ShippingAddressField } from '../model/buyerCheckout.ts'
 
@@ -133,6 +134,8 @@ export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: nu
   const data = query.data
   const createdAddress = data?.shippingAddresses.find(({ shippingAddressId }) => shippingAddressId === createdId)
   const effectiveSelection = selectedId ?? createdAddress?.shippingAddressId ?? null
+  const selectedAddress = data?.shippingAddresses.find(({ shippingAddressId }) => shippingAddressId === effectiveSelection) ?? null
+  const payment = useBuyerPayment({ checkout: query.isSuccess ? data ?? null : null, selectedAddress: query.isSuccess ? selectedAddress : null, buyerId, blocked: query.isFetching || registration.isPending || formOpen, refresh })
   const notFound = query.error instanceof ApiError && query.error.status === 404 && query.error.code === 'ORDER_SALE_NOT_FOUND'
 
   let content: React.ReactNode
@@ -153,7 +156,7 @@ export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: nu
       <Link className="mb-[42px] inline-flex min-h-10 items-center gap-2.5 text-[13px] font-medium text-[var(--color-steel)] hover:text-[var(--color-obsidian)] max-[720px]:mb-6" to={`/sales/${saleId}`}><svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M10.5 3.5 5.5 8.5l5 5" stroke="currentColor" strokeWidth="1.5" /></svg>상품으로 돌아가기</Link>
       <p className="mb-[7px] text-[11px] font-semibold tracking-[0.16em]">주문 전 확인</p>
       <h1 className="text-[clamp(34px,4vw,48px)] leading-[1.2] font-semibold tracking-[-0.055em]">체크아웃</h1>
-      <div className="mt-[54px] grid grid-cols-[minmax(0,1fr)_340px] items-start gap-[clamp(48px,6vw,96px)] max-[900px]:grid-cols-[minmax(0,1fr)_280px] max-[900px]:gap-9 max-[720px]:mt-[38px] max-[720px]:block">
+      <div className="mt-[54px] grid grid-cols-[minmax(0,1fr)_340px] items-start gap-[clamp(48px,6vw,96px)] max-[1000px]:block max-[720px]:mt-[38px]">
         <div className="min-w-0">
           <section aria-labelledby="product-heading">
             <div className="flex items-baseline justify-between border-b border-[var(--color-obsidian)] pb-[17px]"><h2 className="text-xl font-semibold tracking-[-0.025em]" id="product-heading">상품 정보</h2><span className="text-xs text-[var(--color-steel)]">01</span></div>
@@ -165,8 +168,13 @@ export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: nu
               : formOpen ? <RegistrationForm isPending={registration.isPending} onCancel={() => { setFormOpen(false); registration.reset() }} onRetryList={() => { setFormOpen(false); registration.reset(); void query.refetch() }} onSubmit={(body) => void register(body)} serverError={registration.error} />
                 : <div className="border-b border-[var(--color-concrete-gray)] px-5 py-[58px] text-center"><p className="mb-[22px] text-[15px] text-[var(--color-steel)]">등록된 배송지가 없습니다.</p><button className="min-h-[42px] rounded-full bg-[var(--color-obsidian)] px-[22px] font-medium text-white" type="button" onClick={() => setFormOpen(true)}>배송지 등록</button></div>}
           </section>
+          <section className="mt-16 max-[720px]:mt-[52px]" aria-labelledby="payment-heading">
+            <div className="flex items-baseline justify-between border-b border-[var(--color-obsidian)] pb-[17px]"><h2 className="text-xl font-semibold" id="payment-heading">결제수단</h2><span className="text-xs text-[var(--color-steel)]">03</span></div>
+            <div id="buyer-payment-methods" className="min-h-16 border-b border-[var(--color-concrete-gray)]" />
+            <div id="buyer-payment-agreement" className="min-h-16" />
+          </section>
         </div>
-        <aside className="sticky top-9 border-t border-[var(--color-obsidian)] max-[720px]:static max-[720px]:mt-16" aria-labelledby="summary-heading"><h2 className="border-b border-[var(--color-concrete-gray)] py-[18px_22px] text-xl font-semibold" id="summary-heading">금액 정보</h2><div className="flex justify-between gap-4 pt-[21px]"><span className="text-[var(--color-steel)]">상품 금액</span><span>{formatPrice(data.totalPrice)}</span></div><div className="flex justify-between gap-4 pt-[21px]"><span className="text-[var(--color-steel)]">수량</span><span>{quantity}개</span></div><div className="mt-[25px] flex items-baseline justify-between gap-4 border-t border-[var(--color-obsidian)] pt-[22px]"><span className="text-[15px] font-semibold">예상 총액</span><strong className="whitespace-nowrap text-[27px] font-semibold tracking-[-0.035em]">{formatPrice(data.totalPrice)}</strong></div><button className="mt-8 min-h-[52px] w-full cursor-not-allowed rounded-full border border-[var(--color-concrete-gray)] bg-[var(--color-soft-mist)] px-6 text-base font-medium text-[var(--color-faint-gray)]" type="button" disabled>결제</button></aside>
+        <aside className="sticky top-9 border-t border-[var(--color-obsidian)] max-[1000px]:static max-[1000px]:mt-16" aria-labelledby="summary-heading"><h2 className="border-b border-[var(--color-concrete-gray)] py-[18px_22px] text-xl font-semibold" id="summary-heading">금액 정보</h2><div className="flex justify-between gap-4 pt-[21px]"><span className="text-[var(--color-steel)]">상품 금액</span><span>{formatPrice(data.totalPrice)}</span></div><div className="flex justify-between gap-4 pt-[21px]"><span className="text-[var(--color-steel)]">수량</span><span>{quantity}개</span></div><div className="mt-[25px] flex items-baseline justify-between gap-4 border-t border-[var(--color-obsidian)] pt-[22px]"><span className="text-[15px] font-semibold">예상 총액</span><strong className="whitespace-nowrap text-[27px] font-semibold tracking-[-0.035em]">{formatPrice(data.totalPrice)}</strong></div><button className="mt-8 min-h-[52px] w-full rounded-full bg-[var(--color-obsidian)] px-6 text-base font-medium text-white disabled:cursor-not-allowed disabled:bg-[var(--color-soft-mist)] disabled:text-[var(--color-faint-gray)]" type="button" disabled={!payment.canPay} onClick={() => void payment.pay()}>결제하기</button><div className={`mt-3 min-h-5 text-sm ${payment.hintIsError ? 'font-medium text-[var(--color-signal)]' : 'text-[var(--color-steel)]'}`} role="status" aria-live="polite">{payment.hint}</div>{payment.status === 'sdk-error' ? <button className="mt-2 text-sm underline" type="button" onClick={payment.retryWidget}>결제수단 다시 시도</button> : null}{payment.status === 'changed' ? <button className="mt-2 text-sm underline" type="button" onClick={() => void payment.refreshCheckout()}>체크아웃 다시 조회</button> : null}{payment.status === 'expired' || payment.status === 'invalid' ? <button className="mt-2 text-sm underline" type="button" onClick={payment.retryOrder}>새 주문 시도</button> : null}<p className="mt-4 text-xs leading-relaxed text-[var(--color-steel)]">테스트 결제입니다. 인증 후에도 실제 결제는 완료되지 않습니다.</p></aside>
       </div>
     </>
   }
