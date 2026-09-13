@@ -25,7 +25,8 @@ const detail: BuyerSaleProductDetail = {
 
 function renderDetail(value = detail, imageBaseUrl = 'https://images.example.com/') {
   function CurrentPath() {
-    return <output aria-label="현재 경로">{useLocation().pathname}</output>
+    const location = useLocation()
+    return <output aria-label="현재 경로">{location.pathname}{location.search}</output>
   }
   return render(<MemoryRouter initialEntries={['/sales/11']}><BuyerSaleDetail detail={value} imageBaseUrl={imageBaseUrl} /><CurrentPath /></MemoryRouter>)
 }
@@ -49,15 +50,22 @@ describe('구매자 판매 상품 상세', () => {
     ])
     expect(screen.getByRole('link', { name: '상품 목록' })).toHaveAttribute('href', '/')
     expect(screen.getByRole('button', { name: '구매하기' })).toBeEnabled()
+    expect(screen.getByRole('spinbutton', { name: '구매 수량' })).toHaveValue(1)
   })
 
-  test('구매하기를 활성화해도 화면이나 상태를 변경하지 않는다', () => {
+  test('판매 중인 상품의 선택 수량을 체크아웃 경로로 전달한다', () => {
     renderDetail()
+    fireEvent.change(screen.getByRole('spinbutton', { name: '구매 수량' }), { target: { value: '3' } })
     fireEvent.click(screen.getByRole('button', { name: '구매하기' }))
+    expect(screen.getByRole('status', { name: '현재 경로' })).toHaveTextContent('/checkout/11?quantity=3')
+  })
 
+  test('유효하지 않은 수량은 이동을 막고 필드에 안내한다', () => {
+    renderDetail()
+    fireEvent.change(screen.getByRole('spinbutton', { name: '구매 수량' }), { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: '구매하기' }))
     expect(screen.getByRole('status', { name: '현재 경로' })).toHaveTextContent('/sales/11')
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { level: 1, name: '한정판 후디' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('구매 수량은 1부터 2,147,483,647까지의 정수여야 합니다.')
   })
 
   test.each(['UPCOMING', 'ENDED'] as const)('%s 상태에서 구매하기를 비활성화한다', (status) => {

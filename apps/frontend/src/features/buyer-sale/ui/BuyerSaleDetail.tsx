@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 import {
   buildProductImageUrl,
@@ -31,6 +31,9 @@ function ProductImage({ alt, fallbackLabel, url, className, loading = 'lazy' }: 
 }
 
 export function BuyerSaleDetail({ detail, imageBaseUrl }: BuyerSaleDetailProps) {
+  const navigate = useNavigate()
+  const [quantity, setQuantity] = useState('1')
+  const [quantityError, setQuantityError] = useState(false)
   const representativeImage = detail.images.find(({ isRepresentative }) => isRepresentative)!
   const detailImages = detail.images.filter(({ isRepresentative }) => !isRepresentative)
   const representativeUrl = buildProductImageUrl(imageBaseUrl, representativeImage.path)
@@ -69,7 +72,23 @@ export function BuyerSaleDetail({ detail, imageBaseUrl }: BuyerSaleDetailProps) 
           </p>
         </div>
 
-        <button className="mt-auto min-h-[52px] w-full rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-6 text-base font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3 disabled:cursor-not-allowed disabled:border-[var(--color-concrete-gray)] disabled:bg-[var(--color-soft-mist)] disabled:text-[var(--color-faint-gray)] disabled:hover:opacity-100 max-[720px]:mt-12 max-[720px]:mb-8" type="button" disabled={!canPurchase}>구매하기</button>
+        <form className="mt-auto max-[720px]:mt-12 max-[720px]:mb-8" onSubmit={(event) => {
+          event.preventDefault()
+          if (!canPurchase) return
+          const value = Number(quantity)
+          if (!/^[1-9]\d*$/.test(quantity) || !Number.isSafeInteger(value) || value > 2_147_483_647) {
+            setQuantityError(true)
+            return
+          }
+          navigate(`/checkout/${detail.saleId}?quantity=${value}`)
+        }} noValidate>
+          <div className="flex items-center justify-between gap-4 border-t border-[var(--color-concrete-gray)] pt-5">
+            <label className="text-sm font-medium" htmlFor="purchase-quantity">구매 수량</label>
+            <input className="min-h-11 w-[104px] border border-[var(--color-concrete-gray)] bg-white px-3 text-right focus-visible:outline-2 focus-visible:outline-offset-3" id="purchase-quantity" type="number" inputMode="numeric" min="1" max="2147483647" step="1" value={quantity} aria-invalid={quantityError} aria-describedby={quantityError ? 'purchase-quantity-error' : undefined} onChange={(event) => { setQuantity(event.target.value); setQuantityError(false) }} />
+          </div>
+          {quantityError ? <p className="mt-2 text-sm text-[var(--color-steel)]" id="purchase-quantity-error" role="alert">구매 수량은 1부터 2,147,483,647까지의 정수여야 합니다.</p> : null}
+          <button className="mt-5 min-h-[52px] w-full rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-6 text-base font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3 disabled:cursor-not-allowed disabled:border-[var(--color-concrete-gray)] disabled:bg-[var(--color-soft-mist)] disabled:text-[var(--color-faint-gray)] disabled:hover:opacity-100" type="submit" disabled={!canPurchase}>구매하기</button>
+        </form>
       </div>
     </section>
 
