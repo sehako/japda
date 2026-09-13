@@ -92,6 +92,20 @@ operation::order-create[snippets='http-request,request-headers,request-fields,ht
 
 operation::order-create-recipient-name-invalid[snippets='http-request,http-response,response-fields']
 
+== 구매자 체크아웃 조회
+
+=== 성공
+
+operation::checkout-get[snippets='http-request,request-headers,query-parameters,http-response,response-fields']
+
+=== 판매 일정 없음
+
+operation::checkout-get-sale-not-found[snippets='http-request,http-response,response-fields']
+
+=== 예상 총액 범위 초과
+
+operation::checkout-get-total-price-invalid[snippets='http-request,http-response,response-fields']
+
 == 구매자 배송지 등록
 
 === 성공
