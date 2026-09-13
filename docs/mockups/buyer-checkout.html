@@ -81,7 +81,7 @@
       .back-link svg { flex: 0 0 auto; }
       .eyebrow { margin: 0 0 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.16em; }
       h1 { margin: 0; font-size: clamp(34px, 4vw, 48px); font-weight: 600; letter-spacing: -0.055em; line-height: 1.2; }
-      .checkout-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: clamp(48px, 6vw, 96px); margin-top: 54px; align-items: start; }
+      .checkout-grid { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: clamp(48px, 6vw, 96px); margin-top: 54px; align-items: start; }
       .section + .section { margin-top: 64px; }
       .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 17px; border-bottom: 1px solid var(--obsidian); }
       h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.025em; }
@@ -133,13 +133,24 @@
       .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; }
       .feedback { margin: 14px 0 0; font-size: 13px; }
 
-      .summary { position: sticky; top: 36px; border-top: 1px solid var(--obsidian); }
-      .summary h2 { padding: 18px 0 22px; border-bottom: 1px solid var(--concrete-gray); }
+      .payment-methods { display: grid; gap: 12px; margin-top: 26px; }
+      .payment-method { display: flex; align-items: center; gap: 13px; min-height: 68px; padding: 16px 20px; border: 1px solid var(--concrete-gray); cursor: pointer; }
+      .payment-method:hover { background: #fafafa; }
+      .payment-method:has(input:checked) { border-color: var(--obsidian); outline: 1px solid var(--obsidian); outline-offset: -1px; }
+      .payment-method input, .payment-agreement input { width: 18px; height: 18px; margin: 0; flex: 0 0 auto; accent-color: var(--obsidian); }
+      .payment-method span { font-size: 15px; font-weight: 500; }
+      .payment-agreement { display: flex; align-items: flex-start; gap: 11px; margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--concrete-gray); cursor: pointer; }
+      .payment-agreement span { font-size: 14px; }
+      .payment-agreement strong { font-weight: 600; }
+
+      .summary { border-top: 1px solid var(--obsidian); }
+      .summary > h2 { padding: 18px 0 22px; border-bottom: 1px solid var(--concrete-gray); }
       .summary-row { display: flex; justify-content: space-between; gap: 16px; padding-top: 21px; font-size: 14px; }
       .summary-row span:first-child { color: var(--steel); }
       .summary-total { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 25px; padding-top: 22px; border-top: 1px solid var(--obsidian); }
       .summary-total span { font-size: 15px; font-weight: 600; }
       .summary-total strong { font-size: 27px; font-weight: 600; letter-spacing: -0.035em; white-space: nowrap; }
+      .payment-widget { margin-top: 42px; }
       .payment-button {
         width: 100%;
         min-height: 52px;
@@ -153,19 +164,23 @@
         font-weight: 500;
         cursor: not-allowed;
       }
+      .payment-button.is-active { border-color: var(--obsidian); color: var(--paper-white); background: var(--obsidian); cursor: pointer; }
+      .payment-button.is-active:hover { opacity: 0.8; }
+      .payment-button:disabled { cursor: not-allowed; }
+      .payment-feedback { margin: 12px 0 0; padding: 14px 0 0; border-top: 1px solid var(--concrete-gray); color: var(--obsidian); font-size: 13px; line-height: 1.6; }
 
-      @media (max-width: 900px) {
-        .checkout-grid { grid-template-columns: minmax(0, 1fr) 280px; gap: 36px; }
-        .product-image-wrap { width: 150px; }
+      @media (max-width: 1000px) {
+        .checkout-grid { display: block; }
+        .summary { margin-top: 64px; }
       }
       @media (max-width: 720px) {
         .topbar { height: 64px; }
         .topbar-inner, .page { width: min(100% - 40px, 100%); }
         .page { padding: 22px 0 80px; }
         .back-link { margin-bottom: 24px; }
-        .checkout-grid { display: block; margin-top: 38px; }
-        .summary { position: static; margin-top: 64px; }
+        .checkout-grid { margin-top: 38px; }
         .section + .section { margin-top: 52px; }
+        .summary { margin-top: 52px; }
       }
       @media (max-width: 420px) {
         .topbar-inner, .page { width: min(100% - 28px, 100%); }
@@ -261,7 +276,20 @@
           <div class="summary-row"><span>상품 금액</span><span id="line-total">189,000원</span></div>
           <div class="summary-row"><span>수량</span><span id="summary-quantity">1개</span></div>
           <div class="summary-total"><span>예상 총액</span><strong id="total-price">189,000원</strong></div>
-          <button class="payment-button" type="button" disabled>결제</button>
+          <section class="payment-widget" aria-labelledby="payment-heading">
+            <div class="section-heading"><h2 id="payment-heading">결제수단</h2><span class="section-count">03</span></div>
+            <!-- 실제 구현에서는 토스페이먼츠 SDK가 아래 영역에 결제수단과 약관 UI를 렌더링한다. -->
+            <div class="payment-methods" id="payment-method" role="group" aria-label="결제수단 선택">
+              <label class="payment-method"><input type="radio" name="payment-method" value="card" checked /><span>신용·체크카드</span></label>
+              <label class="payment-method"><input type="radio" name="payment-method" value="easy-pay" /><span>간편결제</span></label>
+              <label class="payment-method"><input type="radio" name="payment-method" value="transfer" /><span>계좌이체</span></label>
+            </div>
+            <div id="payment-agreement">
+              <label class="payment-agreement"><input id="payment-agreement-checkbox" type="checkbox" /><span>결제 진행에 필요한 약관에 동의합니다. <strong>(필수)</strong></span></label>
+            </div>
+          </section>
+          <button class="payment-button" id="payment-button" type="button" disabled>결제하기</button>
+          <p class="payment-feedback" id="payment-feedback" role="status" aria-live="polite" tabindex="-1" hidden></p>
         </aside>
       </div>
     </main>
@@ -289,6 +317,55 @@
       const emptyAddress = document.getElementById('empty-address')
       const registrationForm = document.getElementById('registration-form')
       const feedback = document.getElementById('registration-feedback')
+      const paymentButton = document.getElementById('payment-button')
+      const paymentFeedback = document.getElementById('payment-feedback')
+      const paymentMethods = document.getElementById('payment-method')
+      const paymentAgreement = document.getElementById('payment-agreement-checkbox')
+      const paymentStates = new Set(['ready', 'loading', 'processing', 'success', 'fail', 'cancel', 'error'])
+      let paymentState = paymentStates.has(params.get('payment')) ? params.get('payment') : 'ready'
+      if (!params.has('payment') && params.get('empty') !== '1') {
+        addressList.querySelector('input[name="shipping-address"]').checked = true
+      }
+
+      function showPaymentState(state) {
+        if (!paymentStates.has(state)) return
+        paymentState = state
+        const url = new URL(window.location.href)
+        url.searchParams.set('payment', state)
+        if (window.location.protocol !== 'file:') window.history.replaceState(null, '', url)
+        const selectedAddress = addressList.querySelector('input[name="shipping-address"]:checked')
+        const selectedMethod = paymentMethods.querySelector('input[name="payment-method"]:checked')
+        const busy = state === 'loading' || state === 'processing' || state === 'success'
+        paymentButton.disabled = !selectedAddress || !selectedMethod || !paymentAgreement.checked || busy
+        paymentButton.classList.toggle('is-active', !paymentButton.disabled)
+        paymentButton.textContent = state === 'loading' ? '주문을 준비하는 중' : state === 'processing' ? '결제 인증을 진행하는 중' : '결제하기'
+        const messages = {
+          ready: !selectedAddress ? '배송지를 선택해 주세요.' : !selectedMethod ? '결제수단을 선택해 주세요.' : !paymentAgreement.checked ? '결제 약관에 동의해 주세요.' : '',
+          loading: '주문을 준비하는 중입니다.',
+          processing: '주문이 준비되었습니다. 결제 인증을 진행하는 중입니다.',
+          success: '결제 인증은 완료됐지만 결제는 완료되지 않았습니다.',
+          fail: '결제를 진행하지 못했습니다. 다시 시도해 주세요.',
+          cancel: '결제를 취소했습니다.',
+          error: '주문을 준비하지 못했습니다. 다시 시도해 주세요.',
+        }
+        paymentFeedback.textContent = messages[state]
+        paymentFeedback.hidden = !messages[state]
+        if (state === 'processing' || state === 'success' || state === 'fail' || state === 'cancel' || state === 'error') paymentFeedback.focus()
+      }
+
+      if (paymentState) {
+        showPaymentState(paymentState)
+        addressList.addEventListener('change', () => showPaymentState('ready'))
+        paymentMethods.addEventListener('change', () => showPaymentState('ready'))
+        paymentAgreement.addEventListener('change', () => showPaymentState('ready'))
+        paymentButton.addEventListener('click', () => {
+          if (paymentButton.disabled) return
+          showPaymentState('loading')
+          window.setTimeout(() => {
+            if (paymentState === 'loading') showPaymentState('processing')
+          }, 700)
+        })
+      }
 
       if (params.get('empty') === '1') {
         addressList.hidden = true
@@ -337,6 +414,7 @@
         registrationForm.hidden = true
         feedback.textContent = '배송지가 등록되었습니다.'
         feedback.hidden = false
+        showPaymentState('ready')
       })
 
       document.getElementById('product-image').addEventListener('error', (event) => {
