@@ -33,13 +33,14 @@ test('구매자 설정 오류에서 API를 호출하지 않는다', () => {
 })
 
 test('서버 예상 총액을 표시하고 배송지를 명시적으로 선택한다', async () => {
-  vi.stubGlobal('fetch', vi.fn(async () => Response.json(checkout)))
+  const fetcher = vi.fn(async () => Response.json(checkout))
+  vi.stubGlobal('fetch', fetcher)
   renderPage('/checkout/11?quantity=3')
   expect(screen.getByRole('status')).toHaveTextContent('체크아웃 정보를 불러오는 중입니다.')
   expect(await screen.findByRole('heading', { level: 3, name: '한정판 후디' })).toBeInTheDocument()
   expect(screen.getByText('360,000원', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByText('3개', { selector: 'strong' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '결제' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '결제하기' })).toBeDisabled()
   expect(screen.getByRole('img', { name: '한정판 후디 대표 이미지 없음' })).toBeInTheDocument()
   expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
   const radios = screen.getAllByRole('radio')
@@ -47,6 +48,8 @@ test('서버 예상 총액을 표시하고 배송지를 명시적으로 선택�
   expect(radios[1]).not.toBeChecked()
   fireEvent.click(radios[1])
   expect(radios[1]).toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: '결제하기' }))
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
 test('빈 배송지에서 등록 양식을 열고 취소한다', async () => {

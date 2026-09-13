@@ -41,3 +41,14 @@ test.each([
 
   expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
 })
+
+test.each([
+  ['/payments/toss/success?paymentKey=key&orderId=order-1&amount=120000', '결제 인증 경로로 돌아왔지만 결제가 완료되지 않았습니다.'],
+  ['/payments/toss/fail?code=PAY_PROCESS_CANCELED', '결제를 취소했습니다.'],
+])('%s 직접 접근을 인증 결과 페이지에 연결한다', (path, message) => {
+  window.history.pushState({}, '', path)
+
+  render(<AppRouter />)
+
+  expect(screen.getByRole('alert')).toHaveTextContent(message)
+})
