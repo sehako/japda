@@ -92,6 +92,20 @@ operation::order-create[snippets='http-request,request-headers,request-fields,ht
 
 operation::order-create-recipient-name-invalid[snippets='http-request,http-response,response-fields']
 
+== 구매자 결제 승인
+
+=== 성공
+
+operation::payment-confirm[snippets='http-request,request-headers,request-fields,http-response,response-fields']
+
+=== 구매자 헤더 누락
+
+operation::payment-confirm-header-missing[snippets='http-request,http-response,response-fields']
+
+=== 승인 결과 불명확
+
+operation::payment-confirm-unavailable[snippets='http-request,http-response,response-fields']
+
 == 구매자 체크아웃 조회
 
 === 성공

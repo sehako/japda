@@ -48,3 +48,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 016 | [백엔드 계층 내부를 역할별 하위 패키지로 구성](ADR-016-backend-role-based-package-structure.md) | backend | 승인 |
 | 017 | [구매자 배송지 목록 도메인과 잠금 행 구성](ADR-017-buyer-shipping-address-book-domain-and-locking.md) | backend | 승인 |
 | 018 | [구매자 체크아웃을 주문 영역의 조회 전용 모델로 구성](ADR-018-buyer-checkout-query-model.md) | backend | 승인 |
+| 019 | [결제 시도 기록과 주문 예약의 정합성](ADR-019-payment-attempt-and-reservation-consistency.md) | backend | 승인 |

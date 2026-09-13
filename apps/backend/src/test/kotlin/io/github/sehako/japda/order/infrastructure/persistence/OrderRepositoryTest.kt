@@ -4,6 +4,9 @@ import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.domain.model.OrderRequest
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
+import io.github.sehako.japda.payment.domain.model.Payment
+import io.github.sehako.japda.payment.domain.repository.PaymentRepository
+import io.github.sehako.japda.payment.infrastructure.persistence.PaymentRepositoryImpl
 import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
@@ -26,12 +29,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(OrderRepositoryImpl::class)
+@Import(OrderRepositoryImpl::class, PaymentRepositoryImpl::class)
 @Testcontainers(disabledWithoutDocker = true)
 @DisplayName("주문 영속성")
 class OrderRepositoryTest {
 	@Autowired
 	private lateinit var orderRepository: OrderRepository
+
+	@Autowired
+	private lateinit var paymentRepository: PaymentRepository
 
 	@Autowired
 	private lateinit var jdbcTemplate: JdbcTemplate
@@ -40,6 +46,7 @@ class OrderRepositoryTest {
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
+		jdbcTemplate.update("DELETE FROM payments")
 		jdbcTemplate.update("DELETE FROM orders")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
@@ -69,6 +76,15 @@ class OrderRepositoryTest {
 		assertEquals(saved.id, found?.id)
 		assertEquals(saved.paymentOrderId, requireNotNull(found).paymentOrderId)
 		assertEquals("홍길동", found.shippingAddress.recipientName)
+	}
+
+	@Test
+	@DisplayName("잠금 전 판매 일정 식별자만 조회하면 주문 Entity를 로딩하지 않는다")
+	fun 잠금_전_판매_일정_식별자만_조회한다() {
+		val saved = orderRepository.save(order())
+
+		assertEquals(saleId, orderRepository.findSaleIdByPaymentOrderIdAndBuyerId(saved.paymentOrderId, saved.buyerId))
+		assertEquals(null, orderRepository.findSaleIdByPaymentOrderIdAndBuyerId(saved.paymentOrderId, 999L))
 	}
 
 	@Test
@@ -108,7 +124,63 @@ class OrderRepositoryTest {
 		insertOrder(UUID.randomUUID(), 3, NOW)
 		insertOrder(UUID.randomUUID(), 4, NOW.minusSeconds(1))
 
-		assertEquals(2L, orderRepository.sumActiveReservedQuantity(saleId, NOW))
+		assertEquals(2L, orderRepository.sumCommittedQuantity(saleId, NOW))
+	}
+
+	@Test
+	@DisplayName("만료 후 승인 중인 주문과 결제 완료 주문은 판매 수량에 포함한다")
+	fun 만료_후_승인_중과_결제_완료_주문_판매_수량에_포함한다() {
+		val confirming = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		val paid = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		jdbcTemplate.update(
+			"UPDATE orders SET created_at = ?, expires_at = ? WHERE id IN (?, ?)",
+			java.sql.Timestamp.from(NOW.minusSeconds(300)),
+			java.sql.Timestamp.from(NOW.minusSeconds(1)),
+			confirming.id,
+			paid.id,
+		)
+		paymentRepository.save(Payment.create(requireNotNull(confirming.id), "payment-key", confirming.totalPrice, NOW))
+		paid.markPaid()
+
+		assertEquals(4L, orderRepository.sumCommittedQuantity(saleId, NOW))
+	}
+
+	@Test
+	@DisplayName("수동 확인 주문은 계속 예약하고 확정 실패 주문은 예약에서 제외한다")
+	fun 수동_확인_주문_예약_유지_확정_실패_주문_제외한다() {
+		val reviewing = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		val failed = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		jdbcTemplate.update(
+			"UPDATE orders SET created_at = ?, expires_at = ? WHERE id IN (?, ?)",
+			java.sql.Timestamp.from(NOW.minusSeconds(300)), java.sql.Timestamp.from(NOW.minusSeconds(1)), reviewing.id, failed.id,
+		)
+		paymentRepository.save(Payment.create(requireNotNull(reviewing.id), "review-key", reviewing.totalPrice, NOW).also { it.requireReview(NOW) })
+		paymentRepository.save(Payment.create(requireNotNull(failed.id), "failed-key", failed.totalPrice, NOW).also { it.fail(NOW) })
+
+		assertEquals(2L, orderRepository.sumCommittedQuantity(saleId, NOW))
+	}
+
+	@Test
+	@DisplayName("서로 다른 주문의 같은 결제 키는 DB 제약으로 거절한다")
+	fun 결제_키_유일성_제약을_적용한다() {
+		val first = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		val second = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		paymentRepository.save(Payment.create(requireNotNull(first.id), "shared-key", first.totalPrice, NOW))
+
+		assertFailsWith<DataIntegrityViolationException> {
+			paymentRepository.save(Payment.create(requireNotNull(second.id), "shared-key", second.totalPrice, NOW))
+		}
+	}
+
+	@Test
+	@DisplayName("한 주문에는 결제 시도 하나만 저장할 수 있다")
+	fun 한_주문_결제_시도_하나만_저장한다() {
+		val saved = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
+		paymentRepository.save(Payment.create(requireNotNull(saved.id), "first-key", saved.totalPrice, NOW))
+
+		assertFailsWith<DataIntegrityViolationException> {
+			paymentRepository.save(Payment.create(requireNotNull(saved.id), "second-key", saved.totalPrice, NOW))
+		}
 	}
 
 	@Test

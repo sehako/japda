@@ -137,7 +137,16 @@ class OrderServiceTest {
 
 		override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? = existing
 
-		override fun sumActiveReservedQuantity(saleId: Long, now: Instant): Long {
+		override fun findByPaymentOrderId(paymentOrderId: String): Order? = existing?.takeIf { it.paymentOrderId == paymentOrderId }
+
+		override fun findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId: String, buyerId: Long): Long? =
+			existing?.takeIf { it.paymentOrderId == paymentOrderId && it.buyerId == buyerId }?.saleId
+
+		override fun findById(id: Long): Order? = existing?.takeIf { it.id == id }
+
+		override fun findSaleIdById(id: Long): Long? = existing?.takeIf { it.id == id }?.saleId
+
+		override fun sumCommittedQuantity(saleId: Long, now: Instant): Long {
 			aggregatedAt = now
 			return reservedQuantity
 		}

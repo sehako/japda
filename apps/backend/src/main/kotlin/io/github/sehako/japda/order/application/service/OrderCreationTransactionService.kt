@@ -31,7 +31,7 @@ class OrderCreationTransactionService(
 
 		val now = clock.instant()
 		if (now < sale.startsAt || now >= sale.endsAt) throw OrderException(OrderErrorCode.SALE_NOT_OPEN)
-		val reservedQuantity = orderRepository.sumActiveReservedQuantity(request.saleId, now)
+		val reservedQuantity = orderRepository.sumCommittedQuantity(request.saleId, now)
 		if (sale.quantity.toLong() - reservedQuantity < request.quantity.toLong()) {
 			throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
 		}

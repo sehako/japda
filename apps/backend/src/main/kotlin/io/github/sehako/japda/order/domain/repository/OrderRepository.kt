@@ -7,7 +7,15 @@ import java.util.UUID
 interface OrderRepository {
 	fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order?
 
-	fun sumActiveReservedQuantity(saleId: Long, now: Instant): Long
+	fun findByPaymentOrderId(paymentOrderId: String): Order?
+
+	fun findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId: String, buyerId: Long): Long?
+
+	fun findById(id: Long): Order?
+
+	fun findSaleIdById(id: Long): Long?
+
+	fun sumCommittedQuantity(saleId: Long, now: Instant): Long
 
 	fun save(order: Order): Order
 }

@@ -76,6 +76,18 @@ class OrderTest {
 	}
 
 	@Test
+	@DisplayName("결제 완료 시 주문 상태를 변경하고 원래 만료 시각은 유지한다")
+	fun 결제_완료_주문_상태를_변경하고_만료_시각을_유지한다() {
+		val order = Order.create(request(), "상품", 35_000L, CREATED_AT)
+		val expiresAt = order.expiresAt
+
+		order.markPaid()
+
+		assertEquals(OrderStatus.PAID, order.status)
+		assertEquals(expiresAt, order.expiresAt)
+	}
+
+	@Test
 	@DisplayName("저장된 주문은 정규화 값이 같은 재요청만 동일하다고 판단한다")
 	fun 저장된_주문_정규화_값이_같은_재요청만_동일하다고_판단한다() {
 		val request = request(deliveryMessage = " 문 앞 ")

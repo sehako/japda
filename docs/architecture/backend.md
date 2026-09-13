@@ -105,6 +105,7 @@ HTTP Request
 - 하나의 Entity에 속하기 어려운 핵심 규칙만 Domain Service로 분리한다.
 - 상품 원본과 준비 상태는 `Product`, 판매일·가격·판매 수량은 `Sale`, 판매일별 정원은 판매 영역의 `SaleDay`가 관리한다. 판매 등록 application은 상품 Repository로 소유권과 `READY`를 확인하며 판매 Entity는 상품을 ID로 참조한다. 판매 등록으로 상품 상태를 변경하지 않는다. [ADR-009](decisions/ADR-009-product-and-sale-domain-boundaries.md)을 따른다.
 - 단일 상품 주문과 결제 대기 예약은 `Order`가 관리한다. 주문은 `saleId`로 판매 일정을 참조하고 주문 application이 판매·상품 Repository를 조율하며, 주문 Entity와 판매·상품 Entity 사이에 JPA 연관관계를 추가하지 않는다. 주문 행의 상태와 만료 시각을 예약 기록으로 사용하고, 판매 일정 행을 잠근 뒤 유효한 예약 수량을 집계해 초과 판매를 막는다. [ADR-015](decisions/ADR-015-order-row-reservation-with-sale-lock.md)을 따른다.
+- 결제 시도는 주문 ID를 참조하는 별도 `Payment`로 저장한다. 승인 중 또는 수동 확인 대상인 주문은 만료 후에도 예약하고, 검증된 결제 완료 수량은 판매 완료 수량으로 계속 집계한다. 결제 확정도 판매 일정 행을 먼저 잠그며 `Payment.APPROVED`와 `Order.PAID`를 함께 기록한다. [ADR-019](decisions/ADR-019-payment-attempt-and-reservation-consistency.md)을 따른다.
 - 의미와 규칙이 있는 값만 Value Object로 만든다.
 
 ## 외부 시스템
