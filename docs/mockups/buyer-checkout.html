@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JAPDA 체크아웃</title>
+    <style>
+      :root {
+        --obsidian: #111111;
+        --paper-white: #ffffff;
+        --concrete-gray: #e5e5e5;
+        --soft-mist: #f5f5f5;
+        --steel: #707072;
+        --faint-gray: #9e9ea0;
+        --font: Pretendard, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      html { color-scheme: light; }
+      body {
+        min-width: 320px;
+        margin: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        font: 14px/1.6 var(--font);
+        -webkit-font-smoothing: antialiased;
+      }
+      button, input, textarea { font: inherit; }
+      button { cursor: pointer; }
+      a { color: inherit; text-decoration: none; }
+      a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
+      }
+      [hidden] { display: none !important; }
+
+      .topbar { height: 72px; border-bottom: 1px solid var(--concrete-gray); }
+      .topbar-inner {
+        width: min(100% - 64px, 1440px);
+        height: 100%;
+        margin: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .brand { font-size: 20px; font-weight: 600; letter-spacing: -0.04em; }
+      .login-button, .primary-button {
+        min-height: 42px;
+        padding: 0 22px;
+        border: 1px solid var(--obsidian);
+        border-radius: 30px;
+        color: var(--paper-white);
+        background: var(--obsidian);
+        font-weight: 500;
+      }
+      .login-button { min-width: 92px; }
+      .primary-button:hover, .login-button:hover { opacity: 0.8; }
+      .secondary-button {
+        min-height: 42px;
+        padding: 0 22px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 30px;
+        background: var(--paper-white);
+        font-weight: 500;
+      }
+      .secondary-button:hover { border-color: var(--obsidian); }
+
+      .page { width: min(100% - 64px, 1200px); margin: auto; padding: 32px 0 120px; }
+      .back-link {
+        width: fit-content;
+        min-height: 40px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 42px;
+        color: var(--steel);
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .back-link:hover { color: var(--obsidian); }
+      .back-link svg { flex: 0 0 auto; }
+      .eyebrow { margin: 0 0 7px; font-size: 11px; font-weight: 600; letter-spacing: 0.16em; }
+      h1 { margin: 0; font-size: clamp(34px, 4vw, 48px); font-weight: 600; letter-spacing: -0.055em; line-height: 1.2; }
+      .checkout-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: clamp(48px, 6vw, 96px); margin-top: 54px; align-items: start; }
+      .section + .section { margin-top: 64px; }
+      .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 17px; border-bottom: 1px solid var(--obsidian); }
+      h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -0.025em; }
+      .section-count { color: var(--steel); font-size: 12px; }
+
+      .product { display: flex; gap: 24px; padding: 26px 0; border-bottom: 1px solid var(--concrete-gray); }
+      .product-image-wrap { width: 188px; aspect-ratio: 1; flex: 0 0 auto; background: var(--soft-mist); }
+      .product-image { width: 100%; height: 100%; display: block; object-fit: cover; }
+      .product-image-fallback { width: 100%; height: 100%; display: grid; place-items: center; color: var(--faint-gray); font-size: 12px; }
+      .product-info { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+      .product-kicker { margin: 1px 0 8px; color: var(--steel); font-size: 11px; font-weight: 600; letter-spacing: 0.13em; }
+      .product-name { margin: 0; font-size: 21px; font-weight: 600; line-height: 1.4; letter-spacing: -0.025em; word-break: keep-all; }
+      .product-price { margin: 8px 0 0; font-size: 16px; font-weight: 500; }
+      .product-quantity { display: flex; justify-content: space-between; gap: 16px; margin-top: auto; color: var(--steel); font-size: 13px; }
+      .product-quantity strong { color: var(--obsidian); font-size: 14px; font-weight: 600; }
+
+      .address-list { margin: 0; padding: 0; list-style: none; }
+      .address-list li + li { margin-top: 12px; }
+      .address-card { position: relative; display: block; padding: 22px 20px; border: 1px solid var(--concrete-gray); cursor: pointer; }
+      .address-card:hover { background: #fafafa; }
+      .address-card:has(input:checked) { border-color: var(--obsidian); outline: 1px solid var(--obsidian); outline-offset: -1px; background: var(--paper-white); }
+      .address-card-head { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
+      .address-card input { width: 18px; height: 18px; margin: 0; accent-color: var(--obsidian); }
+      .address-name { font-size: 16px; font-weight: 600; }
+      .address-detail { padding-left: 29px; color: #353535; font-size: 14px; line-height: 1.7; }
+      .address-detail span { display: block; }
+      .address-detail .recipient { margin-bottom: 3px; font-weight: 500; }
+      .address-detail .message { margin-top: 7px; color: var(--steel); font-size: 13px; }
+
+      .empty-address { padding: 58px 20px 62px; border-bottom: 1px solid var(--concrete-gray); text-align: center; }
+      .empty-address p { margin: 0 0 22px; color: var(--steel); font-size: 15px; }
+      .registration-form { padding-top: 26px; }
+      .form-title { margin: 0 0 24px; font-size: 16px; font-weight: 600; }
+      .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 16px; }
+      .field { display: block; min-width: 0; }
+      .field-wide { grid-column: 1 / -1; }
+      .field span { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 500; }
+      .field input, .field textarea {
+        width: 100%;
+        min-height: 46px;
+        padding: 11px 13px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+      }
+      .field textarea { min-height: 82px; resize: vertical; }
+      .field input::placeholder, .field textarea::placeholder { color: var(--faint-gray); }
+      .form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 28px; }
+      .feedback { margin: 14px 0 0; font-size: 13px; }
+
+      .summary { position: sticky; top: 36px; border-top: 1px solid var(--obsidian); }
+      .summary h2 { padding: 18px 0 22px; border-bottom: 1px solid var(--concrete-gray); }
+      .summary-row { display: flex; justify-content: space-between; gap: 16px; padding-top: 21px; font-size: 14px; }
+      .summary-row span:first-child { color: var(--steel); }
+      .summary-total { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-top: 25px; padding-top: 22px; border-top: 1px solid var(--obsidian); }
+      .summary-total span { font-size: 15px; font-weight: 600; }
+      .summary-total strong { font-size: 27px; font-weight: 600; letter-spacing: -0.035em; white-space: nowrap; }
+      .payment-button {
+        width: 100%;
+        min-height: 52px;
+        margin-top: 32px;
+        padding: 0 24px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 30px;
+        color: var(--faint-gray);
+        background: var(--soft-mist);
+        font-size: 16px;
+        font-weight: 500;
+        cursor: not-allowed;
+      }
+
+      @media (max-width: 900px) {
+        .checkout-grid { grid-template-columns: minmax(0, 1fr) 280px; gap: 36px; }
+        .product-image-wrap { width: 150px; }
+      }
+      @media (max-width: 720px) {
+        .topbar { height: 64px; }
+        .topbar-inner, .page { width: min(100% - 40px, 100%); }
+        .page { padding: 22px 0 80px; }
+        .back-link { margin-bottom: 24px; }
+        .checkout-grid { display: block; margin-top: 38px; }
+        .summary { position: static; margin-top: 64px; }
+        .section + .section { margin-top: 52px; }
+      }
+      @media (max-width: 420px) {
+        .topbar-inner, .page { width: min(100% - 28px, 100%); }
+        .login-button { min-width: 80px; min-height: 40px; padding: 0 18px; }
+        .product { gap: 16px; padding: 20px 0; }
+        .product-image-wrap { width: 108px; }
+        .product-name { font-size: 17px; }
+        .product-price { font-size: 14px; }
+        .product-quantity { margin-top: 12px; }
+        .form-grid { grid-template-columns: 1fr; }
+        .field-wide { grid-column: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="buyer-main.html" aria-label="JAPDA 홈">JAPDA</a>
+        <button class="login-button" type="button">로그인</button>
+      </div>
+    </header>
+
+    <main class="page">
+      <a class="back-link" href="buyer-sale-product-detail.html" id="back-to-product">
+        <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true"><path d="M10.5 3.5 5.5 8.5l5 5" stroke="currentColor" stroke-width="1.5" /></svg>
+        상품 상세
+      </a>
+      <p class="eyebrow">주문 전 확인</p>
+      <h1>체크아웃</h1>
+
+      <div class="checkout-grid">
+        <div>
+          <section class="section" aria-labelledby="product-heading">
+            <div class="section-heading"><h2 id="product-heading">상품 정보</h2><span class="section-count">01</span></div>
+            <div class="product">
+              <div class="product-image-wrap">
+                <img class="product-image" id="product-image" src="https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&amp;fit=crop&amp;w=800&amp;q=90" alt="JAPDA × ORBIT 레더 스니커즈" />
+                <span class="product-image-fallback" id="product-image-fallback" hidden role="img" aria-label="JAPDA × ORBIT 레더 스니커즈 대표 이미지 없음">이미지 없음</span>
+              </div>
+              <div class="product-info">
+                <p class="product-kicker">한정 판매</p>
+                <h3 class="product-name">JAPDA × ORBIT<br />레더 스니커즈</h3>
+                <p class="product-price">189,000원</p>
+                <div class="product-quantity"><span>구매 수량</span><strong id="product-quantity">1개</strong></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section" aria-labelledby="shipping-heading">
+            <div class="section-heading"><h2 id="shipping-heading">배송지</h2><span class="section-count">02</span></div>
+            <ul class="address-list" id="address-list">
+              <li>
+                <label class="address-card">
+                  <span class="address-card-head"><input type="radio" name="shipping-address" value="7" /><span class="address-name">집</span></span>
+                  <span class="address-detail"><span class="recipient">홍길동 · 010-1234-5678</span><span>06236 · 서울특별시 강남구 테헤란로 123</span><span>101동 1001호</span><span class="message">문 앞에 놓아주세요</span></span>
+                </label>
+              </li>
+              <li>
+                <label class="address-card">
+                  <span class="address-card-head"><input type="radio" name="shipping-address" value="8" /><span class="address-name">회사</span></span>
+                  <span class="address-detail"><span class="recipient">홍길동 · 010-1234-5678</span><span>04524 · 서울특별시 중구 세종대로 110</span><span>8층</span></span>
+                </label>
+              </li>
+            </ul>
+
+            <div class="empty-address" id="empty-address" hidden>
+              <p>등록된 배송지가 없습니다.</p>
+              <button class="primary-button" id="open-registration" type="button">배송지 등록</button>
+            </div>
+
+            <form class="registration-form" id="registration-form" hidden>
+              <h3 class="form-title">배송지 등록</h3>
+              <div class="form-grid">
+                <label class="field"><span>배송지명</span><input name="addressName" maxlength="100" placeholder="집" required /></label>
+                <label class="field"><span>수취인명</span><input name="recipientName" maxlength="100" autocomplete="name" required /></label>
+                <label class="field"><span>전화번호</span><input name="phoneNumber" type="tel" maxlength="30" autocomplete="tel" required /></label>
+                <label class="field"><span>우편번호</span><input name="postalCode" maxlength="20" autocomplete="postal-code" required /></label>
+                <label class="field field-wide"><span>기본 주소</span><input name="address" maxlength="255" autocomplete="street-address" required /></label>
+                <label class="field field-wide"><span>상세 주소</span><input name="detailAddress" maxlength="255" autocomplete="address-line2" required /></label>
+                <label class="field field-wide"><span>배송 메모</span><textarea name="deliveryMessage" maxlength="500" placeholder="문 앞에 놓아주세요"></textarea></label>
+              </div>
+              <div class="form-actions">
+                <button class="secondary-button" id="cancel-registration" type="button">등록 취소</button>
+                <button class="primary-button" type="submit">등록하기</button>
+              </div>
+            </form>
+            <p class="feedback" id="registration-feedback" role="status" hidden></p>
+          </section>
+        </div>
+
+        <aside class="summary" aria-labelledby="summary-heading">
+          <h2 id="summary-heading">금액 정보</h2>
+          <div class="summary-row"><span>상품 금액</span><span id="line-total">189,000원</span></div>
+          <div class="summary-row"><span>수량</span><span id="summary-quantity">1개</span></div>
+          <div class="summary-total"><span>예상 총액</span><strong id="total-price">189,000원</strong></div>
+          <button class="payment-button" type="button" disabled>결제</button>
+        </aside>
+      </div>
+    </main>
+
+    <template id="address-template">
+      <li><label class="address-card">
+        <span class="address-card-head"><input type="radio" name="shipping-address" /><span class="address-name"></span></span>
+        <span class="address-detail"><span class="recipient"></span><span class="address-line"></span><span class="detail-line"></span><span class="message" hidden></span></span>
+      </label></li>
+    </template>
+
+    <script>
+      // 목업의 금액 표시는 화면 이동 확인용이며 실제 화면은 체크아웃 API 응답을 사용한다.
+      const params = new URLSearchParams(window.location.search)
+      const quantity = Number(params.get('quantity'))
+      const shownQuantity = Number.isSafeInteger(quantity) && quantity > 0 && quantity <= 2147483647 ? quantity : 1
+      const quantityText = `${shownQuantity.toLocaleString('ko-KR')}개`
+      const amountText = `${(189000 * shownQuantity).toLocaleString('ko-KR')}원`
+      document.getElementById('product-quantity').textContent = quantityText
+      document.getElementById('summary-quantity').textContent = quantityText
+      document.getElementById('line-total').textContent = amountText
+      document.getElementById('total-price').textContent = amountText
+
+      const addressList = document.getElementById('address-list')
+      const emptyAddress = document.getElementById('empty-address')
+      const registrationForm = document.getElementById('registration-form')
+      const feedback = document.getElementById('registration-feedback')
+
+      if (params.get('empty') === '1') {
+        addressList.hidden = true
+        emptyAddress.hidden = false
+      }
+
+      document.getElementById('open-registration').addEventListener('click', () => {
+        emptyAddress.hidden = true
+        registrationForm.hidden = false
+        registrationForm.elements.addressName.focus()
+      })
+
+      document.getElementById('cancel-registration').addEventListener('click', () => {
+        registrationForm.hidden = true
+        emptyAddress.hidden = false
+        registrationForm.reset()
+      })
+
+      registrationForm.addEventListener('input', (event) => event.target.setCustomValidity(''))
+      registrationForm.addEventListener('submit', (event) => {
+        event.preventDefault()
+        for (const input of registrationForm.querySelectorAll('[required]')) {
+          if (!input.value.trim()) {
+            input.setCustomValidity('필수 항목입니다.')
+            input.reportValidity()
+            return
+          }
+        }
+
+        const data = new FormData(registrationForm)
+        const item = document.getElementById('address-template').content.firstElementChild.cloneNode(true)
+        const value = (name) => String(data.get(name) ?? '').trim()
+        item.querySelector('input').value = '9'
+        item.querySelector('.address-name').textContent = value('addressName')
+        item.querySelector('.recipient').textContent = `${value('recipientName')} · ${value('phoneNumber')}`
+        item.querySelector('.address-line').textContent = `${value('postalCode')} · ${value('address')}`
+        item.querySelector('.detail-line').textContent = value('detailAddress')
+        const message = value('deliveryMessage')
+        if (message) {
+          item.querySelector('.message').hidden = false
+          item.querySelector('.message').textContent = message
+        }
+        addressList.append(item)
+        item.querySelector('input').checked = true
+        addressList.hidden = false
+        registrationForm.hidden = true
+        feedback.textContent = '배송지가 등록되었습니다.'
+        feedback.hidden = false
+      })
+
+      document.getElementById('product-image').addEventListener('error', (event) => {
+        event.target.hidden = true
+        document.getElementById('product-image-fallback').hidden = false
+      })
+      if (document.getElementById('product-image').complete && document.getElementById('product-image').naturalWidth === 0) {
+        document.getElementById('product-image').hidden = true
+        document.getElementById('product-image-fallback').hidden = false
+      }
+    </script>
+  </body>
+</html>

@@ -209,9 +209,44 @@
       .purchase-button {
         width: 100%;
         min-height: 52px;
-        margin-top: auto;
+        margin-top: 20px;
         padding: 0 24px;
         font-size: 16px;
+      }
+
+      .purchase-form {
+        margin-top: auto;
+      }
+
+      .quantity-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding-top: 20px;
+        border-top: 1px solid var(--concrete-gray);
+      }
+
+      .quantity-row label {
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      .quantity-row input {
+        width: 104px;
+        min-height: 44px;
+        padding: 8px 12px;
+        border: 1px solid var(--concrete-gray);
+        border-radius: 0;
+        color: var(--obsidian);
+        background: var(--paper-white);
+        font: inherit;
+        text-align: right;
+      }
+
+      .quantity-row input:focus-visible {
+        outline: 2px solid var(--obsidian);
+        outline-offset: 3px;
       }
 
       .product-details {
@@ -312,7 +347,7 @@
           margin-top: 36px;
         }
 
-        .purchase-button {
+        .purchase-form {
           margin-top: 48px;
           margin-bottom: 32px;
         }
@@ -388,7 +423,13 @@
             <p class="period-value">2026. 09. 11. 00:00<br />— 2026. 09. 12. 00:00 KST</p>
           </div>
 
-          <button class="purchase-button" type="button">구매하기</button>
+          <form class="purchase-form" action="buyer-checkout.html" method="get">
+            <div class="quantity-row">
+              <label for="purchase-quantity">구매 수량</label>
+              <input id="purchase-quantity" name="quantity" type="number" inputmode="numeric" min="1" max="2147483647" step="1" value="1" required />
+            </div>
+            <button class="purchase-button" type="submit">구매하기</button>
+          </form>
         </div>
       </section>
 
