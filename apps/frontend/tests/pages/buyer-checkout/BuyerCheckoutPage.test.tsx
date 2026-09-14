@@ -8,7 +8,12 @@ import { BuyerCheckoutPage } from '../../../src/pages/buyer-checkout/BuyerChecko
 const address = { shippingAddressId: 7, addressName: '집', recipientName: '홍길동', phoneNumber: '010', postalCode: '06236', address: '서울', detailAddress: '101호', deliveryMessage: '문 앞' }
 const checkout = { saleId: 11, productName: '한정판 후디', representativeImagePath: '/products/main.webp', quantity: 3, unitPrice: 120000, totalPrice: 360000, shippingAddresses: [address, { ...address, shippingAddressId: 8, addressName: '회사' }] }
 
-function renderPage(path: string, buyerId: number | null = 42) {
+function renderPage(path: string, buyerId: number | null = 42, authResponse?: Response) {
+  const domainFetcher = globalThis.fetch
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith('/api/auth/me')
+      ? Promise.resolve(authResponse ?? Response.json({ code: 'AUTH_UNAUTHENTICATED' }, { status: 401, headers: { 'Content-Type': 'application/problem+json' } }))
+      : domainFetcher(input, init))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><Routes><Route path="/checkout/:saleId" element={<BuyerCheckoutPage buyerId={buyerId} />} /></Routes></MemoryRouter></QueryClientProvider>)
 }
@@ -38,6 +43,7 @@ test('서버 예상 총액을 표시하고 배송지를 명시적으로 선택�
   renderPage('/checkout/11?quantity=3')
   expect(screen.getByRole('status')).toHaveTextContent('체크아웃 정보를 불러오는 중입니다.')
   expect(await screen.findByRole('heading', { level: 3, name: '한정판 후디' })).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: '로그인' })).toBeInTheDocument()
   expect(screen.getByText('360,000원', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByText('3개', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '결제하기' })).toBeDisabled()
@@ -145,4 +151,19 @@ test('등록 후 재조회 실패는 등록 완료를 알리고 목록만 재시
   fireEvent.click(screen.getByRole('button', { name: '목록 다시 시도' }))
   expect(await screen.findByRole('radio')).toBeChecked()
   expect(fetcher).toHaveBeenCalledTimes(4)
+})
+
+test('인증 사용자 이메일을 표시해도 체크아웃 개발용 구매자 ID를 유지한다', async () => {
+  const requests = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
+    String(input).endsWith('/api/auth/me')
+      ? Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] })
+      : Response.json(checkout))
+  vi.stubGlobal('fetch', requests)
+  renderPage('/checkout/11?quantity=3', 42, Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] }))
+
+  expect(await screen.findByText('buyer@example.com')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { level: 3, name: '한정판 후디' })).toBeInTheDocument()
+  const checkoutRequest = requests.mock.calls.find(([input]) => String(input).includes('/api/checkout?'))
+  expect(checkoutRequest?.[1]?.headers).toEqual({ 'X-Buyer-Id': '42' })
+  expect(screen.queryByText('BUYER')).not.toBeInTheDocument()
 })

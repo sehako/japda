@@ -65,3 +65,16 @@ test.each([
 
   expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
 })
+
+test.each([
+  ['/auth/success', '로그인 상태를 확인하고 있습니다.'],
+  ['/auth/failure?error=EMAIL_UNVERIFIED', '검증된 이메일이 필요합니다.'],
+])('%s 직접 접근을 로그인 결과 페이지에 연결한다', (path, heading) => {
+  window.history.pushState({}, '', path)
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+  render(<QueryClientProvider client={queryClient}><AppRouter /></QueryClientProvider>)
+
+  expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
+})

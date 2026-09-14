@@ -1,3 +1,4 @@
+import { AuthenticationStatus } from '../../features/authentication/ui/AuthenticationStatus.tsx'
 import { useBuyerSales } from '../../features/buyer-sale/hook/useBuyerSales.ts'
 import { BuyerSaleCalendar } from '../../features/buyer-sale/ui/BuyerSaleCalendar.tsx'
 import { BuyerSaleList } from '../../features/buyer-sale/ui/BuyerSaleList.tsx'
@@ -16,7 +17,7 @@ export function BuyerMainPage() {
     <header className="h-16 border-b border-[var(--color-concrete-gray)] md:h-[72px]">
       <div className="mx-auto flex size-full max-w-[1440px] items-center justify-between px-5 md:px-8">
         <span className="text-xl font-semibold tracking-[-0.04em]" aria-label="JAPDA 홈">JAPDA</span>
-        <button className="min-h-10 min-w-20 rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-[18px] font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3 md:min-h-[42px] md:min-w-[92px] md:px-[22px]" type="button">로그인</button>
+        <AuthenticationStatus />
       </div>
     </header>
     <main className="mx-auto w-full max-w-[1440px] px-5 pt-8 pb-16 md:px-8 md:pt-12 md:pb-24">
