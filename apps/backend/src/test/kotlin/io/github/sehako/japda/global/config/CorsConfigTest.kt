@@ -7,6 +7,7 @@ import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.security.oauth2.client.autoconfigure.servlet.OAuth2ClientWebSecurityAutoConfiguration
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest
 import org.springframework.context.annotation.Import
 import org.springframework.http.HttpHeaders
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 @DisplayName("CORS 설정")
 @WebMvcTest(
 	controllers = [ProductController::class],
+	excludeAutoConfiguration = [OAuth2ClientWebSecurityAutoConfiguration::class],
 	properties = [
 		"cors.allowed-origins[0]=http://localhost:5173",
 		"cors.allowed-origins[1]=https://frontend.example.com",

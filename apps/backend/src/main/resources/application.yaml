@@ -15,6 +15,13 @@ spring:
     multipart:
       max-file-size: 10MB
       max-request-size: 51MB
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
 
 product:
   image:
@@ -36,3 +43,12 @@ payment:
 cors:
   allowed-origins:
     - http://localhost:5173
+
+auth:
+  jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:}
+  issuer: ${AUTH_JWT_ISSUER:http://localhost:8080}
+  audience: ${AUTH_JWT_AUDIENCE:japda-spa}
+  success-url: ${AUTH_SUCCESS_URL:http://localhost:5173/auth/success}
+  failure-url: ${AUTH_FAILURE_URL:http://localhost:5173/auth/failure}
+  cookie-secure: ${AUTH_COOKIE_SECURE:false}
+  admin-emails: ${AUTH_ADMIN_EMAILS:}
