@@ -20,6 +20,11 @@ const detail = {
 } as const
 
 function renderPage(path: string) {
+  const domainFetcher = globalThis.fetch
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith('/api/auth/me')
+      ? Promise.resolve(Response.json({ code: 'AUTH_UNAUTHENTICATED' }, { status: 401, headers: { 'Content-Type': 'application/problem+json' } }))
+      : domainFetcher(input, init))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
@@ -51,6 +56,7 @@ test('상세 route에 직접 접근하면 loading 후 상품을 표시한다', a
   resolveResponse?.(Response.json(detail))
   expect(await screen.findByRole('heading', { level: 1, name: '한정판 후디' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'JAPDA 홈' })).toHaveAttribute('href', '/')
+  expect(await screen.findByRole('button', { name: '로그인' })).toBeInTheDocument()
 })
 
 test('404 SALE_NOT_FOUND를 상품 미존재로 안내한다', async () => {

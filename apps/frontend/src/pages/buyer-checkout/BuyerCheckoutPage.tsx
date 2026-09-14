@@ -1,5 +1,6 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
+import { AuthenticationStatus } from '../../features/authentication/ui/AuthenticationStatus.tsx'
 import { parseCheckoutQuantity } from '../../features/buyer-checkout/model/buyerCheckout.ts'
 import { BuyerCheckoutContent } from '../../features/buyer-checkout/ui/BuyerCheckoutContent.tsx'
 import { parseBuyerSaleId } from '../../features/buyer-sale/model/buyerSale.ts'
@@ -29,7 +30,7 @@ export function BuyerCheckoutPage({ buyerId }: { buyerId?: number | null }) {
   }
 
   return <>
-    <header className="h-16 border-b border-[var(--color-concrete-gray)] md:h-[72px]"><div className="mx-auto flex size-full max-w-[1440px] items-center justify-between px-5 md:px-8"><Link className="text-xl font-semibold tracking-[-0.04em]" to="/" aria-label="JAPDA 홈">JAPDA</Link><button className="min-h-10 min-w-20 rounded-full bg-[var(--color-obsidian)] px-[18px] font-medium text-white md:min-h-[42px] md:min-w-[92px]" type="button">로그인</button></div></header>
+    <header className="h-16 border-b border-[var(--color-concrete-gray)] md:h-[72px]"><div className="mx-auto flex size-full max-w-[1440px] items-center justify-between px-5 md:px-8"><Link className="text-xl font-semibold tracking-[-0.04em]" to="/" aria-label="JAPDA 홈">JAPDA</Link><AuthenticationStatus /></div></header>
     <main className="mx-auto w-full max-w-[1200px] px-5 pt-[22px] pb-20 md:px-8 md:pt-8 md:pb-[120px]">{content}</main>
   </>
 }

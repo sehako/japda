@@ -1,5 +1,6 @@
 import { Link, useParams } from 'react-router-dom'
 
+import { AuthenticationStatus } from '../../features/authentication/ui/AuthenticationStatus.tsx'
 import { useBuyerSaleDetail } from '../../features/buyer-sale/hook/useBuyerSaleDetail.ts'
 import { parseBuyerSaleId } from '../../features/buyer-sale/model/buyerSale.ts'
 import { BuyerSaleDetail } from '../../features/buyer-sale/ui/BuyerSaleDetail.tsx'
@@ -10,7 +11,7 @@ function PageHeader() {
   return <header className="h-16 border-b border-[var(--color-concrete-gray)] md:h-[72px]">
     <div className="mx-auto flex size-full max-w-[1440px] items-center justify-between px-5 md:px-8">
       <Link className="text-xl font-semibold tracking-[-0.04em] focus-visible:outline-2 focus-visible:outline-offset-3" to="/" aria-label="JAPDA 홈">JAPDA</Link>
-      <button className="min-h-10 min-w-20 rounded-full border border-[var(--color-obsidian)] bg-[var(--color-obsidian)] px-[18px] font-medium text-white hover:opacity-80 focus-visible:outline-2 focus-visible:outline-offset-3 md:min-h-[42px] md:min-w-[92px] md:px-[22px]" type="button">로그인</button>
+      <AuthenticationStatus />
     </div>
   </header>
 }

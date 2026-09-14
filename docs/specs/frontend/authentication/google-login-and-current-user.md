@@ -32,7 +32,7 @@
 
 ## API 및 상태 계약
 
-인증 feature의 API는 기존 `shared/api/apiClient.ts`의 요청 함수를 사용해 `GET /api/auth/me`만 `credentials: 'include'`로 호출하고 Query의 `AbortSignal`을 전달한다. 공통 요청 함수의 상품 등록용 기본 오류 문구를 인증 화면에 그대로 노출하지 않고, 인증 feature에서 상태에 맞는 문구로 바꾼다. `VITE_API_BASE_URL`이 있으면 그 설정의 origin에 `/oauth2/authorization/google`을 붙여 로그인 시작 주소를 만든다. 설정이 없으면 현재 origin을 사용하며, 이 경우 배포 환경이 OAuth2 시작 경로와 `/api`를 백엔드로 전달해야 한다. SPA와 API가 다른 origin이면 백엔드가 허용한 명시적 SPA origin에서 자격 증명 CORS를 사용하고, 쿠키 전송이 가능한 동일 사이트 배치를 전제로 한다. 기존 API 요청의 `credentials` 기본값은 바꾸지 않는다.
+인증 feature의 API는 기존 `shared/api/apiClient.ts`의 요청 함수를 사용해 `GET /api/auth/me`만 `credentials: 'include'`로 호출하고 Query의 `AbortSignal`을 전달한다. 공통 요청 함수의 상품 등록용 기본 오류 문구를 인증 화면에 그대로 노출하지 않고, 인증 feature에서 상태에 맞는 문구로 바꾼다. `VITE_API_BASE_URL`이 있으면 그 설정의 origin에 `/oauth2/authorization/google`을 붙여 로그인 시작 주소를 만든다. 설정이 없으면 현재 origin을 사용한다. 로컬 Vite 개발 서버는 `/api`, `/oauth2`, `/login/oauth2`를 `http://localhost:8080`으로 전달하며, 배포 환경도 OAuth2 시작 경로와 `/api`를 백엔드로 전달해야 한다. SPA와 API가 다른 origin이면 백엔드가 허용한 명시적 SPA origin에서 자격 증명 CORS를 사용하고, 쿠키 전송이 가능한 동일 사이트 배치를 전제로 한다. 기존 API 요청의 `credentials` 기본값은 바꾸지 않는다.
 
 응답은 양의 안전한 정수 `id`, 문자열 `email`, 중복 없는 `BUYER`·`ADMIN` 이름순 배열 `roles`로 검증한다. 화면에는 `email`만 표시한다. 역할은 현재 사용자 조회 결과에 보관하되 이번 범위에서 헤더 배지, 메뉴 노출, route 차단 또는 기존 API 호출 조건으로 사용하지 않는다.
 
@@ -42,16 +42,16 @@
 | --- | --- | --- |
 | 조회 중 | `로그인 상태 확인 중` | 로그인 여부를 추측해 표시하지 않는다. |
 | `200` | 이메일 | 현재 사용자로 표시한다. |
-| `401 AUTH_UNAUTHENTICATED` | `로그인` | 비로그인으로 처리한다. |
+| `401` | `로그인` | 오류 코드와 관계없이 재로그인이 필요한 비로그인 상태로 처리한다. |
 | 네트워크·서버·응답 형식 오류 | `로그인 상태를 확인하지 못했습니다`와 재시도 | 비로그인으로 단정하지 않는다. |
 
 Query key는 인증 feature에서 한 곳에 정의한다. `401`은 재시도하지 않고 비로그인 결과로 처리한다. 다른 오류도 자동 재시도하지 않으며 사용자가 재시도할 수 있다. `staleTime: 0`, `retry: false`, `refetchOnMount: true`, `refetchOnWindowFocus: true`, `refetchOnReconnect: true`로 두어 화면 진입, 창 포커스 복귀, 연결 복구 시 쿠키 만료와 서버 변경을 확인한다. 재조회 중에는 이전 결과를 로그인 상태로 표시하지 않고 확인 중 상태를 표시하며, 재조회에 실패해도 이전 사용자 정보를 표시하지 않는다. 쿠키 내용이나 조회 응답을 `localStorage` 또는 `sessionStorage`에 저장하지 않는다. 복귀 경로만 탭의 `sessionStorage`에 일시 보관한다.
 
-`/auth/success`에서 `/api/auth/me`가 `401`이거나 조회에 실패하면 성공으로 이동하지 않고 상태에 맞는 안내와 재시도를 표시한다. `/auth/failure`의 `EMAIL_UNVERIFIED`는 검증된 이메일이 필요하다고 안내하고, `GOOGLE_LOGIN_FAILED` 및 알 수 없는 코드는 일반 로그인 실패로 안내한다. URL의 오류 문자열을 그대로 화면에 출력하지 않는다. 실패 화면에서는 메인 이동도 제공한다.
+`/auth/success`에서 `/api/auth/me`가 `401`이면 성공으로 이동하지 않고 로그인 버튼을 표시하며 원래 복귀 경로를 유지한다. 그 밖의 조회 오류에는 재조회 버튼을 표시한다. `/auth/failure`의 `EMAIL_UNVERIFIED`는 검증된 이메일이 필요하다고 안내하고, `GOOGLE_LOGIN_FAILED` 및 알 수 없는 코드는 일반 로그인 실패로 안내한다. URL의 오류 문자열을 그대로 화면에 출력하지 않는다. 실패 화면에서는 메인 이동도 제공한다.
 
 ## 검증
 
-- 인증 API 테스트에서 `credentials: 'include'`, `AbortSignal`, 정상 응답 검증, `401 AUTH_UNAUTHENTICATED`와 네트워크·서버·응답 형식 오류 구분을 확인한다.
+- 인증 API 테스트에서 `credentials: 'include'`, `AbortSignal`, 정상 응답 검증, 오류 코드와 관계없는 `401` 비로그인 처리와 네트워크·서버·응답 형식 오류 구분을 확인한다.
 - 로그인 흐름 테스트에서 세 화면의 버튼이 백엔드 OAuth2 시작 주소로 이동하고 내부 복귀 경로를 보관하는지, 성공 후 `/api/auth/me` 확인 전에는 로그인 완료로 이동하지 않는지 확인한다.
 - 성공 route 테스트에서 원래 화면과 검색 조건 복귀, 저장 경로 누락·변조 시 `/` 복귀, 복귀 경로 제거를 확인한다.
 - 실패 route와 헤더 테스트에서 허용된 오류 코드 안내, 재시도, 비로그인·조회 중·로그인·조회 오류 표시를 확인한다.
