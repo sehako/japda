@@ -29,6 +29,14 @@ function show() {
   return render(<QueryClientProvider client={queryClient}><MemoryRouter><BuyerCheckoutContent saleId={11} quantity={3} buyerId={42} /></MemoryRouter></QueryClientProvider>)
 }
 
+test('체크아웃은 승인 결과를 확인하는 테스트 결제임을 안내한다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(checkout)))
+  readyWidget()
+  show()
+
+  expect(await screen.findByText('테스트 결제입니다. 결제 인증 후 승인 결과를 확인합니다.')).toBeInTheDocument()
+})
+
 function readyWidget() {
   createWidget.mockResolvedValue({ setAmount, renderPaymentMethods: async () => ({ on: (name: string, listener: (selected: boolean) => void) => { listeners[name] = listener } }), renderAgreement: async () => ({ on: (name: string, listener: (selected: boolean) => void) => { listeners[name] = listener } }), hasSelectedPaymentMethod, requestPayment, destroy })
 }

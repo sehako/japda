@@ -43,12 +43,13 @@ test.each([
 })
 
 test.each([
-  ['/payments/toss/success?paymentKey=key&orderId=order-1&amount=120000', '결제 인증 경로로 돌아왔지만 결제가 완료되지 않았습니다.'],
+  ['/payments/toss/success?paymentKey=key&orderId=order-1&amount=120000', '결제 정보를 확인할 수 없습니다.'],
   ['/payments/toss/fail?code=PAY_PROCESS_CANCELED', '결제를 취소했습니다.'],
-])('%s 직접 접근을 인증 결과 페이지에 연결한다', (path, message) => {
+])('%s 직접 접근을 결제 결과 페이지에 연결한다', (path, heading) => {
   window.history.pushState({}, '', path)
+  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
 
-  render(<AppRouter />)
+  render(<QueryClientProvider client={queryClient}><AppRouter /></QueryClientProvider>)
 
-  expect(screen.getByRole('alert')).toHaveTextContent(message)
+  expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
 })
