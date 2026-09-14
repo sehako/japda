@@ -50,3 +50,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 018 | [구매자 체크아웃을 주문 영역의 조회 전용 모델로 구성](ADR-018-buyer-checkout-query-model.md) | backend | 승인 |
 | 019 | [결제 시도 기록과 주문 예약의 정합성](ADR-019-payment-attempt-and-reservation-consistency.md) | backend | 승인 |
 | 020 | [백엔드 Google OIDC 로그인과 JWT 쿠키 발급](ADR-020-backend-google-oidc-login-and-jwt-cookie.md) | backend | 승인 |
+| 021 | [기존 Spring Security 구성 요소로 쿠키 JWT 인증](ADR-021-cookie-jwt-authentication-with-spring-security-components.md) | backend | 승인 |
