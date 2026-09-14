@@ -1,22 +1,39 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 
 import { TossPaymentResultPage } from '../../../src/pages/toss-payment-result/TossPaymentResultPage.tsx'
 
+vi.mock('../../../src/shared/config/env.ts', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../src/shared/config/env.ts')>(),
+  buyerIdConfig: { valid: true, value: 42 },
+}))
+
+const successPath = '/payments/toss/success?paymentKey=secret-payment-key&orderId=order-1&amount=120000&saleId=11&quantity=3'
+const paid = { orderId: 1284, paymentOrderId: 'order-1', status: 'PAID', totalAmount: 120000, approvedAt: '2026-09-14T05:32:00Z' }
+
 function renderResult(path: string) {
-  return render(<MemoryRouter initialEntries={[path]}><Routes>
+  const queryClient = new QueryClient({ defaultOptions: { mutations: { retry: false }, queries: { retry: false } } })
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><Routes>
     <Route path="/payments/toss/success" element={<TossPaymentResultPage result="success" />} />
     <Route path="/payments/toss/fail" element={<TossPaymentResultPage result="fail" />} />
-  </Routes></MemoryRouter>)
+  </Routes></MemoryRouter></QueryClientProvider>)
 }
 
-test('인증 성공 리다이렉트에서 결제 미완료를 알리고 복귀 링크에 검증된 값만 남긴다', () => {
-  renderResult('/payments/toss/success?paymentKey=secret-payment-key&orderId=order-1&amount=120000&saleId=11&quantity=3')
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
-  expect(screen.getByRole('alert')).toHaveTextContent('결제 인증 경로로 돌아왔지만 결제가 완료되지 않았습니다.')
-  expect(screen.queryByText('결제 완료')).not.toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '체크아웃으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
+test('검증된 승인 응답에만 서버 주문 정보와 결제 완료를 표시한다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(paid)))
+  renderResult(successPath)
+
+  expect(screen.getByRole('status')).toHaveTextContent('결제 승인 결과를 확인하는 중입니다.')
+  expect(screen.queryByText('결제가 완료됐습니다.')).not.toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '결제가 완료됐습니다.' })).toBeInTheDocument()
+  expect(screen.getByText('1284')).toBeInTheDocument()
+  expect(screen.getByText('120,000원')).toBeInTheDocument()
+  expect(screen.getByText('2026. 09. 14. 14:32')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '상품 목록으로 돌아가기' })).toHaveAttribute('href', '/')
   expect(document.body).not.toHaveTextContent('secret-payment-key')
 })
 
@@ -24,23 +41,54 @@ test.each([
   '/payments/toss/success?orderId=order-1&amount=120000',
   '/payments/toss/success?paymentKey=key&orderId=order-1&amount=0',
   '/payments/toss/success?paymentKey=key&orderId=order-1&amount=abc',
+  '/payments/toss/success?paymentKey=key&paymentKey=other&orderId=order-1&amount=120000',
   '/payments/toss/success?paymentKey=key&orderId=&amount=120000',
-])('잘못된 성공 리다이렉트 %s에서 인증 결과를 확인하지 못했다고 알린다', (path) => {
+])('잘못된 성공 리다이렉트 %s에서는 승인을 요청하지 않는다', (path) => {
+  const fetcher = vi.fn()
+  vi.stubGlobal('fetch', fetcher)
   renderResult(path)
 
-  expect(screen.getByRole('alert')).toHaveTextContent('결제 인증 결과를 확인할 수 없습니다.')
-  expect(screen.queryByText('결제 완료')).not.toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('결제 정보를 확인할 수 없습니다.')
+  expect(screen.getByRole('alert')).toHaveTextContent('요청 정보가 올바르지 않거나 필요한 설정이 없어 승인을 진행할 수 없습니다.')
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(screen.getByRole('link', { name: '상품 목록으로 돌아가기' })).toHaveAttribute('href', '/')
 })
 
-test('결제창 취소 코드를 일반 실패와 구분해 안내한다', () => {
+test('미리보기 매개변수는 승인 결과를 바꾸지 않는다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json(paid)))
+  renderResult(`${successPath}&state=failed&reason=expired&return=invalid`)
+
+  expect(await screen.findByRole('heading', { name: '결제가 완료됐습니다.' })).toBeInTheDocument()
+  expect(screen.queryByText('주문이 만료됐습니다.')).not.toBeInTheDocument()
+})
+
+test('주문 식별자가 다른 승인 응답은 완료로 표시하지 않는다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ ...paid, paymentOrderId: 'another-order' })))
+  renderResult(successPath)
+
+  expect(await screen.findByRole('heading', { name: '결제 결과를 아직 확인할 수 없습니다.' })).toBeInTheDocument()
+  expect(screen.getByRole('alert')).toHaveTextContent('결제가 완료됐을 수 있으니 잠시만 기다려 주세요.')
+  expect(screen.queryByText('1284')).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: '결제 화면으로 돌아가기' })).not.toBeInTheDocument()
+})
+
+test('확정 실패는 검증된 체크아웃 복귀 링크를 제공한다', async () => {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({ code: 'PAYMENT_CONFIRMATION_FAILED' }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } })))
+  renderResult(successPath)
+
+  expect(await screen.findByRole('heading', { name: '결제에 실패했습니다.' })).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '결제 화면으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
+})
+
+test('결제창 취소 코드를 일반 실패와 구분하고 외부 메시지를 숨긴다', () => {
   renderResult('/payments/toss/fail?code=PAY_PROCESS_CANCELED&message=외부오류&saleId=11&quantity=3')
 
   expect(screen.getByRole('alert')).toHaveTextContent('결제를 취소했습니다.')
-  expect(screen.getByRole('link', { name: '체크아웃으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
+  expect(screen.getByRole('link', { name: '결제 화면으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
   expect(document.body).not.toHaveTextContent('외부오류')
 })
 
-test('일반 실패에서는 외부 메시지를 출력하지 않는다', () => {
+test('일반 인증 실패에서도 외부 메시지를 숨긴다', () => {
   renderResult('/payments/toss/fail?code=UNKNOWN&message=신뢰할수없는문구&saleId=11&quantity=3')
 
   expect(screen.getByRole('alert')).toHaveTextContent('결제 인증에 실패했습니다.')
@@ -54,6 +102,6 @@ test.each([
 ])('잘못된 복귀 매개변수 %s를 체크아웃 링크에 반영하지 않는다', (path) => {
   renderResult(path)
 
-  expect(screen.queryByRole('link', { name: '체크아웃으로 돌아가기' })).not.toBeInTheDocument()
-  expect(screen.getByRole('link', { name: '상품 목록' })).toHaveAttribute('href', '/')
+  expect(screen.queryByRole('link', { name: '결제 화면으로 돌아가기' })).not.toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '상품 목록으로 돌아가기' })).toHaveAttribute('href', '/')
 })
