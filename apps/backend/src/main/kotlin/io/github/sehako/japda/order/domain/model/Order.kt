@@ -39,9 +39,7 @@ class Order private constructor(
 	val unitPrice: Long,
 	@field:Column(name = "total_price", nullable = false)
 	val totalPrice: Long,
-	@field:Enumerated(EnumType.STRING)
-	@field:Column(nullable = false, length = 30)
-	val status: OrderStatus,
+	status: OrderStatus,
 	@field:Embedded
 	val shippingAddress: ShippingAddress,
 	@field:Column(name = "created_at", nullable = false)
@@ -53,6 +51,16 @@ class Order private constructor(
 	@field:GeneratedValue(strategy = GenerationType.IDENTITY)
 	var id: Long? = id
 		protected set
+
+	@field:Enumerated(EnumType.STRING)
+	@field:Column(nullable = false, length = 30)
+	var status: OrderStatus = status
+		protected set
+
+	fun markPaid() {
+		check(status == OrderStatus.PENDING_PAYMENT) { "결제 대기 주문만 완료할 수 있습니다." }
+		status = OrderStatus.PAID
+	}
 
 	fun matches(request: OrderRequest): Boolean =
 		buyerId == request.buyerId &&

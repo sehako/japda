@@ -16,8 +16,17 @@ class OrderRepositoryImpl(
 	override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? =
 		orderJpaRepository.findByBuyerIdAndIdempotencyKey(buyerId, idempotencyKey)
 
-	override fun sumActiveReservedQuantity(saleId: Long, now: Instant): Long =
-		orderJpaRepository.sumActiveReservedQuantity(saleId, now)
+	override fun findByPaymentOrderId(paymentOrderId: String): Order? = orderJpaRepository.findByPaymentOrderId(paymentOrderId)
+
+	override fun findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId: String, buyerId: Long): Long? =
+		orderJpaRepository.findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId, buyerId)
+
+	override fun findById(id: Long): Order? = orderJpaRepository.findById(id).orElse(null)
+
+	override fun findSaleIdById(id: Long): Long? = orderJpaRepository.findSaleIdById(id)
+
+	override fun sumCommittedQuantity(saleId: Long, now: Instant): Long =
+		orderJpaRepository.sumCommittedQuantity(saleId, now)
 
 	override fun save(order: Order): Order = try {
 		orderJpaRepository.saveAndFlush(order)

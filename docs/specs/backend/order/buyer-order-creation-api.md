@@ -107,7 +107,7 @@ Content-Type: application/json
 
 `totalPrice`는 `Sale.price × quantity`이며 `Long` 범위를 넘지 않는지 검사한다. `expiresAt`은 주문 생성에 사용한 UTC `Instant`에서 3분을 더한 값이다. 배송 정보는 저장하지만 결제 시작에 필요한 성공 응답에는 반환하지 않는다.
 
-동일 구매자가 같은 `Idempotency-Key`와 동일한 정규화 요청을 다시 보내면 새 주문이나 새 `paymentOrderId`를 만들지 않고, 만료 시간도 연장하지 않은 채 최초 주문과 같은 응답을 `201 Created`로 반환한다. 최초 주문이 이미 만료됐어도 기존 주문의 `paymentOrderId`와 과거 `expiresAt`을 반환하며, 새 예약에는 새 멱등성 키가 필요하다.
+동일 구매자가 같은 `Idempotency-Key`와 동일한 정규화 요청을 다시 보내면 새 주문이나 새 `paymentOrderId`를 만들지 않고, 만료 시간도 연장하지 않은 채 기존 주문의 식별자·가격·원래 `expiresAt`을 `201 Created`로 반환한다. `status`는 현재 저장된 상태를 반환하므로 결제 완료 후에는 `PAID`일 수 있다. 최초 주문이 이미 만료됐어도 기존 주문의 `paymentOrderId`와 과거 `expiresAt`을 반환하며, 새 예약에는 새 멱등성 키가 필요하다.
 
 ## 주문 모델과 영속성
 

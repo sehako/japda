@@ -30,6 +30,7 @@ class ProblemDetailFactory {
 		ErrorCategory.PAYLOAD_TOO_LARGE -> HttpStatus.PAYLOAD_TOO_LARGE
 		ErrorCategory.UNSUPPORTED_MEDIA_TYPE -> HttpStatus.UNSUPPORTED_MEDIA_TYPE
 		ErrorCategory.INTERNAL_SERVER_ERROR -> HttpStatus.INTERNAL_SERVER_ERROR
+		ErrorCategory.SERVICE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE
 	}
 
 	private val ErrorCategory.title: String
@@ -41,6 +42,7 @@ class ProblemDetailFactory {
 			ErrorCategory.PAYLOAD_TOO_LARGE -> "요청 용량 초과"
 			ErrorCategory.UNSUPPORTED_MEDIA_TYPE -> "지원하지 않는 미디어 타입"
 			ErrorCategory.INTERNAL_SERVER_ERROR -> "서버 내부 오류"
+			ErrorCategory.SERVICE_UNAVAILABLE -> "서비스 일시 불가"
 		}
 
 	private val ErrorCategory.detail: String
@@ -52,5 +54,6 @@ class ProblemDetailFactory {
 			ErrorCategory.PAYLOAD_TOO_LARGE -> "요청 용량이 허용 범위를 초과했습니다."
 			ErrorCategory.UNSUPPORTED_MEDIA_TYPE -> "지원하지 않는 미디어 타입입니다."
 			ErrorCategory.INTERNAL_SERVER_ERROR -> "서버 내부 오류가 발생했습니다."
+			ErrorCategory.SERVICE_UNAVAILABLE -> "서비스를 일시적으로 사용할 수 없습니다."
 		}
 }
