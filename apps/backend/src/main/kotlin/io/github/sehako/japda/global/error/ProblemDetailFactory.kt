@@ -24,6 +24,7 @@ class ProblemDetailFactory {
 
 	private fun ErrorCategory.toHttpStatus(): HttpStatus = when (this) {
 		ErrorCategory.INVALID_REQUEST -> HttpStatus.BAD_REQUEST
+		ErrorCategory.UNAUTHENTICATED -> HttpStatus.UNAUTHORIZED
 		ErrorCategory.FORBIDDEN -> HttpStatus.FORBIDDEN
 		ErrorCategory.NOT_FOUND -> HttpStatus.NOT_FOUND
 		ErrorCategory.CONFLICT -> HttpStatus.CONFLICT
@@ -36,6 +37,7 @@ class ProblemDetailFactory {
 	private val ErrorCategory.title: String
 		get() = when (this) {
 			ErrorCategory.INVALID_REQUEST -> "잘못된 요청"
+			ErrorCategory.UNAUTHENTICATED -> "인증 필요"
 			ErrorCategory.FORBIDDEN -> "접근 거부"
 			ErrorCategory.NOT_FOUND -> "리소스를 찾을 수 없음"
 			ErrorCategory.CONFLICT -> "요청 충돌"
@@ -48,6 +50,7 @@ class ProblemDetailFactory {
 	private val ErrorCategory.detail: String
 		get() = when (this) {
 			ErrorCategory.INVALID_REQUEST -> "요청 값이 올바르지 않습니다."
+			ErrorCategory.UNAUTHENTICATED -> "인증이 필요합니다."
 			ErrorCategory.FORBIDDEN -> "요청한 리소스에 접근할 수 없습니다."
 			ErrorCategory.NOT_FOUND -> "요청한 리소스를 찾을 수 없습니다."
 			ErrorCategory.CONFLICT -> "현재 상태와 요청이 충돌합니다."

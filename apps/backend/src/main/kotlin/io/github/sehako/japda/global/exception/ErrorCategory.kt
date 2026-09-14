@@ -2,6 +2,7 @@ package io.github.sehako.japda.global.exception
 
 enum class ErrorCategory {
 	INVALID_REQUEST,
+	UNAUTHENTICATED,
 	FORBIDDEN,
 	NOT_FOUND,
 	CONFLICT,

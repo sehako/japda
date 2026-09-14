@@ -10,5 +10,7 @@ class UserRepositoryImpl(private val jpaRepository: UserJpaRepository) : UserRep
     override fun findByGoogleSubject(subject: String): User? =
         jpaRepository.findByProviderAndProviderSubject(IdentityProvider.GOOGLE, subject)
 
+    override fun findById(id: Long): User? = jpaRepository.findById(id).orElse(null)
+
     override fun save(user: User): User = jpaRepository.save(user)
 }

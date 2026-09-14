@@ -6,6 +6,16 @@
 :toclevels: 2
 :sectlinks:
 
+== 현재 로그인 사용자 조회
+
+=== 성공
+
+operation::auth-current-user[snippets='http-request,request-headers,http-response,response-headers,response-fields']
+
+=== 인증 실패
+
+operation::auth-current-user-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
 == 판매자 상품 기본 정보 등록
 
 === 성공

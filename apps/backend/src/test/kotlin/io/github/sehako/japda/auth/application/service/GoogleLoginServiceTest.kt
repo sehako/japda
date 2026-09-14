@@ -65,6 +65,8 @@ class GoogleLoginServiceTest {
 
         override fun findByGoogleSubject(subject: String): User? = users[subject]
 
+        override fun findById(id: Long): User? = users.values.firstOrNull { it.id == id }
+
         override fun save(user: User): User {
             if (user.id == null) ReflectionTestUtils.setField(user, "id", nextId++)
             users[user.providerSubject] = user
@@ -80,6 +82,8 @@ class GoogleLoginServiceTest {
         override fun addIfAbsent(userId: Long, role: UserRole) {
             values.getOrPut(userId) { mutableSetOf() }.add(role)
         }
+
+        override fun findByUserId(userId: Long): List<UserRole> = values[userId].orEmpty().toList()
 
         fun roles(userId: Long): Set<UserRole> = values[userId].orEmpty()
     }
