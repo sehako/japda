@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
 	kotlin("jvm") version "2.3.21"
 	kotlin("plugin.spring") version "2.3.21"
@@ -31,6 +33,7 @@ dependencies {
 	implementation(platform("software.amazon.awssdk:bom:2.54.9"))
 	implementation("software.amazon.awssdk:s3")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	implementation("org.flywaydb:flyway-database-postgresql")
@@ -59,6 +62,9 @@ kotlin {
 tasks.withType<Test> {
 	useJUnitPlatform()
 	outputs.dir(layout.buildDirectory.dir("generated-snippets"))
+	environment("GOOGLE_CLIENT_ID", "synthetic-client-id")
+	environment("GOOGLE_CLIENT_SECRET", "synthetic-client-secret")
+	environment("AUTH_JWT_SIGNING_KEY", Base64.getEncoder().encodeToString(ByteArray(32) { 7 }))
 }
 
 tasks.asciidoctor {
