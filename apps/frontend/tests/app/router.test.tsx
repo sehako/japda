@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { AppRouter } from '../../src/app/router.tsx'
@@ -40,6 +40,18 @@ test.each([
   render(<QueryClientProvider client={queryClient}><AppRouter /></QueryClientProvider>)
 
   expect(screen.getByRole('heading', { level: 1, name: heading })).toBeInTheDocument()
+})
+
+test('찾을 수 없는 페이지에서 메인 페이지로 이동한다', () => {
+  window.history.pushState({}, '', '/unknown')
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => undefined)))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+  render(<QueryClientProvider client={queryClient}><AppRouter /></QueryClientProvider>)
+
+  fireEvent.click(screen.getByRole('link', { name: '메인 페이지로 이동' }))
+
+  expect(screen.getByRole('heading', { level: 1, name: '판매 일정' })).toBeInTheDocument()
 })
 
 test.each([
