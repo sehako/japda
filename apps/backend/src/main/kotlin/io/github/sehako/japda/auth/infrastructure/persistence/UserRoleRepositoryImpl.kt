@@ -10,4 +10,7 @@ class UserRoleRepositoryImpl(private val jpaRepository: UserRoleJpaRepository) :
     override fun addIfAbsent(userId: Long, role: UserRole) {
         jpaRepository.save(UserRoleAssignment(userId, role))
     }
+
+    override fun findByUserId(userId: Long): List<UserRole> =
+        jpaRepository.findAllByUserId(userId).map(UserRoleAssignment::role)
 }

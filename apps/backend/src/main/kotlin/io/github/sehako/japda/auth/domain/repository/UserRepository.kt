@@ -4,5 +4,6 @@ import io.github.sehako.japda.auth.domain.model.User
 
 interface UserRepository {
     fun findByGoogleSubject(subject: String): User?
+    fun findById(id: Long): User?
     fun save(user: User): User
 }

@@ -42,9 +42,21 @@ class CorsConfigTest {
 			mockMvc.perform(preflightRequest(origin))
 				.andExpect(status().isOk)
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin))
+				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("X-Seller-Id")))
 		}
+	}
+
+	@Test
+	@DisplayName("허용된 origin의 API 요청에 자격 증명 CORS 응답을 제공한다")
+	fun 허용된_origin_API_요청에_자격_증명_CORS_응답을_제공한다() {
+		mockMvc.perform(
+			get("/api/products/ready")
+				.header(HttpHeaders.ORIGIN, "http://localhost:5173"),
+		)
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, "http://localhost:5173"))
+			.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
 	}
 
 	@Test

@@ -13,5 +13,6 @@ class CorsConfig(
 	override fun addCorsMappings(registry: CorsRegistry) {
 		registry.addMapping("/api/**")
 			.allowedOrigins(*corsProperties.allowedOrigins.toTypedArray())
+			.allowCredentials(true)
 	}
 }

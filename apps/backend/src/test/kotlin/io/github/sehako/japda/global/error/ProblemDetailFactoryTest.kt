@@ -11,6 +11,12 @@ class ProblemDetailFactoryTest {
 	private val factory = ProblemDetailFactory()
 
 	@Test
+	@DisplayName("인증 실패 오류를 401로 변환한다")
+	fun 인증_실패_오류를_401로_변환한다() {
+		assertEquals(401, factory.create(error(ErrorCategory.UNAUTHENTICATED), "/api/auth/me").status)
+	}
+
+	@Test
 	@DisplayName("접근 거부 오류를 403으로 변환한다")
 	fun 접근_거부_오류를_403으로_변환한다() {
 		assertEquals(403, factory.create(error(ErrorCategory.FORBIDDEN), "/api/products/1/images").status)

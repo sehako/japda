@@ -27,6 +27,7 @@ class GoogleLoginHandlerTest {
     private val users = MemoryUsers()
     private val service = GoogleLoginService(users, object : UserRoleRepository {
         override fun addIfAbsent(userId: Long, role: UserRole) = Unit
+        override fun findByUserId(userId: Long): List<UserRole> = emptyList()
     }, emptySet(), Clock.fixed(Instant.parse("2026-09-14T00:00:00Z"), ZoneOffset.UTC))
     private val jwt = ServiceJwtIssuer(SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"), "japda", "japda-spa", Clock.systemUTC())
     private val handler = GoogleLoginSuccessHandler(service, jwt, "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false)
@@ -81,6 +82,7 @@ class GoogleLoginHandlerTest {
     private class MemoryUsers : UserRepository {
         var count = 0
         override fun findByGoogleSubject(subject: String): User? = null
+        override fun findById(id: Long): User? = null
         override fun save(user: User): User {
             ReflectionTestUtils.setField(user, "id", 1L)
             count++

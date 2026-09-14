@@ -3,8 +3,10 @@ package io.github.sehako.japda.global.error
 import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.exception.CommonErrorCode
 import io.github.sehako.japda.global.exception.ErrorCode
+import io.github.sehako.japda.auth.exception.AuthErrorCode
 import jakarta.servlet.http.HttpServletRequest
 import org.springframework.http.ProblemDetail
+import org.springframework.http.HttpHeaders
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
 import org.springframework.web.HttpMediaTypeNotSupportedException
@@ -73,6 +75,8 @@ class GlobalExceptionHandler(
 		request: HttpServletRequest,
 	): ResponseEntity<ProblemDetail> {
 		val problemDetail = problemDetailFactory.create(errorCode, request.requestURI)
-		return ResponseEntity.status(problemDetail.status).body(problemDetail)
+		val response = ResponseEntity.status(problemDetail.status)
+		if (errorCode == AuthErrorCode.UNAUTHENTICATED) response.header(HttpHeaders.CACHE_CONTROL, "no-store")
+		return response.body(problemDetail)
 	}
 }
