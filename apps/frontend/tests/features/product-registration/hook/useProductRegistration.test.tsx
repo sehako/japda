@@ -12,7 +12,6 @@ vi.mock('../../../../src/features/product-registration/api/productRegistrationAp
 }))
 vi.mock('../../../../src/shared/config/env.ts', () => ({
   apiBaseUrl: '',
-  sellerIdConfig: { valid: true, value: 7 },
 }))
 
 import { useProductRegistration } from '../../../../src/features/product-registration/hook/useProductRegistration.ts'

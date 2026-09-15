@@ -56,3 +56,12 @@ test('서버 오류 코드와 속성을 필드 및 폼 오류로 구분한다', 
   const duplicate = new ApiError('실패', { code: 'SALE_SELLER_ALREADY_REGISTERED' })
   assert.deepEqual(mapApiErrorToSaleErrors(duplicate), { fieldErrors: {}, formError: '같은 판매일에는 이미 등록한 일정이 있습니다.', refreshProducts: false })
 })
+
+test.each([
+  ['AUTH_UNAUTHENTICATED', '로그인이 필요합니다. 다시 로그인해 주세요.'],
+  ['AUTH_SELLER_LINK_REQUIRED', '판매자 계정 연결이 필요합니다.'],
+  ['AUTH_CSRF_INVALID', '보안 확인에 실패했습니다. 다시 시도해 주세요.'],
+])('판매 일정 인증 오류 %s는 일반 오류 대신 전용 안내를 사용한다', (code, formError) => {
+  const result = mapApiErrorToSaleErrors(new ApiError('실패', { status: code === 'AUTH_UNAUTHENTICATED' ? 401 : 403, code }))
+  assert.equal(result.formError, formError)
+})

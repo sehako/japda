@@ -31,30 +31,27 @@ function isBuyerCheckout(value: unknown, saleId: number, quantity: number): valu
 export async function fetchBuyerCheckout(
   saleId: number,
   quantity: number,
-  buyerId: number,
   signal?: AbortSignal,
   options?: ApiClientOptions,
 ): Promise<BuyerCheckout> {
-  if (![saleId, quantity, buyerId].every(isPositiveInteger) || quantity > 2_147_483_647) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+  if (![saleId, quantity].every(isPositiveInteger) || quantity > 2_147_483_647) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   const query = new URLSearchParams({ saleId: String(saleId), quantity: String(quantity) })
   const response = await requestApi<unknown>(`/api/checkout?${query}`, {
-    method: 'GET', headers: { 'X-Buyer-Id': String(buyerId) }, signal,
-  }, options)
+    method: 'GET', signal,
+  }, { ...options, protected: true })
   if (!isBuyerCheckout(response, saleId, quantity)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }
 
 export async function createShippingAddress(
   body: CreateShippingAddressRequest,
-  buyerId: number,
   options?: ApiClientOptions,
 ): Promise<ShippingAddress> {
-  if (!isPositiveInteger(buyerId)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   const response = await requestApi<unknown>('/api/shipping-addresses', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Buyer-Id': String(buyerId) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  }, options)
+  }, { ...options, protected: true })
   if (!isShippingAddress(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }

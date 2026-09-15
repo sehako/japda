@@ -25,8 +25,13 @@ const checkout = { saleId: 11, productName: '한정판 후디', representativeIm
 const order = { orderId: 1, paymentOrderId: '123e4567-e89b-42d3-a456-426614174000', status: 'PENDING_PAYMENT', productName: '한정판 후디', quantity: 3, unitPrice: 120000, totalPrice: 360000, expiresAt: '2099-01-01T00:00:00Z' }
 
 function show() {
+  const domainFetcher = globalThis.fetch
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
+    String(input).endsWith('/api/auth/csrf')
+      ? Promise.resolve(Response.json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' }))
+      : domainFetcher(input, init))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter><BuyerCheckoutContent saleId={11} quantity={3} buyerId={42} /></MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter><BuyerCheckoutContent saleId={11} quantity={3} /></MemoryRouter></QueryClientProvider>)
 }
 
 test('체크아웃은 승인 결과를 확인하는 테스트 결제임을 안내한다', async () => {
@@ -172,6 +177,22 @@ test('주문 네트워크 오류 재시도에는 동일한 멱등성 키를 쓰�
   const first = new Headers(fetcher.mock.calls[1][1]?.headers).get('Idempotency-Key')
   const second = new Headers(fetcher.mock.calls[2][1]?.headers).get('Idempotency-Key')
   expect(second).toBe(first)
+})
+
+test.each([
+  ['AUTH_UNAUTHENTICATED', 401, '로그인이 필요합니다.'],
+  ['AUTH_BUYER_LINK_REQUIRED', 403, '구매자 연결이 필요한 계정입니다.'],
+  ['AUTH_CSRF_INVALID', 403, '보안 확인에 실패했습니다. 다시 시도해 주세요.'],
+])('주문 %s 오류에서는 결제창을 열지 않는다', async (code, status, message) => {
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json(checkout))
+    .mockResolvedValueOnce(Response.json({ code }, { status, headers: { 'Content-Type': 'application/problem+json' } }))
+  vi.stubGlobal('fetch', fetcher)
+  readyWidget()
+  show()
+  fireEvent.click(await choosePayment())
+  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(requestPayment).not.toHaveBeenCalled()
 })
 
 test('확정 주문 금액이 예상 금액과 다르면 결제를 중단하고 재조회 경로를 제공한다', async () => {

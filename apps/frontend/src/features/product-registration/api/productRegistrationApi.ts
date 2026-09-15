@@ -34,7 +34,8 @@ function isPositiveInteger(value: unknown): value is number {
 function isCreateProductResponse(value: unknown): value is CreateProductResponse {
   if (typeof value !== 'object' || value === null) return false
   const response = value as Record<string, unknown>
-  return isPositiveInteger(response.id) && typeof response.name === 'string' && response.status === 'DRAFT'
+  return isPositiveInteger(response.id) && isPositiveInteger(response.sellerId)
+    && typeof response.name === 'string' && response.status === 'DRAFT'
 }
 
 function isRegisterImagesResponse(value: unknown, productId: number): value is RegisterProductImagesResponse {
@@ -45,16 +46,15 @@ function isRegisterImagesResponse(value: unknown, productId: number): value is R
 
 export async function createProduct(
   body: CreateProductRequest,
-  sellerId: number,
   signal?: AbortSignal,
   options?: ApiClientOptions,
 ): Promise<CreateProductResponse> {
   const response = await requestApi<unknown>('/api/products', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Seller-Id': String(sellerId) },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal,
-  }, options)
+  }, { ...options, protected: true })
   if (!isCreateProductResponse(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }
@@ -63,7 +63,6 @@ export async function registerProductImages(
   productId: number,
   files: File[],
   representativeIndex: number,
-  sellerId: number,
   signal?: AbortSignal,
   options?: ApiClientOptions,
 ): Promise<RegisterProductImagesResponse> {
@@ -72,10 +71,9 @@ export async function registerProductImages(
   body.append('representativeIndex', String(representativeIndex))
   const response = await requestApi<unknown>(`/api/products/${productId}/images`, {
     method: 'POST',
-    headers: { 'X-Seller-Id': String(sellerId) },
     body,
     signal,
-  }, options)
+  }, { ...options, protected: true })
   if (!isRegisterImagesResponse(response, productId)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }

@@ -1,4 +1,4 @@
-import { ApiError, requestApi } from '../../../shared/api/apiClient.ts'
+import { ApiError, prepareCsrfToken, requestApi } from '../../../shared/api/apiClient.ts'
 import type { ApiClientOptions } from '../../../shared/api/apiClient.ts'
 import type { CurrentUser, CurrentUserRole } from '../model/currentUser.ts'
 
@@ -34,5 +34,6 @@ export async function fetchCurrentUser(signal?: AbortSignal, options?: ApiClient
   }
 
   if (!isCurrentUser(response)) throw new ApiError(CURRENT_USER_ERROR_MESSAGE)
+  void prepareCsrfToken(options).catch(() => {})
   return response
 }

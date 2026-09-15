@@ -12,8 +12,8 @@ export interface CurrentUserState {
   retry: () => void
 }
 
-export function useCurrentUser(): CurrentUserState {
-  const query = useQuery(currentUserQuery)
+export function useCurrentUser(enabled = true): CurrentUserState {
+  const query = useQuery({ ...currentUserQuery, enabled })
   const retry = () => { void query.refetch() }
 
   if (query.isFetching || query.isPending) return { status: 'checking', retry }

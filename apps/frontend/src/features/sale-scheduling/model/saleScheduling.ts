@@ -105,6 +105,9 @@ export interface MappedSaleErrors {
 
 export function mapApiErrorToSaleErrors(error: unknown): MappedSaleErrors {
   if (!(error instanceof ApiError)) return { fieldErrors: {}, formError: DEFAULT_API_ERROR_MESSAGE, refreshProducts: false }
+  if (error.code === 'AUTH_UNAUTHENTICATED') return { fieldErrors: {}, formError: '로그인이 필요합니다. 다시 로그인해 주세요.', refreshProducts: false }
+  if (error.code === 'AUTH_SELLER_LINK_REQUIRED') return { fieldErrors: {}, formError: '판매자 계정 연결이 필요합니다.', refreshProducts: false }
+  if (error.code === 'AUTH_CSRF_INVALID') return { fieldErrors: {}, formError: '보안 확인에 실패했습니다. 다시 시도해 주세요.', refreshProducts: false }
   const message = error.detail ?? error.message
   if (error.code === 'SALE_PRODUCT_NOT_FOUND' || error.code === 'SALE_PRODUCT_NOT_READY') {
     return { fieldErrors: { productId: message }, formError: null, refreshProducts: true }

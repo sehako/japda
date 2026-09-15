@@ -94,6 +94,9 @@ export function mapApiErrorToRegistrationErrors(error: unknown): MappedRegistrat
   if (!(error instanceof ApiError)) {
     return { fieldErrors: {}, formError: DEFAULT_API_ERROR_MESSAGE, blocksSubmission: false }
   }
+  if (error.code === 'AUTH_UNAUTHENTICATED') return { fieldErrors: {}, formError: '로그인이 필요합니다. 다시 로그인해 주세요.', blocksSubmission: true }
+  if (error.code === 'AUTH_SELLER_LINK_REQUIRED') return { fieldErrors: {}, formError: '판매자 계정 연결이 필요합니다.', blocksSubmission: true }
+  if (error.code === 'AUTH_CSRF_INVALID') return { fieldErrors: {}, formError: '보안 확인에 실패했습니다. 다시 시도해 주세요.', blocksSubmission: false }
   if (error.code === 'PRODUCT_IMAGES_ALREADY_REGISTERED') {
     return {
       fieldErrors: {},

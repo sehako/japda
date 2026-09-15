@@ -4,12 +4,12 @@ import { apiBaseUrl } from '../../../shared/config/env.ts'
 import { createShippingAddress, fetchBuyerCheckout } from '../api/buyerCheckoutApi.ts'
 import type { CreateShippingAddressRequest } from '../model/buyerCheckout.ts'
 
-export function useBuyerCheckout(saleId: number, quantity: number, buyerId: number) {
+export function useBuyerCheckout(saleId: number, quantity: number) {
   const queryClient = useQueryClient()
-  const queryKey = ['buyer-checkout', buyerId, saleId, quantity] as const
+  const queryKey = ['buyer-checkout', saleId, quantity] as const
   const query = useQuery({
     queryKey,
-    queryFn: ({ signal }) => fetchBuyerCheckout(saleId, quantity, buyerId, signal, { baseUrl: apiBaseUrl }),
+    queryFn: ({ signal }) => fetchBuyerCheckout(saleId, quantity, signal, { baseUrl: apiBaseUrl }),
     gcTime: 0,
     staleTime: Infinity,
     retry: false,
@@ -18,7 +18,7 @@ export function useBuyerCheckout(saleId: number, quantity: number, buyerId: numb
     refetchOnReconnect: false,
   })
   const registration = useMutation({
-    mutationFn: (body: CreateShippingAddressRequest) => createShippingAddress(body, buyerId, { baseUrl: apiBaseUrl }),
+    mutationFn: (body: CreateShippingAddressRequest) => createShippingAddress(body, { baseUrl: apiBaseUrl }),
   })
   const refresh = () => queryClient.invalidateQueries({ queryKey, exact: true })
   return { query, registration, refresh }
