@@ -35,6 +35,8 @@ sale:
 payment:
   reconcile-interval: ${PAYMENT_RECONCILE_INTERVAL:PT30S}
   toss:
+    client-mode: ${TOSS_CLIENT_MODE:fake}
+    fake-response-delay: ${TOSS_FAKE_RESPONSE_DELAY:PT0.2S}
     base-url: ${TOSS_API_BASE_URL:https://api.tosspayments.com}
     secret-key: ${TOSS_SECRET_KEY:}
     connect-timeout: ${TOSS_CONNECT_TIMEOUT:PT3S}
