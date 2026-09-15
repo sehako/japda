@@ -23,16 +23,15 @@ function isBuyerOrder(value: unknown): value is BuyerOrder {
 
 export async function createBuyerOrder(
   body: CreateBuyerOrderRequest,
-  buyerId: number,
   idempotencyKey: string,
   options?: ApiClientOptions,
 ): Promise<BuyerOrder> {
-  if (!isPositiveSafeInteger(buyerId) || !canonicalUuidV4.test(idempotencyKey)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+  if (!canonicalUuidV4.test(idempotencyKey)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   const response = await requestApi<unknown>('/api/orders', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Buyer-Id': String(buyerId), 'Idempotency-Key': idempotencyKey },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify(body),
-  }, options)
+  }, { ...options, protected: true })
   if (!isBuyerOrder(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }

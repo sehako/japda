@@ -1,10 +1,11 @@
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 
 import { AuthenticationStatus } from '../../features/authentication/ui/AuthenticationStatus.tsx'
+import { useCurrentUser } from '../../features/authentication/hook/useCurrentUser.ts'
+import { startGoogleLogin } from '../../features/authentication/util/loginFlow.ts'
 import { parseCheckoutQuantity } from '../../features/buyer-checkout/model/buyerCheckout.ts'
 import { BuyerCheckoutContent } from '../../features/buyer-checkout/ui/BuyerCheckoutContent.tsx'
 import { parseBuyerSaleId } from '../../features/buyer-sale/model/buyerSale.ts'
-import { buyerIdConfig, BUYER_ID_CONFIG_ERROR } from '../../shared/config/env.ts'
 
 function MessageState({ message }: { message: string }) {
   return <div className="flex min-h-[480px] items-center justify-center border-y border-[var(--color-concrete-gray)] text-center" role="alert">
@@ -12,21 +13,25 @@ function MessageState({ message }: { message: string }) {
   </div>
 }
 
-export function BuyerCheckoutPage({ buyerId }: { buyerId?: number | null }) {
+export function BuyerCheckoutPage() {
+  const auth = useCurrentUser()
   const { saleId: saleIdParam } = useParams()
   const [searchParams] = useSearchParams()
   const saleId = parseBuyerSaleId(saleIdParam)
   const quantityValues = searchParams.getAll('quantity')
   const quantity = quantityValues.length === 1 ? parseCheckoutQuantity(quantityValues[0]) : null
-  const configuredBuyerId = buyerId === undefined ? (buyerIdConfig.valid ? buyerIdConfig.value : null) : buyerId
 
   let content: React.ReactNode
   if (saleId === null || quantity === null) {
     content = <MessageState message="유효하지 않은 체크아웃 경로입니다." />
-  } else if (configuredBuyerId === null) {
-    content = <MessageState message={BUYER_ID_CONFIG_ERROR} />
+  } else if (auth.status === 'checking') {
+    content = <p className="py-20 text-center" role="status">로그인 상태를 확인하는 중입니다.</p>
+  } else if (auth.status === 'unauthenticated') {
+    content = <div className="py-20 text-center" role="alert"><p>로그인이 필요합니다.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => startGoogleLogin()}>로그인</button></div>
+  } else if (auth.status === 'error') {
+    content = <div className="py-20 text-center" role="alert"><p>로그인 상태를 확인하지 못했습니다.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={auth.retry}>다시 확인</button></div>
   } else {
-    content = <BuyerCheckoutContent saleId={saleId} quantity={quantity} buyerId={configuredBuyerId} />
+    content = <BuyerCheckoutContent saleId={saleId} quantity={quantity} />
   }
 
   return <>

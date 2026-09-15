@@ -5,7 +5,6 @@ import type { BuyerPaymentConfirmationState } from '../../features/buyer-checkou
 import { parseTossSuccessParameters } from '../../features/buyer-checkout/model/tossPaymentResult.ts'
 import { parseCheckoutQuantity } from '../../features/buyer-checkout/model/buyerCheckout.ts'
 import { parseBuyerSaleId } from '../../features/buyer-sale/model/buyerSale.ts'
-import { buyerIdConfig } from '../../shared/config/env.ts'
 
 type ResultView = {
   title: string
@@ -50,9 +49,9 @@ function viewForConfirmation(state: BuyerPaymentConfirmationState): ResultView {
     case 'expired':
       return { title: '주문이 만료됐습니다.', message: '이 주문으로는 결제를 진행할 수 없습니다.', detail: '결제 화면으로 돌아가 새 주문으로 다시 시도해 주세요.', link: 'checkout', urgent: true, role: 'alert' }
     case 'review':
-      return { title: '결제 결과를 아직 확인할 수 없습니다.', message: '결제가 완료됐을 수 있으니 잠시만 기다려 주세요.', detail: state.reason === 'timeout' ? '결제 결과 확인 시간이 초과됐습니다.' : state.reason === 'manual' ? '결제 상태에 별도 확인이 필요합니다.' : '승인 요청 중 오류가 발생했습니다.', link: 'catalog', quiet: true, role: 'alert' }
+      return { title: '결제 결과를 아직 확인할 수 없습니다.', message: '결제가 완료됐을 수 있으니 잠시만 기다려 주세요.', detail: state.reason === 'timeout' ? '결제 결과 확인 시간이 초과됐습니다.' : state.reason === 'manual' ? '결제 상태에 별도 확인이 필요합니다.' : state.reason === 'authentication' ? '로그인 상태를 확인할 수 없습니다.' : state.reason === 'buyer-link' ? '구매자 계정 연결을 확인할 수 없습니다.' : state.reason === 'csrf' ? '요청을 확인할 수 없습니다.' : '승인 요청 중 오류가 발생했습니다.', link: 'catalog', quiet: true, role: 'alert' }
     case 'invalid':
-      return { title: '결제 정보를 확인할 수 없습니다.', message: state.reason === 'invalid' ? '요청 정보가 올바르지 않거나 필요한 설정이 없어 승인을 진행할 수 없습니다.' : '현재 결제 정보로는 승인을 진행할 수 없습니다.', link: 'catalog', role: 'alert' }
+      return { title: '결제 정보를 확인할 수 없습니다.', message: state.reason === 'invalid' ? '요청 정보가 올바르지 않아 승인을 진행할 수 없습니다.' : '현재 결제 정보로는 승인을 진행할 수 없습니다.', link: 'catalog', role: 'alert' }
   }
 }
 
@@ -60,7 +59,7 @@ export function TossPaymentResultPage({ result }: { result: 'success' | 'fail' }
   const [searchParams] = useSearchParams()
   const checkoutPath = getCheckoutReturnPath(searchParams)
   const successParameters = result === 'success' ? parseTossSuccessParameters(searchParams) : null
-  const confirmation = useBuyerPaymentConfirmation(successParameters, buyerIdConfig.valid ? buyerIdConfig.value : null)
+  const confirmation = useBuyerPaymentConfirmation(successParameters)
   const view = result === 'success'
     ? viewForConfirmation(confirmation)
     : searchParams.get('code') === 'PAY_PROCESS_CANCELED'

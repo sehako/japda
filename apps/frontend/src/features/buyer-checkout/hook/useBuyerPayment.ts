@@ -10,11 +10,14 @@ import type { BuyerCheckout, ShippingAddress } from '../model/buyerCheckout.ts'
 import { checkBuyerOrder, createBuyerOrderRequest } from '../model/buyerOrder.ts'
 import type { BuyerOrder, CreateBuyerOrderRequest } from '../model/buyerOrder.ts'
 
-type PaymentStatus = 'loading' | 'ready' | 'ordering' | 'processing' | 'order-error' | 'changed' | 'expired' | 'invalid' | 'sdk-error'
+type PaymentStatus = 'loading' | 'ready' | 'ordering' | 'processing' | 'order-error' | 'auth-error' | 'link-error' | 'changed' | 'expired' | 'invalid' | 'sdk-error'
 type Attempt = { fingerprint: string; key: string; order?: BuyerOrder }
 
 function orderErrorMessage(error: unknown): string {
   if (!(error instanceof ApiError)) return '주문을 준비하지 못했습니다. 다시 시도해 주세요.'
+  if (error.status === 401 && error.code === 'AUTH_UNAUTHENTICATED') return '로그인이 필요합니다.'
+  if (error.status === 403 && error.code === 'AUTH_BUYER_LINK_REQUIRED') return '구매자 연결이 필요한 계정입니다.'
+  if (error.status === 403 && error.code === 'AUTH_CSRF_INVALID') return '보안 확인에 실패했습니다. 다시 시도해 주세요.'
   if (error.isNetworkError) return '네트워크 연결을 확인하고 다시 시도해 주세요.'
   if (error.code === 'ORDER_SALE_NOT_OPEN') return '판매가 종료됐거나 시작 전입니다. 상품 정보를 다시 확인해 주세요.'
   if (error.code === 'ORDER_QUANTITY_UNAVAILABLE') return '재고가 부족합니다. 상품 정보를 다시 확인해 주세요.'
@@ -30,10 +33,9 @@ function missingRequirements(selectedAddress: ShippingAddress | null, methodSele
   return messages.length > 0 ? messages.join(' ') : null
 }
 
-export function useBuyerPayment({ checkout, selectedAddress, buyerId, blocked, refresh }: {
+export function useBuyerPayment({ checkout, selectedAddress, blocked, refresh }: {
   checkout: BuyerCheckout | null
   selectedAddress: ShippingAddress | null
-  buyerId: number
   blocked: boolean
   refresh: () => Promise<unknown>
 }) {
@@ -45,7 +47,7 @@ export function useBuyerPayment({ checkout, selectedAddress, buyerId, blocked, r
   const selectionRef = useRef<{ method: boolean; agreed: boolean | null }>({ method: false, agreed: null })
   const attemptRef = useRef<Attempt | null>(null)
   const lockedRef = useRef(false)
-  const mutation = useMutation({ mutationFn: ({ body, key }: { body: CreateBuyerOrderRequest; key: string }) => createBuyerOrder(body, buyerId, key, { baseUrl: apiBaseUrl }) })
+  const mutation = useMutation({ mutationFn: ({ body, key }: { body: CreateBuyerOrderRequest; key: string }) => createBuyerOrder(body, key, { baseUrl: apiBaseUrl }) })
   const checkoutSaleId = checkout?.saleId
   const checkoutQuantity = checkout?.quantity
   const checkoutProductName = checkout?.productName
@@ -165,7 +167,8 @@ export function useBuyerPayment({ checkout, selectedAddress, buyerId, blocked, r
         setMessage('결제를 요청하지 못했습니다. 결제수단을 다시 준비해 주세요.')
       } else {
         if (error instanceof ApiError && error.status && error.status < 500) attemptRef.current = null
-        setStatus('order-error')
+        setStatus(error instanceof ApiError && error.code === 'AUTH_UNAUTHENTICATED' && error.status === 401 ? 'auth-error'
+          : error instanceof ApiError && error.code === 'AUTH_BUYER_LINK_REQUIRED' && error.status === 403 ? 'link-error' : 'order-error')
         setMessage(orderErrorMessage(error))
       }
     } finally {

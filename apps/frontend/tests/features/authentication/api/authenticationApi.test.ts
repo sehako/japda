@@ -7,21 +7,26 @@ const user = { id: 12, email: 'buyer@example.com', roles: ['ADMIN', 'BUYER'] }
 
 describe('현재 사용자 API', () => {
   test('자격 증명과 AbortSignal을 포함해 현재 사용자를 조회한다', async () => {
-    let request: Request | undefined
+    const requests: Request[] = []
     const controller = new AbortController()
     const fetcher: typeof fetch = async (input, init) => {
-      request = new Request(input, init)
-      return Response.json(user)
+      const request = new Request(input, init)
+      requests.push(request)
+      return request.url.endsWith('/api/auth/csrf')
+        ? Response.json({ token: 'ready', headerName: 'X-CSRF-TOKEN' })
+        : Response.json(user)
     }
 
     await expect(fetchCurrentUser(controller.signal, { baseUrl: 'http://localhost:8080', fetcher }))
       .resolves.toEqual(user)
 
-    expect(request?.url).toBe('http://localhost:8080/api/auth/me')
-    expect(request?.method).toBe('GET')
-    expect(request?.credentials).toBe('include')
+    expect(requests[0]?.url).toBe('http://localhost:8080/api/auth/me')
+    expect(requests[0]?.method).toBe('GET')
+    expect(requests[0]?.credentials).toBe('include')
+    expect(requests[1]?.url).toBe('http://localhost:8080/api/auth/csrf')
+    expect(requests[1]?.credentials).toBe('include')
     controller.abort()
-    expect(request?.signal.aborted).toBe(true)
+    expect(requests[0]?.signal.aborted).toBe(true)
   })
 
   test.each([

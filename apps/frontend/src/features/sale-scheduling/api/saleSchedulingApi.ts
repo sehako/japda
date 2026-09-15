@@ -21,28 +21,28 @@ function isReadyProductPage(value: unknown): value is ReadyProductPage {
       && typeof (item as Record<string, unknown>).name === 'string')
 }
 
-function isCreateSaleResponse(value: unknown, request: CreateSaleRequest, sellerId: number): value is CreateSaleResponse {
+function isCreateSaleResponse(value: unknown, request: CreateSaleRequest): value is CreateSaleResponse {
   if (typeof value !== 'object' || value === null) return false
   const response = value as Record<string, unknown>
-  return isPositiveInteger(response.id) && response.sellerId === sellerId
+  return isPositiveInteger(response.id) && isPositiveInteger(response.sellerId)
     && response.productId === request.productId && response.saleDate === request.saleDate
     && response.price === request.price && response.quantity === request.quantity
     && typeof response.startsAt === 'string' && typeof response.endsAt === 'string' && typeof response.createdAt === 'string'
 }
 
-export async function fetchReadyProducts(sort: ProductSort, cursor: string | null, sellerId: number, signal?: AbortSignal, options?: ApiClientOptions): Promise<ReadyProductPage> {
+export async function fetchReadyProducts(sort: ProductSort, cursor: string | null, signal?: AbortSignal, options?: ApiClientOptions): Promise<ReadyProductPage> {
   const query = new URLSearchParams({ sort })
   if (cursor !== null) query.set('cursor', cursor)
   query.set('size', '20')
-  const response = await requestApi<unknown>(`/api/products/ready?${query}`, { headers: { 'X-Seller-Id': String(sellerId) }, signal }, options)
+  const response = await requestApi<unknown>(`/api/products/ready?${query}`, { signal }, { ...options, protected: true })
   if (!isReadyProductPage(response)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }
 
-export async function createSale(body: CreateSaleRequest, sellerId: number, signal?: AbortSignal, options?: ApiClientOptions): Promise<CreateSaleResponse> {
+export async function createSale(body: CreateSaleRequest, signal?: AbortSignal, options?: ApiClientOptions): Promise<CreateSaleResponse> {
   const response = await requestApi<unknown>('/api/sales', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Seller-Id': String(sellerId) }, body: JSON.stringify(body), signal,
-  }, options)
-  if (!isCreateSaleResponse(response, body, sellerId)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal,
+  }, { ...options, protected: true })
+  if (!isCreateSaleResponse(response, body)) throw new ApiError(DEFAULT_API_ERROR_MESSAGE)
   return response
 }

@@ -8,14 +8,16 @@ import { BuyerCheckoutPage } from '../../../src/pages/buyer-checkout/BuyerChecko
 const address = { shippingAddressId: 7, addressName: '집', recipientName: '홍길동', phoneNumber: '010', postalCode: '06236', address: '서울', detailAddress: '101호', deliveryMessage: '문 앞' }
 const checkout = { saleId: 11, productName: '한정판 후디', representativeImagePath: '/products/main.webp', quantity: 3, unitPrice: 120000, totalPrice: 360000, shippingAddresses: [address, { ...address, shippingAddressId: 8, addressName: '회사' }] }
 
-function renderPage(path: string, buyerId: number | null = 42, authResponse?: Response) {
+function renderPage(path: string, authResponse: Response = Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] })) {
   const domainFetcher = globalThis.fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
     String(input).endsWith('/api/auth/me')
-      ? Promise.resolve(authResponse ?? Response.json({ code: 'AUTH_UNAUTHENTICATED' }, { status: 401, headers: { 'Content-Type': 'application/problem+json' } }))
+      ? Promise.resolve(authResponse)
+      : String(input).endsWith('/api/auth/csrf')
+        ? Promise.resolve(Response.json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' }))
       : domainFetcher(input, init))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><Routes><Route path="/checkout/:saleId" element={<BuyerCheckoutPage buyerId={buyerId} />} /></Routes></MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter initialEntries={[path]}><Routes><Route path="/checkout/:saleId" element={<BuyerCheckoutPage />} /></Routes></MemoryRouter></QueryClientProvider>)
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -29,21 +31,51 @@ test.each(['/checkout/nope?quantity=3', '/checkout/11', '/checkout/11?quantity=0
   expect(fetcher).not.toHaveBeenCalled()
 })
 
-test('구매자 설정 오류에서 API를 호출하지 않는다', () => {
+test('로그인 확인 전에는 체크아웃 API를 호출하지 않는다', () => {
   const fetcher = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetcher)
-  renderPage('/checkout/11?quantity=3', null)
-  expect(screen.getByRole('alert')).toHaveTextContent('개발용 구매자 식별자 설정을 확인해 주세요.')
+  renderPage('/checkout/11?quantity=3', Response.json({ code: 'AUTH_UNAUTHENTICATED' }, { status: 401, headers: { 'Content-Type': 'application/problem+json' } }))
+  expect(screen.getByRole('status')).toHaveTextContent('로그인 상태를 확인하는 중입니다.')
   expect(fetcher).not.toHaveBeenCalled()
+})
+
+test('로그인이 필요하면 체크아웃 요청 없이 로그인 동작을 제공한다', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+  vi.stubGlobal('fetch', fetcher)
+  renderPage('/checkout/11?quantity=3', Response.json({ code: 'AUTH_UNAUTHENTICATED' }, { status: 401, headers: { 'Content-Type': 'application/problem+json' } }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('로그인이 필요합니다.')
+  expect(screen.getAllByRole('button', { name: '로그인' }).length).toBeGreaterThan(0)
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+test('로그인 확인 실패는 로그인 필요로 단정하지 않고 재확인을 제공한다', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+  vi.stubGlobal('fetch', fetcher)
+  renderPage('/checkout/11?quantity=3', new Response(null, { status: 500 }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('로그인 상태를 확인하지 못했습니다.')
+  expect(screen.getByRole('button', { name: '다시 확인' })).toBeInTheDocument()
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+test.each([
+  ['AUTH_UNAUTHENTICATED', '로그인이 필요합니다.'],
+  ['AUTH_BUYER_LINK_REQUIRED', '구매자 연결이 필요한 계정입니다.'],
+  ['AUTH_CSRF_INVALID', '보안 확인에 실패했습니다. 다시 시도해 주세요.'],
+])('체크아웃 %s 오류를 구분한다', async (code, message) => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ code }, { status: code === 'AUTH_UNAUTHENTICATED' ? 401 : 403, headers: { 'Content-Type': 'application/problem+json' } }))
+  vi.stubGlobal('fetch', fetcher)
+  renderPage('/checkout/11?quantity=3')
+  expect(await screen.findByRole('alert')).toHaveTextContent(message)
+  expect(fetcher).toHaveBeenCalledTimes(1)
 })
 
 test('서버 예상 총액을 표시하고 배송지를 명시적으로 선택한다', async () => {
   const fetcher = vi.fn(async () => Response.json(checkout))
   vi.stubGlobal('fetch', fetcher)
   renderPage('/checkout/11?quantity=3')
-  expect(screen.getByRole('status')).toHaveTextContent('체크아웃 정보를 불러오는 중입니다.')
+  expect(screen.getByRole('status')).toHaveTextContent('로그인 상태를 확인하는 중입니다.')
   expect(await screen.findByRole('heading', { level: 3, name: '한정판 후디' })).toBeInTheDocument()
-  expect(await screen.findByRole('button', { name: '로그인' })).toBeInTheDocument()
+  expect(await screen.findByText('buyer@example.com')).toBeInTheDocument()
   expect(screen.getByText('360,000원', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByText('3개', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '결제하기' })).toBeDisabled()
@@ -94,6 +126,21 @@ test('등록 필수값 오류는 POST 없이 필드에 안내한다', async () =
   fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
   expect(screen.getByRole('textbox', { name: '배송지명' })).toHaveAttribute('aria-invalid', 'true')
   expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+test('배송지 등록에서 구매자 연결 부재가 확인되면 등록 작업을 중단한다', async () => {
+  const fetcher = vi.fn<typeof fetch>()
+    .mockResolvedValueOnce(Response.json({ ...checkout, shippingAddresses: [] }))
+    .mockResolvedValueOnce(Response.json({ code: 'AUTH_BUYER_LINK_REQUIRED' }, { status: 403, headers: { 'Content-Type': 'application/problem+json' } }))
+  vi.stubGlobal('fetch', fetcher)
+  renderPage('/checkout/11?quantity=3')
+  fireEvent.click(await screen.findByRole('button', { name: '배송지 등록' }))
+  for (const [label, value] of [['배송지명', '집'], ['수취인명', '홍길동'], ['전화번호', '010'], ['우편번호', '06236'], ['기본 주소', '서울'], ['상세 주소', '101호']]) {
+    fireEvent.change(screen.getByRole('textbox', { name: label }), { target: { value } })
+  }
+  fireEvent.click(screen.getByRole('button', { name: '등록하기' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('구매자 연결이 필요한 계정입니다.')
+  expect(screen.queryByRole('button', { name: '등록하기' })).not.toBeInTheDocument()
 })
 
 test('배송지명 중복 오류는 입력값을 유지하고 목록 재시도 경로를 제공한다', async () => {
@@ -153,17 +200,18 @@ test('등록 후 재조회 실패는 등록 완료를 알리고 목록만 재시
   expect(fetcher).toHaveBeenCalledTimes(4)
 })
 
-test('인증 사용자 이메일을 표시해도 체크아웃 개발용 구매자 ID를 유지한다', async () => {
+test('인증 사용자 ID를 도메인 ID로 보내지 않는다', async () => {
   const requests = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
     String(input).endsWith('/api/auth/me')
       ? Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] })
       : Response.json(checkout))
   vi.stubGlobal('fetch', requests)
-  renderPage('/checkout/11?quantity=3', 42, Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] }))
+  renderPage('/checkout/11?quantity=3', Response.json({ id: 99, email: 'buyer@example.com', roles: ['BUYER'] }))
 
   expect(await screen.findByText('buyer@example.com')).toBeInTheDocument()
   expect(await screen.findByRole('heading', { level: 3, name: '한정판 후디' })).toBeInTheDocument()
   const checkoutRequest = requests.mock.calls.find(([input]) => String(input).includes('/api/checkout?'))
-  expect(checkoutRequest?.[1]?.headers).toEqual({ 'X-Buyer-Id': '42' })
+  expect(new Request('http://localhost/api/checkout', checkoutRequest?.[1]).headers.has('X-Buyer-Id')).toBe(false)
+  expect(checkoutRequest?.[1]?.credentials).toBe('include')
   expect(screen.queryByText('BUYER')).not.toBeInTheDocument()
 })

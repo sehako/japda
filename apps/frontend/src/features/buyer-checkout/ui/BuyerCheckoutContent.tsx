@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { startGoogleLogin } from '../../authentication/util/loginFlow.ts'
 
 import { ApiError } from '../../../shared/api/apiClient.ts'
 import { imageBaseUrl } from '../../../shared/config/env.ts'
@@ -73,7 +74,8 @@ function RegistrationForm({
   const formError = apiError?.code === 'BUYER_SHIPPING_ADDRESS_LIMIT_EXCEEDED'
     ? '배송지는 최대 10개까지 등록할 수 있습니다.'
     : apiError && Object.keys(serverFields).length === 0
-        ? apiError.isNetworkError ? '네트워크 연결을 확인하고 다시 시도해 주세요.' : '배송지를 등록하지 못했습니다. 다시 시도해 주세요.'
+        ? apiError.status === 403 && apiError.code === 'AUTH_CSRF_INVALID' ? '보안 확인에 실패했습니다. 다시 시도해 주세요.'
+          : apiError.isNetworkError ? '네트워크 연결을 확인하고 다시 시도해 주세요.' : '배송지를 등록하지 못했습니다. 다시 시도해 주세요.'
         : null
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -114,8 +116,8 @@ function RegistrationForm({
   </form>
 }
 
-export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: number; quantity: number; buyerId: number }) {
-  const { query, registration, refresh } = useBuyerCheckout(saleId, quantity, buyerId)
+export function BuyerCheckoutContent({ saleId, quantity }: { saleId: number; quantity: number }) {
+  const { query, registration, refresh } = useBuyerCheckout(saleId, quantity)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [formOpen, setFormOpen] = useState(false)
   const [createdId, setCreatedId] = useState<number | null>(null)
@@ -135,11 +137,17 @@ export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: nu
   const createdAddress = data?.shippingAddresses.find(({ shippingAddressId }) => shippingAddressId === createdId)
   const effectiveSelection = selectedId ?? createdAddress?.shippingAddressId ?? null
   const selectedAddress = data?.shippingAddresses.find(({ shippingAddressId }) => shippingAddressId === effectiveSelection) ?? null
-  const payment = useBuyerPayment({ checkout: query.isSuccess ? data ?? null : null, selectedAddress: query.isSuccess ? selectedAddress : null, buyerId, blocked: query.isFetching || registration.isPending || formOpen, refresh })
+  const payment = useBuyerPayment({ checkout: query.isSuccess ? data ?? null : null, selectedAddress: query.isSuccess ? selectedAddress : null, blocked: query.isFetching || registration.isPending || formOpen, refresh })
   const notFound = query.error instanceof ApiError && query.error.status === 404 && query.error.code === 'ORDER_SALE_NOT_FOUND'
+  const queryAuthError = query.error instanceof ApiError ? query.error : null
+  const registrationAuthError = registration.error instanceof ApiError ? registration.error : null
 
   let content: React.ReactNode
-  if (createdId !== null && (query.isFetching || query.isPending)) {
+  if (registrationAuthError?.status === 401 && registrationAuthError.code === 'AUTH_UNAUTHENTICATED') {
+    content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p>로그인이 필요합니다.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => startGoogleLogin()}>로그인</button></div>
+  } else if (registrationAuthError?.status === 403 && registrationAuthError.code === 'AUTH_BUYER_LINK_REQUIRED') {
+    content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert">구매자 연결이 필요한 계정입니다.</div>
+  } else if (createdId !== null && (query.isFetching || query.isPending)) {
     content = <p className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="status">배송지 목록을 새로 불러오는 중입니다.</p>
   } else if (createdId !== null && query.isError) {
     content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p>배송지 등록은 완료됐지만 목록을 불러오지 못했습니다.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => void query.refetch()}>목록 다시 시도</button></div>
@@ -147,6 +155,12 @@ export function BuyerCheckoutContent({ saleId, quantity, buyerId }: { saleId: nu
     content = <div className="grid gap-12 border-y border-[var(--color-concrete-gray)] py-20 text-center md:grid-cols-2" role="status" aria-live="polite"><p>상품 정보를 불러오는 중입니다.</p><p>배송지 정보를 불러오는 중입니다.</p><span className="sr-only">체크아웃 정보를 불러오는 중입니다.</span></div>
   } else if (notFound) {
     content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p className="text-xl font-semibold">판매 상품을 찾을 수 없습니다.</p><Link className="mt-6 inline-flex rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" to="/">상품 목록</Link></div>
+  } else if (queryAuthError?.status === 401 && queryAuthError.code === 'AUTH_UNAUTHENTICATED') {
+    content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p>로그인이 필요합니다.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => startGoogleLogin()}>로그인</button></div>
+  } else if (queryAuthError?.status === 403 && queryAuthError.code === 'AUTH_BUYER_LINK_REQUIRED') {
+    content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert">구매자 연결이 필요한 계정입니다.</div>
+  } else if (queryAuthError?.status === 403 && queryAuthError.code === 'AUTH_CSRF_INVALID') {
+    content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p>보안 확인에 실패했습니다. 다시 시도해 주세요.</p><button className="mt-5 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => void query.refetch()}>다시 시도</button></div>
   } else if (query.isError) {
     content = <div className="border-y border-[var(--color-concrete-gray)] py-20 text-center" role="alert"><p className="text-xl font-semibold">체크아웃 정보를 불러오지 못했습니다.</p><button className="mt-6 rounded-full bg-[var(--color-obsidian)] px-6 py-3 text-white" type="button" onClick={() => void query.refetch()}>다시 시도</button></div>
   } else if (!data) {

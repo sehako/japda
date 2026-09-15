@@ -96,6 +96,8 @@ orderMutation
 * `Query`: 조회
 * `Mutation`: 변경
 
+구매자·판매자 보호 API는 도메인 API가 보호 요청 여부를 지정하고 공통 API Client가 쿠키 인증과 상태 변경 요청의 CSRF 헤더를 처리한다. CSRF 토큰은 페이지 메모리에만 보관하며 인증·CSRF 오류 후 폐기하고, 실패한 변경 요청은 자동 재전송하지 않는다. [ADR-022](decisions/ADR-022-frontend-protected-api-cookie-and-csrf.md)를 따른다.
+
 UI 컴포넌트에서 API를 직접 호출하지 않는다.
 
 ### model

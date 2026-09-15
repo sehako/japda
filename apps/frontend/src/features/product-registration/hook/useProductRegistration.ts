@@ -11,7 +11,8 @@ import type {
   SelectedProductImage,
   SubmissionStage,
 } from '../model/productRegistration.ts'
-import { apiBaseUrl, sellerIdConfig } from '../../../shared/config/env.ts'
+import { apiBaseUrl } from '../../../shared/config/env.ts'
+import { ApiError } from '../../../shared/api/apiClient.ts'
 
 export interface ProductRegistrationResult {
   name: string
@@ -20,6 +21,7 @@ export interface ProductRegistrationResult {
   representativeIndex: number | null
   fieldErrors: ProductRegistrationFieldErrors
   formError: string | null
+  authError: 'unauthenticated' | 'seller-link-required' | null
   submissionStage: SubmissionStage
   createdProductId: number | null
   registeredProduct: { id: number; name: string } | null
@@ -49,6 +51,7 @@ export function useProductRegistration(): ProductRegistrationResult {
   const [submissionStage, setSubmissionStage] = useState<SubmissionStage>(INITIAL_STAGE)
   const [fieldErrors, setFieldErrors] = useState<ProductRegistrationFieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [authError, setAuthError] = useState<'unauthenticated' | 'seller-link-required' | null>(null)
   const [isSubmissionBlocked, setSubmissionBlocked] = useState(false)
   const submittingRef = useRef(false)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -125,6 +128,7 @@ export function useProductRegistration(): ProductRegistrationResult {
     setSubmissionStage(INITIAL_STAGE)
     setFieldErrors({})
     setFormError(null)
+    setAuthError(null)
     setSubmissionBlocked(false)
     submittingRef.current = false
   }, [])
@@ -142,11 +146,6 @@ export function useProductRegistration(): ProductRegistrationResult {
       setFormError(null)
       return false
     }
-    if (!sellerIdConfig.valid) {
-      setFormError(sellerIdConfig.error)
-      return false
-    }
-
     submittingRef.current = true
     setFieldErrors({})
     setFormError(null)
@@ -158,7 +157,6 @@ export function useProductRegistration(): ProductRegistrationResult {
         setSubmissionStage('creating-product')
         const product = await createProduct(
           { name: validation.value.name, description: validation.value.description },
-          sellerIdConfig.value,
           abortController.signal,
           { baseUrl: apiBaseUrl },
         )
@@ -171,7 +169,6 @@ export function useProductRegistration(): ProductRegistrationResult {
         productId,
         validation.value.files,
         validation.value.representativeIndex,
-        sellerIdConfig.value,
         abortController.signal,
         { baseUrl: apiBaseUrl },
       )
@@ -180,6 +177,10 @@ export function useProductRegistration(): ProductRegistrationResult {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return false
       const mapped = mapApiErrorToRegistrationErrors(error)
+      if (error instanceof ApiError) {
+        if (error.code === 'AUTH_UNAUTHENTICATED') setAuthError('unauthenticated')
+        else if (error.code === 'AUTH_SELLER_LINK_REQUIRED') setAuthError('seller-link-required')
+      }
       setFieldErrors(mapped.fieldErrors)
       setFormError(mapped.formError)
       setSubmissionBlocked(mapped.blocksSubmission)
@@ -211,6 +212,7 @@ export function useProductRegistration(): ProductRegistrationResult {
     representativeIndex,
     fieldErrors,
     formError,
+    authError,
     submissionStage,
     createdProductId,
     registeredProduct,

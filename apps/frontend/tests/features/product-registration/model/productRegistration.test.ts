@@ -101,3 +101,12 @@ test('이미지 중복 등록 충돌은 안내 문구를 표시하고 추가 제
     blocksSubmission: true,
   })
 })
+
+test.each([
+  ['AUTH_UNAUTHENTICATED', '로그인이 필요합니다. 다시 로그인해 주세요.'],
+  ['AUTH_SELLER_LINK_REQUIRED', '판매자 계정 연결이 필요합니다.'],
+  ['AUTH_CSRF_INVALID', '보안 확인에 실패했습니다. 다시 시도해 주세요.'],
+])('상품 등록 인증 오류 %s는 일반 오류 대신 전용 안내를 사용한다', (code, formError) => {
+  const result = mapApiErrorToRegistrationErrors(new ApiError('실패', { status: code === 'AUTH_UNAUTHENTICATED' ? 401 : 403, code }))
+  assert.equal(result.formError, formError)
+})
