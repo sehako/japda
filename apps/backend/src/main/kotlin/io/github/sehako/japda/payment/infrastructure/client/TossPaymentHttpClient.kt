@@ -12,11 +12,13 @@ import java.time.Duration
 import java.time.OffsetDateTime
 import java.util.Base64
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.ObjectMapper
 
 @Component
+@ConditionalOnProperty(prefix = "payment.toss", name = ["client-mode"], havingValue = "real")
 class TossPaymentHttpClient(
 	@Value("\${payment.toss.base-url:https://api.tosspayments.com}") private val baseUrl: String,
 	@Value("\${payment.toss.secret-key:}") private val secretKey: String,
