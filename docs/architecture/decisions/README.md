@@ -53,3 +53,5 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 021 | [기존 Spring Security 구성 요소로 쿠키 JWT 인증](ADR-021-cookie-jwt-authentication-with-spring-security-components.md) | backend | 승인 |
 | 022 | [보호 API의 쿠키 인증과 공통 클라이언트 CSRF 처리](ADR-022-frontend-protected-api-cookie-and-csrf.md) | frontend | 승인 |
 | 023 | [구매자·판매자 식별을 인증 주체 연결로 전환하고 쿠키 API에 CSRF 보호 적용](ADR-023-buyer-seller-principal-identity-and-cookie-csrf.md) | backend | 승인 |
+| 024 | [API·배치·원장 기능을 점진적 Gradle 멀티 프로젝트로 구성](ADR-024-backend-api-batch-ledger-multi-project.md) | backend | 승인 |
+| 025 | [판매자 일일 정산과 사용자 플랫폼 지갑 원장](ADR-025-daily-seller-settlement-and-user-wallet-ledger.md) | backend | 승인 |

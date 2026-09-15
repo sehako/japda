@@ -1,5 +1,13 @@
 # 백엔드 아키텍처 지침
 
+## Gradle 프로젝트와 실행 애플리케이션
+
+`apps/backend`는 기존 root project를 API 애플리케이션으로 유지하는 Gradle 멀티 프로젝트다. 독립 실행 가능한 배치 애플리케이션은 `:batch`, API와 배치가 공유하는 사용자 지갑·원장 기능은 plain jar인 `:modules:ledger`에 둔다. 기존 백엔드의 다른 도메인은 필요한 결정 없이 하위 프로젝트로 이동하지 않는다. [ADR-024](decisions/ADR-024-backend-api-batch-ledger-multi-project.md)를 따른다.
+
+API와 배치는 서로 HTTP로 호출하지 않고 필요한 application 기능을 라이브러리 의존으로 재사용한다. `:batch`는 API root project의 presentation 또는 application에 의존하지 않으며 기존 거래 데이터는 배치 전용 JDBC projection으로 읽는다.
+
+두 애플리케이션은 동일한 PostgreSQL 스키마를 사용한다. Flyway migration 파일과 실행 책임은 API root project에 두고 배치에서는 Flyway와 Spring Batch의 자동 스키마 초기화를 비활성화한다. API migration을 완료한 뒤 배치를 실행하며 배치는 시작 시 필요한 스키마가 없으면 즉시 실패한다.
+
 ## 기본 구조
 
 패키지는 기능 또는 도메인 단위로 구성하고, 각 계층 내부는 역할 또는 구체적인 책임별 하위 패키지로 나눈다. [ADR-016](decisions/ADR-016-backend-role-based-package-structure.md)을 따른다.
@@ -106,7 +114,17 @@ HTTP Request
 - 상품 원본과 준비 상태는 `Product`, 판매일·가격·판매 수량은 `Sale`, 판매일별 정원은 판매 영역의 `SaleDay`가 관리한다. 판매 등록 application은 상품 Repository로 소유권과 `READY`를 확인하며 판매 Entity는 상품을 ID로 참조한다. 판매 등록으로 상품 상태를 변경하지 않는다. [ADR-009](decisions/ADR-009-product-and-sale-domain-boundaries.md)을 따른다.
 - 단일 상품 주문과 결제 대기 예약은 `Order`가 관리한다. 주문은 `saleId`로 판매 일정을 참조하고 주문 application이 판매·상품 Repository를 조율하며, 주문 Entity와 판매·상품 Entity 사이에 JPA 연관관계를 추가하지 않는다. 주문 행의 상태와 만료 시각을 예약 기록으로 사용하고, 판매 일정 행을 잠근 뒤 유효한 예약 수량을 집계해 초과 판매를 막는다. [ADR-015](decisions/ADR-015-order-row-reservation-with-sale-lock.md)을 따른다.
 - 결제 시도는 주문 ID를 참조하는 별도 `Payment`로 저장한다. 승인 중 또는 수동 확인 대상인 주문은 만료 후에도 예약하고, 검증된 결제 완료 수량은 판매 완료 수량으로 계속 집계한다. 결제 확정도 판매 일정 행을 먼저 잠그며 `Payment.APPROVED`와 `Order.PAID`를 함께 기록한다. [ADR-019](decisions/ADR-019-payment-attempt-and-reservation-consistency.md)을 따른다.
+- 플랫폼 지갑은 판매자 역할이 아니라 `users.id`에 귀속하며 사용자별 하나만 둔다. 잔액 변경은 수정·삭제하지 않는 원장 항목과 같은 트랜잭션에서 처리하고 원인 종류와 원인 ID로 멱등성을 보장한다. 판매자 일일 정산은 구매별 근거를 보존하고 판매자별로 합산·검산한 뒤 연결된 사용자의 지갑에 입금한다. [ADR-025](decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md)를 따른다.
 - 의미와 규칙이 있는 값만 Value Object로 만든다.
+
+## 배치
+
+- 배치 Job은 API HTTP 흐름과 분리된 `:batch` 애플리케이션에서 실행한다.
+- 초기 판매자 일일 정산 Job은 수집, 검산·확정, 지갑 입금 Step을 단일 파티션·단일 thread로 순서대로 실행한다.
+- Job 입력은 식별 가능한 JobParameter로 받고 실패한 동일 JobInstance를 checkpoint부터 재시작한다. 임의의 run ID로 중복 실행 제약을 우회하지 않는다.
+- 금액과 정산 소유권 오류는 skip하지 않고 Job을 실패시킨다. 일시적인 인프라 오류에만 제한적인 retry를 사용한다.
+- 배치 업무 데이터와 Spring Batch 메타데이터는 같은 PostgreSQL과 transaction manager를 사용해 chunk 변경과 checkpoint를 함께 commit한다.
+- 성능 결과에는 데이터 분포, 실행 환경, chunk·page·connection 설정, 처리량, 지연 분포, 자원 사용량과 금액 검산 결과를 함께 기록한다.
 
 ## 외부 시스템
 
