@@ -1,18 +1,23 @@
 package io.github.sehako.japda.payment
 
+import com.jayway.jsonpath.JsonPath
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
 import io.github.sehako.japda.payment.application.client.TossPaymentClient
 import io.github.sehako.japda.payment.application.client.TossPaymentResult
 import io.github.sehako.japda.payment.application.service.PaymentService
+import jakarta.servlet.http.Cookie
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.Base64
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -28,7 +33,10 @@ import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -48,6 +56,9 @@ class PaymentConfirmationIntegrationTest {
 	@Autowired private lateinit var toss: FakeTossClient
 	@Autowired private lateinit var paymentService: PaymentService
 	private var saleId: Long = 0
+	private lateinit var userIds: Map<Long, Long>
+	private lateinit var csrfToken: String
+	private lateinit var csrfCookie: Cookie
 
 	@BeforeEach
 	fun 초기화() {
@@ -65,6 +76,19 @@ class PaymentConfirmationIntegrationTest {
 		jdbc.update("DELETE FROM sale_days")
 		jdbc.update("DELETE FROM product_images")
 		jdbc.update("DELETE FROM products")
+		jdbc.update("DELETE FROM buyer_principal_identities WHERE buyer_id IN (123, 999)")
+		userIds = listOf(123L, 999L).associateWith { buyerId ->
+			val userId = jdbc.queryForObject(
+				"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+				Long::class.java, UUID.randomUUID().toString(), "payment-${UUID.randomUUID()}@example.com",
+			)!!
+			jdbc.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, ?)", userId, buyerId)
+			userId
+		}
+		val csrfResponse = mvc.perform(get("/api/auth/csrf").cookie(jwtCookie(123L)))
+			.andExpect(status().isOk).andReturn().response
+		csrfToken = JsonPath.read(csrfResponse.contentAsString, "$.token")
+		csrfCookie = assertNotNull(csrfResponse.cookies.singleOrNull { it.name == "XSRF-TOKEN" })
 		val productId = jdbc.queryForObject(
 			"INSERT INTO products (seller_id, name, status, created_at) VALUES (1, '상품', 'READY', ?) RETURNING id",
 			Long::class.java, java.sql.Timestamp.from(NOW),
@@ -169,7 +193,7 @@ class PaymentConfirmationIntegrationTest {
 	fun 다른_구매자와_잘못된_금액_토스_호출을_막는다() {
 		val orderId = createOrder()
 
-		mvc.perform(confirm(orderId, buyerId = 999L))
+		mvc.perform(confirm(orderId, buyerId = 999L).header("X-Buyer-Id", "123"))
 			.andExpect(status().isNotFound).andExpect(jsonPath("$.code").value("PAYMENT_ORDER_NOT_FOUND"))
 		mvc.perform(confirm(orderId, amount = 1L))
 			.andExpect(status().isConflict).andExpect(jsonPath("$.code").value("PAYMENT_AMOUNT_MISMATCH"))
@@ -178,20 +202,77 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM payments", Int::class.java))
 	}
 
+	@Test
+	@DisplayName("인증 쿠키가 없거나 무효이면 결제 승인을 시작하지 않는다")
+	fun 인증_쿠키_없음과_무효_결제_승인을_막는다() {
+		val orderId = createOrder()
+
+		mvc.perform(confirmRequest(orderId).header("X-Buyer-Id", "123"))
+			.andExpect(status().isUnauthorized).andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+		mvc.perform(confirmRequest(orderId).cookie(Cookie("JAPDA_ACCESS_TOKEN", "invalid"), csrfCookie)
+			.header("X-CSRF-TOKEN", csrfToken))
+			.andExpect(status().isUnauthorized).andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+
+		assertEquals(0, toss.confirmCalls)
+	}
+
+	@Test
+	@DisplayName("구매자 연결이 없는 계정은 결제 승인을 시작하지 않는다")
+	fun 구매자_연결_없음_결제_승인을_막는다() {
+		val orderId = createOrder()
+		val unlinkedUserId = jdbc.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java, UUID.randomUUID().toString(), "payment-${UUID.randomUUID()}@example.com",
+		)!!
+
+		mvc.perform(confirmRequest(orderId)
+			.cookie(Cookie("JAPDA_ACCESS_TOKEN", tokenFor(unlinkedUserId)), csrfCookie)
+			.header("X-CSRF-TOKEN", csrfToken))
+			.andExpect(status().isForbidden).andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+
+		assertEquals(0, toss.confirmCalls)
+	}
+
+	@Test
+	@DisplayName("CSRF 토큰이 없거나 틀리면 결제 승인을 시작하지 않는다")
+	fun CSRF_토큰_없음과_오류_결제_승인을_막는다() {
+		val orderId = createOrder()
+
+		mvc.perform(confirmRequest(orderId).cookie(jwtCookie(123L), csrfCookie))
+			.andExpect(status().isForbidden).andExpect(jsonPath("$.code").value("AUTH_CSRF_INVALID"))
+		mvc.perform(confirmRequest(orderId).cookie(jwtCookie(123L), csrfCookie).header("X-CSRF-TOKEN", "invalid"))
+			.andExpect(status().isForbidden).andExpect(jsonPath("$.code").value("AUTH_CSRF_INVALID"))
+
+		assertEquals(0, toss.confirmCalls)
+	}
+
 	private fun createOrder(key: UUID = UUID.randomUUID()): String = mvc.perform(orderRequest(key))
 		.andExpect(status().isCreated)
 		.andReturn().response.contentAsString.let { Regex("\"paymentOrderId\":\"([^\"]+)\"").find(it)!!.groupValues[1] }
 
 	private fun orderRequest(key: UUID = UUID.randomUUID()) = post("/api/orders")
-		.header("X-Buyer-Id", "123")
+		.cookie(jwtCookie(123L), csrfCookie)
+		.header("X-CSRF-TOKEN", csrfToken)
 		.header("Idempotency-Key", key.toString())
 		.contentType(MediaType.APPLICATION_JSON)
 		.content("""{"saleId":$saleId,"quantity":2,"shippingAddress":{"recipientName":"홍길동","phoneNumber":"010","postalCode":"06236","address":"서울","detailAddress":"101호"}}""")
 
-	private fun confirm(orderId: String, amount: Long = 70_000L, buyerId: Long = 123L) = post("/api/payments/confirm")
-		.header("X-Buyer-Id", buyerId.toString())
+	private fun confirm(orderId: String, amount: Long = 70_000L, buyerId: Long = 123L) = confirmRequest(orderId, amount)
+		.cookie(jwtCookie(buyerId), csrfCookie)
+		.header("X-CSRF-TOKEN", csrfToken)
+
+	private fun confirmRequest(orderId: String, amount: Long = 70_000L) = post("/api/payments/confirm")
 		.contentType(MediaType.APPLICATION_JSON)
 		.content("""{"paymentKey":"payment-key","orderId":"$orderId","amount":$amount}""")
+
+	private fun jwtCookie(buyerId: Long) = Cookie("JAPDA_ACCESS_TOKEN", tokenFor(userIds.getValue(buyerId)))
+
+	private fun tokenFor(userId: Long) = ServiceJwtIssuer(
+		SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
+		"http://localhost:8080",
+		"japda-spa",
+		Clock.systemUTC(),
+	).issue(userId)
 
 	@TestConfiguration(proxyBeanMethods = false)
 	class TestBeans {
@@ -232,5 +313,11 @@ class PaymentConfirmationIntegrationTest {
 		val NOW: Instant = Instant.parse("2026-09-13T06:00:00Z")
 		val SALE_DATE: LocalDate = LocalDate.parse("2026-09-13")
 		@Container @ServiceConnection @JvmStatic val postgres = PostgreSQLContainer("postgres:17-alpine")
+
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 	}
 }

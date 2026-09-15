@@ -5,6 +5,7 @@ import io.github.sehako.japda.auth.domain.model.User
 import io.github.sehako.japda.auth.domain.model.UserRole
 import io.github.sehako.japda.auth.domain.repository.UserRepository
 import io.github.sehako.japda.auth.domain.repository.UserRoleRepository
+import io.github.sehako.japda.auth.domain.repository.PrincipalIdentityRepository
 import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
 import java.time.Clock
 import java.time.Instant
@@ -20,6 +21,7 @@ import org.springframework.mock.web.MockHttpServletResponse
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.oauth2.core.oidc.OidcIdToken
 import org.springframework.security.oauth2.core.oidc.user.DefaultOidcUser
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository
 import org.springframework.test.util.ReflectionTestUtils
 
 @DisplayName("Google 로그인 결과 처리")
@@ -28,9 +30,14 @@ class GoogleLoginHandlerTest {
     private val service = GoogleLoginService(users, object : UserRoleRepository {
         override fun addIfAbsent(userId: Long, role: UserRole) = Unit
         override fun findByUserId(userId: Long): List<UserRole> = emptyList()
+    }, object : PrincipalIdentityRepository {
+        override fun findBuyerId(userId: Long): Long? = null
+        override fun findSellerId(userId: Long): Long? = null
+        override fun createBuyerLink(userId: Long): Long = userId
     }, emptySet(), Clock.fixed(Instant.parse("2026-09-14T00:00:00Z"), ZoneOffset.UTC))
     private val jwt = ServiceJwtIssuer(SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"), "japda", "japda-spa", Clock.systemUTC())
-    private val handler = GoogleLoginSuccessHandler(service, jwt, "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false)
+    private val csrfRepository = CookieCsrfTokenRepository().apply { setCookiePath("/api") }
+    private val handler = GoogleLoginSuccessHandler(service, jwt, "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false, csrfRepository)
 
     @Test
     @DisplayName("검증된 이메일은 JWT 쿠키를 설정하고 고정된 성공 주소로 이동한다")
@@ -40,13 +47,14 @@ class GoogleLoginHandlerTest {
         handler.onAuthenticationSuccess(MockHttpServletRequest(), response, authentication("buyer@example.com", true))
 
         assertEquals("http://localhost:5173/auth/success", response.redirectedUrl)
-        val cookie = response.getHeader("Set-Cookie")!!
+        val cookie = response.getHeaders("Set-Cookie").first { it.startsWith("JAPDA_ACCESS_TOKEN=") }
         assertContains(cookie, "HttpOnly")
         assertContains(cookie, "SameSite=Lax")
         assertContains(cookie, "Path=/api")
         assertContains(cookie, "Max-Age=3600")
         assertEquals(false, cookie.contains("Secure"))
         assertEquals(1, users.count)
+        assertContains(response.getHeaders("Set-Cookie").joinToString(), "XSRF-TOKEN=; Path=/api; Max-Age=0")
     }
 
     @Test

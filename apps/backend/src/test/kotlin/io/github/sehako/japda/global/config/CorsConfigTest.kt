@@ -1,5 +1,6 @@
 package io.github.sehako.japda.global.config
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.product.application.service.ProductService
 import io.github.sehako.japda.product.presentation.controller.ProductController
@@ -35,6 +36,9 @@ class CorsConfigTest {
 	@MockitoBean
 	private lateinit var productService: ProductService
 
+	@MockitoBean
+	private lateinit var principalIdentityService: PrincipalIdentityService
+
 	@Test
 	@DisplayName("설정된 여러 origin의 API preflight 요청을 허용한다")
 	fun 설정된_여러_origin_API_preflight_요청_허용한다() {
@@ -44,7 +48,7 @@ class CorsConfigTest {
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_ORIGIN, origin))
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_CREDENTIALS, "true"))
 				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, containsString("POST")))
-				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("X-Seller-Id")))
+				.andExpect(header().string(HttpHeaders.ACCESS_CONTROL_ALLOW_HEADERS, containsString("X-CSRF-TOKEN")))
 		}
 	}
 
@@ -80,5 +84,5 @@ class CorsConfigTest {
 	private fun preflightRequest(origin: String) = options("/api/products")
 		.header(HttpHeaders.ORIGIN, origin)
 		.header(HttpHeaders.ACCESS_CONTROL_REQUEST_METHOD, "POST")
-		.header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-Seller-Id, Content-Type")
+		.header(HttpHeaders.ACCESS_CONTROL_REQUEST_HEADERS, "X-CSRF-TOKEN, Content-Type")
 }

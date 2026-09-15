@@ -1,5 +1,6 @@
 package io.github.sehako.japda.auth.infrastructure.token
 
+import io.github.sehako.japda.auth.domain.repository.UserRepository
 import java.time.Duration
 import javax.crypto.SecretKey
 import org.springframework.security.authentication.AuthenticationProvider
@@ -16,7 +17,7 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidator
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult
 import org.springframework.security.oauth2.jwt.Jwt
 
-class JwtCookieAuthenticationProvider(key: SecretKey, issuer: String, audience: String) : AuthenticationProvider {
+class JwtCookieAuthenticationProvider(key: SecretKey, issuer: String, audience: String, private val users: UserRepository) : AuthenticationProvider {
     private val decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build().apply {
         setJwtValidator(DelegatingOAuth2TokenValidator(
             JwtIssuerValidator(issuer),
@@ -35,7 +36,7 @@ class JwtCookieAuthenticationProvider(key: SecretKey, issuer: String, audience: 
         } catch (exception: JwtException) {
             null
         }
-        if (userId == null) throw BadCredentialsException("인증에 실패했습니다.")
+        if (userId == null || users.findById(userId) == null) throw BadCredentialsException("인증에 실패했습니다.")
         return UsernamePasswordAuthenticationToken.authenticated(userId, null, emptyList())
     }
 

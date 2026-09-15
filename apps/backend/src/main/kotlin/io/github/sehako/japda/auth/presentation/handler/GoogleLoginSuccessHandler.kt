@@ -8,6 +8,7 @@ import org.springframework.http.ResponseCookie
 import org.springframework.security.core.Authentication
 import org.springframework.security.oauth2.core.oidc.user.OidcUser
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler
+import org.springframework.security.web.csrf.CsrfTokenRepository
 
 class GoogleLoginSuccessHandler(
     private val loginService: GoogleLoginService,
@@ -15,6 +16,7 @@ class GoogleLoginSuccessHandler(
     private val successUrl: String,
     private val failureUrl: String,
     private val secureCookie: Boolean,
+    private val csrfTokens: CsrfTokenRepository,
 ) : AuthenticationSuccessHandler {
     override fun onAuthenticationSuccess(request: HttpServletRequest, response: HttpServletResponse, authentication: Authentication) {
         val user = authentication.principal as? OidcUser
@@ -27,6 +29,7 @@ class GoogleLoginSuccessHandler(
 
         try {
             val userId = loginService.login(subject, email)
+            csrfTokens.saveToken(null, request, response)
             val cookie = ResponseCookie.from(COOKIE_NAME, jwtIssuer.issue(userId))
                 .httpOnly(true)
                 .secure(secureCookie)

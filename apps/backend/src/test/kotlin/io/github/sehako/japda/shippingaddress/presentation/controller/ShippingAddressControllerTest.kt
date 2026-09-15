@@ -1,7 +1,10 @@
 package io.github.sehako.japda.shippingaddress.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.shippingaddress.application.dto.CreateBuyerShippingAddressDto
 import io.github.sehako.japda.shippingaddress.application.response.BuyerShippingAddressResponse
 import io.github.sehako.japda.shippingaddress.application.service.BuyerShippingAddressService
@@ -9,17 +12,23 @@ import io.github.sehako.japda.shippingaddress.exception.BuyerShippingAddressErro
 import io.github.sehako.japda.shippingaddress.exception.BuyerShippingAddressException
 import java.time.Instant
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.springframework.http.MediaType
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
+import org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
 import org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest
@@ -41,12 +50,20 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 class ShippingAddressControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var service: BuyerShippingAddressService
+	private lateinit var principalIdentityService: PrincipalIdentityService
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() = SecurityContextHolder.clearContext()
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
 		service = mock(BuyerShippingAddressService::class.java)
-		mockMvc = MockMvcBuilders.standaloneSetup(ShippingAddressController(service))
+		principalIdentityService = mock(PrincipalIdentityService::class.java)
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
+		`when`(principalIdentityService.buyerId(17L)).thenReturn(123L)
+		mockMvc = MockMvcBuilders.standaloneSetup(ShippingAddressController(service, principalIdentityService))
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.apply<StandaloneMockMvcBuilder>(documentationConfiguration(restDocumentation))
 			.build()
 	}
@@ -68,7 +85,10 @@ class ShippingAddressControllerTest {
 					"buyer-shipping-address-create",
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
-					requestHeaders(headerWithName("X-Buyer-Id").description("임시 구매자 식별자")),
+					requestHeaders(
+						headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키와 XSRF-TOKEN CSRF 쿠키"),
+						headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
+					),
 					requestFields(
 						fieldWithPath("addressName").description("배송지명"),
 						fieldWithPath("recipientName").description("수령인 이름"),
@@ -96,21 +116,43 @@ class ShippingAddressControllerTest {
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 없으면 공통 헤더 누락 오류를 반환한다")
-	fun 구매자_헤더_없음_공통_헤더_누락_오류를_반환한다() {
+	@DisplayName("인증된 사용자는 구매자 헤더 없이 배송지를 등록한다")
+	fun 인증_주체_구매자_헤더_없이_배송지를_등록한다() {
+		`when`(service.create(EXPECTED_DTO)).thenReturn(RESPONSE)
 		mockMvc.perform(post("/api/shipping-addresses").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
-			.andExpect(status().isBadRequest)
-			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_MISSING"))
+			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.shippingAddressId").value(1))
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 양의 Long이 아니면 공통 헤더 형식 오류를 반환한다")
-	fun 구매자_헤더_양의_Long_아님_공통_헤더_형식_오류를_반환한다() {
-		listOf("0", "abc").forEach { value ->
-			mockMvc.perform(validRequest().header("X-Buyer-Id", value))
-				.andExpect(status().isBadRequest)
-				.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_INVALID"))
-		}
+	@DisplayName("구매자 헤더를 위조해도 인증 주체에 연결된 구매자로 등록한다")
+	fun 구매자_헤더_위조_연결된_구매자로_등록한다() {
+		`when`(service.create(EXPECTED_DTO)).thenReturn(RESPONSE)
+		mockMvc.perform(validRequest().header("X-Buyer-Id", "999"))
+			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.shippingAddressId").value(1))
+	}
+
+	@Test
+	@DisplayName("인증 주체가 없으면 구매자 헤더가 있어도 인증 실패를 반환한다")
+	fun 인증_주체_없음_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
+		mockMvc.perform(validRequest().header("X-Buyer-Id", "123"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+			.andDo(document("buyer-shipping-address-create-unauthenticated", preprocessResponse(prettyPrint()), authErrorHeaders(), problemFields()))
+	}
+
+	@Test
+	@DisplayName("구매자 연결이 없으면 연결 필요 오류를 반환한다")
+	fun 구매자_연결_없음_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.BUYER_LINK_REQUIRED)).`when`(principalIdentityService).buyerId(17L)
+		mockMvc.perform(validRequest())
+			.andExpect(status().isForbidden)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+			.andDo(document("buyer-shipping-address-create-buyer-link-required", preprocessResponse(prettyPrint()), authErrorHeaders(), problemFields()))
 	}
 
 	@Test
@@ -154,8 +196,14 @@ class ShippingAddressControllerTest {
 		*listOfNotNull(errorPath?.let { fieldWithPath(it).description("배송지명 오류 메시지") }).toTypedArray(),
 	)
 
+	private fun authErrorHeaders() = responseHeaders(
+		headerWithName("Content-Type").description("application/problem+json"),
+		headerWithName("Cache-Control").description("no-store"),
+	)
+
 	private fun validRequest(body: String = VALID_BODY) = post("/api/shipping-addresses")
-		.header("X-Buyer-Id", "123")
+		.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>; XSRF-TOKEN=<CSRF>")
+		.header("X-CSRF-TOKEN", "<CSRF>")
 		.contentType(MediaType.APPLICATION_JSON)
 		.content(body)
 

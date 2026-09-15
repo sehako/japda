@@ -1,7 +1,8 @@
 package io.github.sehako.japda.product.presentation.image.controller
 
-import io.github.sehako.japda.global.exception.CommonErrorCode
-import io.github.sehako.japda.global.exception.CommonException
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.product.application.image.response.ProductImageRegistrationResponse
 import io.github.sehako.japda.product.application.image.service.ProductImageRegistrationService
 import io.github.sehako.japda.product.application.image.dto.RegisterProductImagesDto
@@ -10,9 +11,9 @@ import io.github.sehako.japda.product.exception.ProductException
 import io.github.sehako.japda.product.presentation.image.adapter.MultipartProductImageFile
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
+import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
@@ -22,19 +23,21 @@ import org.springframework.web.multipart.MultipartHttpServletRequest
 @RequestMapping("/api/products")
 class ProductImageController(
 	private val productImageRegistrationService: ProductImageRegistrationService,
+	private val principalIdentityService: PrincipalIdentityService,
 ) {
 	@PostMapping("/{productId}/images", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
 	@ResponseStatus(HttpStatus.CREATED)
 	fun register(
 		@PathVariable productId: Long,
-		@RequestHeader(name = SELLER_ID_HEADER, required = false) sellerIdHeader: String?,
+		@AuthenticationPrincipal userId: Long?,
 		request: MultipartHttpServletRequest,
 	): ProductImageRegistrationResponse {
+		val sellerId = principalIdentityService.sellerId(userId ?: throw BusinessException(AuthErrorCode.UNAUTHENTICATED))
 		val representativeIndex = parseRepresentativeIndex(request)
 		return productImageRegistrationService.register(
 			RegisterProductImagesDto(
 				productId = productId,
-				sellerId = parseSellerId(sellerIdHeader),
+				sellerId = sellerId,
 				files = request.getFiles(FILES_PART).map(::MultipartProductImageFile),
 				representativeIndex = representativeIndex,
 			),
@@ -59,14 +62,7 @@ class ProductImageController(
 			?: throw ProductException(ProductErrorCode.IMAGE_REPRESENTATIVE_INVALID)
 	}
 
-	private fun parseSellerId(value: String?): Long {
-		if (value == null) throw CommonException(CommonErrorCode.REQUEST_HEADER_MISSING)
-		return value.toLongOrNull()
-			?: throw CommonException(CommonErrorCode.REQUEST_HEADER_INVALID)
-	}
-
 	companion object {
-		private const val SELLER_ID_HEADER = "X-Seller-Id"
 		private const val FILES_PART = "files"
 		private const val REPRESENTATIVE_INDEX_PART = "representativeIndex"
 	}

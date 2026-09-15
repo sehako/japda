@@ -1,5 +1,8 @@
 package io.github.sehako.japda.product
 
+import com.jayway.jsonpath.JsonPath
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
+import jakarta.servlet.http.Cookie
 import io.github.sehako.japda.product.application.image.dto.UploadedProductImage
 import io.github.sehako.japda.product.application.image.file.ProductImageFile
 import io.github.sehako.japda.product.application.image.service.ProductImageRegistrationCommitService
@@ -13,6 +16,9 @@ import java.io.InputStream
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.Base64
+import java.util.UUID
+import javax.crypto.spec.SecretKeySpec
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutionException
@@ -37,6 +43,8 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.mock.web.MockMultipartFile
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -45,7 +53,12 @@ import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
 import org.testcontainers.postgresql.PostgreSQLContainer
 
-@SpringBootTest(properties = ["product.image.s3.region=ap-northeast-2", "product.image.s3.bucket=test-product-images"])
+@SpringBootTest(properties = [
+	"product.image.s3.region=ap-northeast-2",
+	"product.image.s3.bucket=test-product-images",
+	"spring.security.oauth2.client.registration.google.client-id=synthetic-client-id",
+	"spring.security.oauth2.client.registration.google.client-secret=synthetic-client-secret",
+])
 @AutoConfigureMockMvc
 @Import(ProductImageRegistrationIntegrationTest.TestConfig::class)
 @Testcontainers(disabledWithoutDocker = true)
@@ -94,6 +107,26 @@ class ProductImageRegistrationIntegrationTest {
 	@DisplayName("HTTP multipart 요청은 이미지 메타데이터와 READY 상품을 PostgreSQL에 저장한다")
 	fun HTTP_multipart_요청_이미지와_READY_상품을_PostgreSQL에_저장한다() {
 		val productId = insertDraftProduct()
+		val userId = jdbcTemplate.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java,
+			UUID.randomUUID().toString(),
+			"seller-${UUID.randomUUID()}@example.com",
+		)!!
+		jdbcTemplate.update("INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, ?)", userId, SELLER_ID)
+		val accessToken = ServiceJwtIssuer(
+			SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
+			"http://localhost:8080",
+			"japda-spa",
+			Clock.systemUTC(),
+		).issue(userId)
+		val csrfResponse = mockMvc.perform(
+			org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/auth/csrf")
+				.cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken)),
+		).andExpect(status().isOk).andReturn().response
+		val csrfToken = JsonPath.read<String>(csrfResponse.contentAsString, "$.token")
+		val csrfHeader = JsonPath.read<String>(csrfResponse.contentAsString, "$.headerName")
+		val csrfCookie = assertNotNull(csrfResponse.cookies.singleOrNull { it.name == "XSRF-TOKEN" })
 		val jpeg = jpegBytes()
 		val png = pngBytes()
 
@@ -102,7 +135,9 @@ class ProductImageRegistrationIntegrationTest {
 				.file(MockMultipartFile("files", "first.jpg", MediaType.TEXT_PLAIN_VALUE, jpeg))
 				.file(MockMultipartFile("files", "second.png", MediaType.APPLICATION_OCTET_STREAM_VALUE, png))
 				.file(MockMultipartFile("representativeIndex", "", MediaType.TEXT_PLAIN_VALUE, "1".encodeToByteArray()))
-				.header("X-Seller-Id", SELLER_ID.toString()),
+				.header("X-Seller-Id", "999")
+				.header(csrfHeader, csrfToken)
+				.cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken), csrfCookie),
 		)
 			.andExpect(status().isCreated)
 			.andExpect(jsonPath("$.productId").value(productId))
@@ -241,5 +276,11 @@ class ProductImageRegistrationIntegrationTest {
 		@ServiceConnection
 		@JvmStatic
 		val postgres = PostgreSQLContainer("postgres:17-alpine")
+
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 	}
 }

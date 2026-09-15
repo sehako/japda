@@ -1,7 +1,13 @@
 package io.github.sehako.japda.order
 
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
+import jakarta.servlet.http.Cookie
 import java.sql.Timestamp
 import java.time.Instant
+import java.time.Clock
+import java.util.Base64
+import java.util.UUID
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import org.hibernate.SessionFactory
@@ -12,6 +18,8 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -36,6 +44,7 @@ class CheckoutIntegrationTest {
 
 	private var saleId: Long = 0
 	private var productId: Long = 0
+	private lateinit var accessToken: String
 
 	@BeforeEach
 	fun 테스트_데이터를_준비한다() {
@@ -46,6 +55,15 @@ class CheckoutIntegrationTest {
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
 		jdbcTemplate.update("DELETE FROM products")
+		jdbcTemplate.update("DELETE FROM buyer_principal_identities WHERE buyer_id = 123")
+		val userId = jdbcTemplate.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java, UUID.randomUUID().toString(), "buyer-${UUID.randomUUID()}@example.com",
+		)!!
+		jdbcTemplate.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, 123)", userId)
+		accessToken = ServiceJwtIssuer(
+			SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"), "http://localhost:8080", "japda-spa", Clock.systemUTC(),
+		).issue(userId)
 		productId = jdbcTemplate.queryForObject(
 			"INSERT INTO products (seller_id, name, status, created_at) VALUES (1, '통합 상품', 'READY', ?) RETURNING id",
 			Long::class.java, Timestamp.from(NOW),
@@ -67,7 +85,7 @@ class CheckoutIntegrationTest {
 		statistics.clear()
 		val before = statistics.prepareStatementCount
 
-		mockMvc.perform(request(123, 2))
+		mockMvc.perform(request(2))
 			.andExpect(status().isOk)
 			.andExpect(jsonPath("$.productName").value("통합 상품"))
 			.andExpect(jsonPath("$.representativeImagePath").value("/products/$productId/representative"))
@@ -75,7 +93,7 @@ class CheckoutIntegrationTest {
 			.andExpect(jsonPath("$.totalPrice").value(70000))
 			.andExpect(jsonPath("$.shippingAddresses").isEmpty)
 
-		assertEquals(1, statistics.prepareStatementCount - before)
+		assertEquals(3, statistics.prepareStatementCount - before)
 		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java))
 		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM buyer_shipping_address_books", Int::class.java))
 		assertEquals(35_000L, jdbcTemplate.queryForObject("SELECT price FROM sales WHERE id = ?", Long::class.java, saleId))
@@ -88,7 +106,7 @@ class CheckoutIntegrationTest {
 		insertAddress(insertBook(123), "집")
 		insertAddress(insertBook(456), "타인")
 
-		mockMvc.perform(request(123, 1))
+		mockMvc.perform(request(1))
 			.andExpect(status().isOk)
 			.andExpect(jsonPath("$.shippingAddresses.length()").value(1))
 			.andExpect(jsonPath("$.shippingAddresses[0].addressName").value("집"))
@@ -97,12 +115,24 @@ class CheckoutIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("위조한 구매자 헤더를 보내도 연결된 구매자의 배송지만 반환한다")
+	fun 위조한_구매자_헤더_연결된_구매자_배송지만_반환한다() {
+		insertAddress(insertBook(123), "집")
+		insertAddress(insertBook(456), "타인")
+
+		mockMvc.perform(request(1).header("X-Buyer-Id", "456"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.shippingAddresses.length()").value(1))
+			.andExpect(jsonPath("$.shippingAddresses[0].addressName").value("집"))
+	}
+
+	@Test
 	@DisplayName("한 book의 배송지 열 건을 식별자 오름차순으로 반환한다")
 	fun 한_book의_배송지_열_건을_식별자_오름차순으로_반환한다() {
 		val bookId = insertBook(123)
 		val ids = (1..10).map { insertAddress(bookId, "배송지$it") }
 
-		mockMvc.perform(request(123, 1))
+		mockMvc.perform(request(1))
 			.andExpect(status().isOk)
 			.andExpect(jsonPath("$.shippingAddresses.length()").value(10))
 			.andExpect(jsonPath("$.shippingAddresses[0].shippingAddressId").value(ids.first()))
@@ -112,7 +142,7 @@ class CheckoutIntegrationTest {
 	@Test
 	@DisplayName("판매 일정이 없으면 404를 반환한다")
 	fun 판매_일정_없으면_404를_반환한다() {
-		mockMvc.perform(get("/api/checkout").header("X-Buyer-Id", "123").param("saleId", "999999").param("quantity", "1"))
+		mockMvc.perform(get("/api/checkout").cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken)).param("saleId", "999999").param("quantity", "1"))
 			.andExpect(status().isNotFound)
 			.andExpect(jsonPath("$.code").value("ORDER_SALE_NOT_FOUND"))
 	}
@@ -120,11 +150,11 @@ class CheckoutIntegrationTest {
 	@Test
 	@DisplayName("양수가 아닌 판매 일정 식별자와 수량은 각 필드 오류를 반환한다")
 	fun 양수가_아닌_판매_일정_식별자와_수량은_필드_오류를_반환한다() {
-		mockMvc.perform(get("/api/checkout").header("X-Buyer-Id", "123").param("saleId", "0").param("quantity", "1"))
+		mockMvc.perform(get("/api/checkout").cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken)).param("saleId", "0").param("quantity", "1"))
 			.andExpect(status().isBadRequest)
 			.andExpect(jsonPath("$.code").value("ORDER_SALE_ID_INVALID"))
 			.andExpect(jsonPath("$.errors.saleId").exists())
-		mockMvc.perform(request(123, 0))
+		mockMvc.perform(request(0))
 			.andExpect(status().isBadRequest)
 			.andExpect(jsonPath("$.code").value("ORDER_QUANTITY_INVALID"))
 			.andExpect(jsonPath("$.errors.quantity").exists())
@@ -135,7 +165,7 @@ class CheckoutIntegrationTest {
 	fun 예상_총액_Long_범위_초과_409를_반환한다() {
 		jdbcTemplate.update("UPDATE sales SET price = ? WHERE id = ?", Long.MAX_VALUE, saleId)
 
-		mockMvc.perform(request(123, 2))
+		mockMvc.perform(request(2))
 			.andExpect(status().isConflict)
 			.andExpect(jsonPath("$.code").value("ORDER_TOTAL_PRICE_INVALID"))
 	}
@@ -145,13 +175,13 @@ class CheckoutIntegrationTest {
 	fun 대표_이미지_없으면_내부_오류를_반환한다() {
 		jdbcTemplate.update("DELETE FROM product_images WHERE is_representative = true")
 
-		mockMvc.perform(request(123, 1))
+		mockMvc.perform(request(1))
 			.andExpect(status().isInternalServerError)
 			.andExpect(jsonPath("$.code").value("COMMON_INTERNAL_SERVER_ERROR"))
 	}
 
-	private fun request(buyerId: Long, quantity: Int) = get("/api/checkout")
-		.header("X-Buyer-Id", buyerId.toString())
+	private fun request(quantity: Int) = get("/api/checkout")
+		.cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken))
 		.param("saleId", saleId.toString())
 		.param("quantity", quantity.toString())
 
@@ -174,6 +204,11 @@ class CheckoutIntegrationTest {
 
 	private companion object {
 		val NOW: Instant = Instant.parse("2026-09-10T03:00:00Z")
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 		@Container @ServiceConnection @JvmStatic
 		val postgres = PostgreSQLContainer("postgres:17-alpine")
 	}
