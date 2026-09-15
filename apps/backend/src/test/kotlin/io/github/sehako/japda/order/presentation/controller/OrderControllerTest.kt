@@ -1,5 +1,8 @@
 package io.github.sehako.japda.order.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
@@ -10,10 +13,12 @@ import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import java.time.Instant
 import java.util.UUID
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
@@ -22,6 +27,7 @@ import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
+import org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
 import org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessRequest
@@ -30,6 +36,9 @@ import org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPri
 import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
@@ -43,14 +52,38 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 class OrderControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var orderService: OrderService
+	private lateinit var principalIdentityService: PrincipalIdentityService
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() = SecurityContextHolder.clearContext()
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
 		orderService = mock(OrderService::class.java)
-		mockMvc = MockMvcBuilders.standaloneSetup(OrderController(orderService))
+		principalIdentityService = mock(PrincipalIdentityService::class.java)
+		`when`(principalIdentityService.buyerId(17L)).thenReturn(123L)
+		mockMvc = MockMvcBuilders.standaloneSetup(OrderController(orderService, principalIdentityService))
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.apply<StandaloneMockMvcBuilder>(documentationConfiguration(restDocumentation))
 			.build()
+	}
+
+	@Test
+	@DisplayName("인증된 사용자는 구매자 헤더 없이 주문을 생성한다")
+	fun 인증_주체_구매자_헤더_없이_주문을_생성한다() {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
+		`when`(orderService.create(EXPECTED_DTO)).thenReturn(
+			OrderResponse(1000L, PAYMENT_ORDER_ID, OrderStatus.PENDING_PAYMENT, "한정판 상품", 2, 35_000L, 70_000L, EXPIRES_AT),
+		)
+
+		mockMvc.perform(post("/api/orders")
+			.header("Idempotency-Key", IDEMPOTENCY_KEY)
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(VALID_BODY))
+			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.orderId").value(1000))
 	}
 
 	@Test
@@ -78,7 +111,8 @@ class OrderControllerTest {
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
 					requestHeaders(
-						headerWithName("X-Buyer-Id").description("임시 구매자 식별자"),
+						headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키와 XSRF-TOKEN CSRF 쿠키"),
+						headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
 						headerWithName("Idempotency-Key").description("주문 생성 멱등성 UUID"),
 					),
 					requestFields(
@@ -108,24 +142,42 @@ class OrderControllerTest {
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 없으면 공통 헤더 누락 오류를 반환한다")
-	fun 구매자_헤더_없음_공통_헤더_누락_오류를_반환한다() {
+	@DisplayName("인증 주체가 없으면 구매자 헤더가 있어도 인증 실패를 반환하고 문서화한다")
+	fun 인증_주체_없음_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
 		mockMvc.perform(
 			post("/api/orders")
+				.header("X-Buyer-Id", "123")
 				.header("Idempotency-Key", IDEMPOTENCY_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content(VALID_BODY),
 		)
-			.andExpect(status().isBadRequest)
-			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_MISSING"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+			.andDo(document("order-create-unauthenticated", preprocessResponse(prettyPrint()), authErrorHeaders(), errorFields()))
 	}
 
 	@Test
-	@DisplayName("양수가 아닌 구매자 헤더면 공통 헤더 형식 오류를 반환한다")
-	fun 양수가_아닌_구매자_헤더_공통_헤더_형식_오류를_반환한다() {
+	@DisplayName("구매자 헤더를 위조해도 인증 주체의 구매자로 주문한다")
+	fun 구매자_헤더_위조_연결된_구매자로_주문한다() {
+		`when`(orderService.create(EXPECTED_DTO)).thenReturn(
+			OrderResponse(1000L, PAYMENT_ORDER_ID, OrderStatus.PENDING_PAYMENT, "한정판 상품", 2, 35_000L, 70_000L, EXPIRES_AT),
+		)
 		mockMvc.perform(validRequest().header("X-Buyer-Id", "0"))
-			.andExpect(status().isBadRequest)
-			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_INVALID"))
+			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.orderId").value(1000))
+	}
+
+	@Test
+	@DisplayName("구매자 연결이 없으면 연결 필요 오류를 반환하고 문서화한다")
+	fun 구매자_연결_없음_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.BUYER_LINK_REQUIRED)).`when`(principalIdentityService).buyerId(17L)
+		mockMvc.perform(validRequest())
+			.andExpect(status().isForbidden)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+			.andDo(document("order-create-buyer-link-required", preprocessResponse(prettyPrint()), authErrorHeaders(), errorFields()))
 	}
 
 	@Test
@@ -141,7 +193,6 @@ class OrderControllerTest {
 	fun 배송_객체_없음_공통_본문_오류를_반환한다() {
 		mockMvc.perform(
 			post("/api/orders")
-				.header("X-Buyer-Id", "123")
 				.header("Idempotency-Key", IDEMPOTENCY_KEY)
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""{"saleId":100,"quantity":2}"""),
@@ -186,10 +237,25 @@ class OrderControllerTest {
 	}
 
 	private fun validRequest(body: String = VALID_BODY) = post("/api/orders")
-		.header("X-Buyer-Id", "123")
+		.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>; XSRF-TOKEN=<CSRF>")
+		.header("X-CSRF-TOKEN", "<CSRF>")
 		.header("Idempotency-Key", IDEMPOTENCY_KEY)
 		.contentType(MediaType.APPLICATION_JSON)
 		.content(body)
+
+	private fun errorFields() = responseFields(
+		fieldWithPath("type").description("오류 유형 URI"),
+		fieldWithPath("title").description("오류 제목"),
+		fieldWithPath("status").description("HTTP 상태 코드"),
+		fieldWithPath("detail").description("오류 설명"),
+		fieldWithPath("instance").description("요청 경로"),
+		fieldWithPath("code").description("오류 코드"),
+	)
+
+	private fun authErrorHeaders() = responseHeaders(
+		headerWithName("Content-Type").description("application/problem+json"),
+		headerWithName("Cache-Control").description("no-store"),
+	)
 
 	private companion object {
 		const val IDEMPOTENCY_KEY = "550e8400-e29b-41d4-a716-446655440000"

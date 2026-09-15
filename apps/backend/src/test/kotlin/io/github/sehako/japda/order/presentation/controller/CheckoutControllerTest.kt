@@ -1,5 +1,8 @@
 package io.github.sehako.japda.order.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.order.application.response.CheckoutResponse
@@ -8,15 +11,18 @@ import io.github.sehako.japda.order.application.service.CheckoutService
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
+import org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
 import org.springframework.restdocs.operation.preprocess.Preprocessors.preprocessResponse
@@ -25,9 +31,13 @@ import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
 import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
 import org.springframework.restdocs.request.RequestDocumentation.queryParameters
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
@@ -37,14 +47,33 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 class CheckoutControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var service: CheckoutService
+	private lateinit var principalIdentityService: PrincipalIdentityService
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() = SecurityContextHolder.clearContext()
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
 		service = mock(CheckoutService::class.java)
-		mockMvc = MockMvcBuilders.standaloneSetup(CheckoutController(service))
+		principalIdentityService = mock(PrincipalIdentityService::class.java)
+		`when`(principalIdentityService.buyerId(17L)).thenReturn(123L)
+		mockMvc = MockMvcBuilders.standaloneSetup(CheckoutController(service, principalIdentityService))
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.apply<StandaloneMockMvcBuilder>(documentationConfiguration(restDocumentation))
 			.build()
+	}
+
+	@Test
+	@DisplayName("인증된 사용자는 구매자 헤더 없이도 연결된 배송지를 조회한다")
+	fun 인증_주체_구매자_헤더_없이_연결된_배송지를_조회한다() {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
+		`when`(service.find(123, 100, 2)).thenReturn(RESPONSE)
+
+		mockMvc.perform(get("/api/checkout").param("saleId", "100").param("quantity", "2"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.shippingAddresses[0].addressName").value("집"))
 	}
 
 	@Test
@@ -64,7 +93,7 @@ class CheckoutControllerTest {
 			.andExpect(jsonPath("$.shippingAddresses[0].deliveryMessage").value("문 앞"))
 			.andExpect(jsonPath("$.buyerId").doesNotExist())
 			.andDo(document("checkout-get", preprocessResponse(prettyPrint()),
-				requestHeaders(headerWithName("X-Buyer-Id").description("임시 구매자 식별자")),
+				requestHeaders(headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키")),
 				queryParameters(
 					parameterWithName("saleId").description("판매 일정 식별자"),
 					parameterWithName("quantity").description("구매 수량"),
@@ -90,29 +119,42 @@ class CheckoutControllerTest {
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 없으면 헤더 누락 오류를 반환한다")
-	fun 구매자_헤더_없으면_누락_오류를_반환한다() {
+	@DisplayName("인증 주체가 없으면 구매자 헤더가 있어도 인증 실패를 반환하고 문서화한다")
+	fun 인증_주체_없으면_구매자_헤더가_있어도_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
 		mockMvc.perform(get("/api/checkout").param("saleId", "100").param("quantity", "2"))
-			.andExpect(status().isBadRequest)
-			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_MISSING"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+			.andDo(document("checkout-get-unauthenticated", preprocessResponse(prettyPrint()), authErrorHeaders(), errorFields()))
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 양수가 아니거나 형식이 틀리면 헤더 오류를 반환한다")
-	fun 구매자_헤더_잘못되면_형식_오류를_반환한다() {
-		for (value in listOf("0", "abc")) {
-			mockMvc.perform(validRequest().header("X-Buyer-Id", value))
-				.andExpect(status().isBadRequest)
-				.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_INVALID"))
-		}
+	@DisplayName("구매자 헤더를 위조해도 인증 주체의 연결된 배송지를 조회한다")
+	fun 구매자_헤더_위조_연결된_배송지를_조회한다() {
+		`when`(service.find(123, 100, 2)).thenReturn(RESPONSE)
+		mockMvc.perform(validRequest().header("X-Buyer-Id", "999"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.shippingAddresses[0].addressName").value("집"))
+	}
+
+	@Test
+	@DisplayName("구매자 연결이 없으면 연결 필요 오류를 반환하고 문서화한다")
+	fun 구매자_연결_없으면_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.BUYER_LINK_REQUIRED)).`when`(principalIdentityService).buyerId(17L)
+		mockMvc.perform(validRequest())
+			.andExpect(status().isForbidden)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+			.andDo(document("checkout-get-buyer-link-required", preprocessResponse(prettyPrint()), authErrorHeaders(), errorFields()))
 	}
 
 	@Test
 	@DisplayName("쿼리 매개변수가 없거나 숫자가 아니면 매개변수 오류를 반환한다")
 	fun 쿼리_매개변수_누락이나_형식_오류를_반환한다() {
 		for (request in listOf(
-			get("/api/checkout").header("X-Buyer-Id", "123").param("quantity", "2"),
-			get("/api/checkout").header("X-Buyer-Id", "123").param("saleId", "100").param("quantity", "abc"),
+			get("/api/checkout").param("quantity", "2"),
+			get("/api/checkout").param("saleId", "100").param("quantity", "abc"),
 		)) {
 			mockMvc.perform(request)
 				.andExpect(status().isBadRequest)
@@ -144,9 +186,14 @@ class CheckoutControllerTest {
 	}
 
 	private fun validRequest() = get("/api/checkout")
-		.header("X-Buyer-Id", "123")
+		.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>")
 		.param("saleId", "100")
 		.param("quantity", "2")
+
+	private fun authErrorHeaders() = responseHeaders(
+		headerWithName("Content-Type").description("application/problem+json"),
+		headerWithName("Cache-Control").description("no-store"),
+	)
 
 	private fun errorFields(property: String? = null) = responseFields(
 		fieldWithPath("type").description("오류 유형 URI"),

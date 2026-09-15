@@ -3,6 +3,7 @@ package io.github.sehako.japda.auth.application.service
 import io.github.sehako.japda.auth.domain.model.User
 import io.github.sehako.japda.auth.domain.model.UserRole
 import io.github.sehako.japda.auth.domain.repository.UserRepository
+import io.github.sehako.japda.auth.domain.repository.PrincipalIdentityRepository
 import io.github.sehako.japda.auth.domain.repository.UserRoleRepository
 import java.time.Clock
 import java.time.Instant
@@ -17,7 +18,8 @@ import org.springframework.test.util.ReflectionTestUtils
 class GoogleLoginServiceTest {
     private val users = MemoryUserRepository()
     private val roles = MemoryUserRoleRepository()
-    private val service = GoogleLoginService(users, roles, setOf("admin@gmail.com"), Clock.fixed(Instant.parse("2026-09-14T00:00:00Z"), ZoneOffset.UTC))
+    private val identities = MemoryPrincipalIdentityRepository()
+    private val service = GoogleLoginService(users, roles, identities, setOf("admin@gmail.com"), Clock.fixed(Instant.parse("2026-09-14T00:00:00Z"), ZoneOffset.UTC))
 
     @Test
     @DisplayName("첫 로그인은 사용자를 생성하고 BUYER 역할을 부여한다")
@@ -26,6 +28,7 @@ class GoogleLoginServiceTest {
 
         assertEquals("buyer@example.com", users.findByGoogleSubject("google-sub-1")?.email)
         assertEquals(setOf(UserRole.BUYER), roles.roles(id))
+        assertEquals(100L, identities.findBuyerId(id))
     }
 
     @Test
@@ -38,6 +41,7 @@ class GoogleLoginServiceTest {
         assertEquals(1, users.count())
         assertEquals("changed@example.com", users.findByGoogleSubject("google-sub-1")?.email)
         assertEquals(setOf(UserRole.BUYER), roles.roles(first))
+        assertEquals(1, identities.count())
     }
 
     @Test
@@ -86,5 +90,14 @@ class GoogleLoginServiceTest {
         override fun findByUserId(userId: Long): List<UserRole> = values[userId].orEmpty().toList()
 
         fun roles(userId: Long): Set<UserRole> = values[userId].orEmpty()
+    }
+
+    private class MemoryPrincipalIdentityRepository : PrincipalIdentityRepository {
+        private val buyers = mutableMapOf<Long, Long>()
+        private var nextId = 100L
+        override fun findBuyerId(userId: Long): Long? = buyers[userId]
+        override fun findSellerId(userId: Long): Long? = null
+        override fun createBuyerLink(userId: Long): Long = nextId++.also { buyers[userId] = it }
+        fun count(): Int = buyers.size
     }
 }

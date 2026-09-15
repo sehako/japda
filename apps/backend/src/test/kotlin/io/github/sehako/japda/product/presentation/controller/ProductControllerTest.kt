@@ -1,5 +1,8 @@
 package io.github.sehako.japda.product.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.product.application.cursor.ReadyProductCursorCodec
@@ -13,11 +16,17 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.doThrow
 import org.junit.jupiter.api.extension.ExtendWith
 import org.springframework.http.MediaType
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
@@ -51,9 +60,14 @@ import tools.jackson.databind.json.JsonMapper
 class ProductControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var repository: IdAssigningProductRepository
+	private lateinit var principalIdentityService: PrincipalIdentityService
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
+		principalIdentityService = mock(PrincipalIdentityService::class.java) { invocation ->
+			if (invocation.method.name == "sellerId") 1L else null
+		}
 		repository = IdAssigningProductRepository(1L)
 		val service = ProductService(
 			repository,
@@ -62,10 +76,33 @@ class ProductControllerTest {
 		)
 		val restDocsConfigurer: MockMvcConfigurer = documentationConfiguration(restDocumentation)
 		mockMvc = MockMvcBuilders
-			.standaloneSetup(ProductController(service))
+			.standaloneSetup(ProductController(service, principalIdentityService))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.apply<StandaloneMockMvcBuilder>(restDocsConfigurer)
 			.build()
+	}
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() {
+		SecurityContextHolder.clearContext()
+	}
+
+	@Test
+	@DisplayName("판매자 헤더가 없어도 인증 주체의 연결로 READY 상품을 조회한다")
+	fun 판매자_헤더_누락_인증_주체의_상품을_조회한다() {
+		mockMvc.perform(get("/api/products/ready"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items").isArray)
+		assertEquals(ReadyProductQuery(1L, ReadyProductSort.LATEST, null, 21), repository.readyQuery)
+	}
+
+	@Test
+	@DisplayName("위조한 판매자 헤더는 READY 목록의 소유자를 바꾸지 못한다")
+	fun READY_목록_판매자_헤더_위조_연결된_판매자로_조회한다() {
+		mockMvc.perform(get("/api/products/ready").header("X-Seller-Id", "999"))
+			.andExpect(status().isOk)
+		assertEquals(ReadyProductQuery(1L, ReadyProductSort.LATEST, null, 21), repository.readyQuery)
 	}
 
 	@Test
@@ -76,7 +113,7 @@ class ProductControllerTest {
 			ReadyProductSummary(37L, "콜라보 상품"),
 		)
 
-		mockMvc.perform(get("/api/products/ready").header("X-Seller-Id", "1"))
+		mockMvc.perform(get("/api/products/ready"))
 			.andExpect(status().isOk)
 			.andExpect(jsonPath("$.items[0].id").value(41))
 			.andExpect(jsonPath("$.items[0].name").value("한정판 상품"))
@@ -99,7 +136,7 @@ class ProductControllerTest {
 
 		mockMvc.perform(
 			get("/api/products/ready")
-				.header("X-Seller-Id", "1")
+				.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>")
 				.queryParam("sort", "name-asc")
 				.queryParam("cursor", cursor)
 				.queryParam("size", "1"),
@@ -113,7 +150,7 @@ class ProductControllerTest {
 					"product-ready-list",
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
-					requestHeaders(headerWithName("X-Seller-Id").description("임시 판매자 식별자")),
+					requestHeaders(headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키")),
 					queryParameters(
 						parameterWithName("sort").description("정렬 방식: latest, oldest, name-asc, name-desc").optional(),
 						parameterWithName("cursor").description("직전 응답에서 받은 불투명 커서").optional(),
@@ -130,27 +167,50 @@ class ProductControllerTest {
 	}
 
 	@Test
-	@DisplayName("판매자 헤더가 없으면 READY 목록 요청에 헤더 누락 ProblemDetail을 반환한다")
-	fun READY_목록_판매자_헤더가_없음_헤더_누락_오류를_반환한다() {
-		assertReadyInvalidRequest(expectedCode = "COMMON_REQUEST_HEADER_MISSING")
+	@DisplayName("인증 주체가 없으면 READY 목록에 인증 실패를 반환한다")
+	fun READY_목록_인증_주체_누락_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
+		mockMvc.perform(get("/api/products/ready").header("X-Seller-Id", "1"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
 	}
 
 	@Test
-	@DisplayName("판매자 헤더가 Long 형식이 아니면 READY 목록 요청에 헤더 형식 ProblemDetail을 반환한다")
-	fun READY_목록_판매자_헤더가_Long_형식이_아님_헤더_형식_오류를_반환한다() {
-		assertReadyInvalidRequest(sellerId = "9223372036854775808", expectedCode = "COMMON_REQUEST_HEADER_INVALID")
+	@DisplayName("판매자 연결이 없으면 READY 목록에 연결 필요 오류를 반환하고 문서화한다")
+	fun READY_목록_판매자_연결_부재_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.SELLER_LINK_REQUIRED))
+			.`when`(principalIdentityService).sellerId(17L)
+		mockMvc.perform(get("/api/products/ready"))
+			.andExpect(status().isForbidden)
+			.andExpect(header().string("Cache-Control", "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_SELLER_LINK_REQUIRED"))
+			.andDo(document(
+				"product-ready-list-seller-link-required",
+				preprocessResponse(prettyPrint()),
+				responseHeaders(
+					headerWithName("Cache-Control").description("민감한 오류 응답의 저장 방지"),
+				),
+				responseFields(
+					fieldWithPath("type").description("오류 유형 URI"),
+					fieldWithPath("title").description("오류 제목"),
+					fieldWithPath("status").description("HTTP 상태 코드"),
+					fieldWithPath("detail").description("오류 설명"),
+					fieldWithPath("instance").description("오류가 발생한 요청 경로"),
+					fieldWithPath("code").description("안정적인 오류 코드"),
+				),
+			))
 	}
 
 	@Test
 	@DisplayName("페이지 크기가 Int 형식이 아니면 공통 쿼리 매개변수 ProblemDetail을 반환한다")
 	fun READY_목록_페이지_크기가_Int_형식이_아님_공통_매개변수_오류를_반환한다() {
-		assertReadyInvalidRequest(sellerId = "1", size = "2147483648", expectedCode = "COMMON_REQUEST_PARAMETER_INVALID")
+		assertReadyInvalidRequest(size = "2147483648", expectedCode = "COMMON_REQUEST_PARAMETER_INVALID")
 	}
 
 	@Test
 	@DisplayName("지원하지 않는 정렬이면 상품 정렬 ProblemDetail을 반환한다")
 	fun READY_목록_지원하지_않는_정렬_상품_정렬_오류를_반환한다() {
-		assertReadyInvalidRequest(sellerId = "1", sort = "newest", expectedCode = "PRODUCT_SORT_INVALID", expectedProperty = "sort")
+		assertReadyInvalidRequest(sort = "newest", expectedCode = "PRODUCT_SORT_INVALID", expectedProperty = "sort")
 			.andDo(
 				document(
 					"product-ready-list-sort-invalid",
@@ -172,18 +232,16 @@ class ProductControllerTest {
 	@Test
 	@DisplayName("페이지 크기가 허용 범위 밖이면 상품 페이지 크기 ProblemDetail을 반환한다")
 	fun READY_목록_페이지_크기가_범위_밖_상품_페이지_크기_오류를_반환한다() {
-		assertReadyInvalidRequest(sellerId = "1", size = "101", expectedCode = "PRODUCT_PAGE_SIZE_INVALID", expectedProperty = "size")
+		assertReadyInvalidRequest(size = "101", expectedCode = "PRODUCT_PAGE_SIZE_INVALID", expectedProperty = "size")
 	}
 
 	private fun assertReadyInvalidRequest(
-		sellerId: String? = null,
 		sort: String? = null,
 		size: String? = null,
 		expectedCode: String,
 		expectedProperty: String? = null,
 	): ResultActions {
 		val request = get("/api/products/ready")
-		if (sellerId != null) request.header("X-Seller-Id", sellerId)
 		if (sort != null) request.queryParam("sort", sort)
 		if (size != null) request.queryParam("size", size)
 
@@ -201,7 +259,8 @@ class ProductControllerTest {
 	fun 유효한_요청_상품을_생성하고_201을_반환한다() {
 		mockMvc.perform(
 			post("/api/products")
-				.header("X-Seller-Id", "1")
+				.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>")
+				.header("X-CSRF-TOKEN", "<CSRF 토큰>")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""{"name":"  한정판 상품  ","description":"  선택적인 상품 설명  "}"""),
 		)
@@ -219,7 +278,8 @@ class ProductControllerTest {
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
 					requestHeaders(
-						headerWithName("X-Seller-Id").description("임시 판매자 식별자"),
+						headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키"),
+						headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
 					),
 					requestFields(
 						fieldWithPath("name").description("상품명"),
@@ -241,11 +301,23 @@ class ProductControllerTest {
 	}
 
 	@Test
+	@DisplayName("위조한 판매자 헤더는 상품 소유자를 바꾸지 못한다")
+	fun 판매자_헤더_위조_연결된_판매자로_상품을_생성한다() {
+		mockMvc.perform(
+			post("/api/products")
+				.header("X-Seller-Id", "999")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""{"name":"상품"}"""),
+		)
+			.andExpect(status().isCreated)
+			.andExpect(jsonPath("$.sellerId").value(1))
+	}
+
+	@Test
 	@DisplayName("설명이 공백이면 응답에 null 설명을 포함한다")
 	fun 설명이_공백_응답에_null_설명을_포함한다() {
 		mockMvc.perform(
 			post("/api/products")
-				.header("X-Seller-Id", "1")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""{"name":"상품","description":"   "}"""),
 		)
@@ -254,35 +326,17 @@ class ProductControllerTest {
 	}
 
 	@Test
-	@DisplayName("판매자 헤더가 없으면 ProblemDetail을 반환한다")
-	fun 판매자_헤더가_없음_헤더_누락_오류를_반환한다() {
-		assertInvalidRequest(
-			requestBody = """{"name":"상품"}""",
-			sellerId = null,
-			expectedCode = "COMMON_REQUEST_HEADER_MISSING",
+	@DisplayName("인증 주체가 없으면 상품 등록에 인증 실패를 반환한다")
+	fun 상품_등록_인증_주체_누락_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
+		mockMvc.perform(
+			post("/api/products")
+				.header("X-Seller-Id", "1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("""{"name":"상품"}"""),
 		)
-	}
-
-	@Test
-	@DisplayName("판매자 헤더가 숫자가 아니면 ProblemDetail을 반환한다")
-	fun 판매자_헤더가_숫자가_아님_헤더_형식_오류를_반환한다() {
-		assertInvalidRequest(
-			requestBody = """{"name":"상품"}""",
-			sellerId = "seller",
-			expectedCode = "COMMON_REQUEST_HEADER_INVALID",
-		)
-	}
-
-	@Test
-	@DisplayName("판매자 식별자가 양수가 아니면 상품 오류를 반환한다")
-	fun 판매자_식별자가_양수가_아님_상품_오류를_반환한다() {
-		assertInvalidRequest(
-			requestBody = """{"name":"상품"}""",
-			sellerId = "0",
-			expectedCode = "PRODUCT_SELLER_ID_INVALID",
-			expectedProperty = "sellerId",
-			expectedMessage = "판매자 식별자는 양수여야 합니다.",
-		)
+			.andExpect(status().isUnauthorized)
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
 	}
 
 	@Test
@@ -290,7 +344,6 @@ class ProductControllerTest {
 	fun 상품명이_누락_상품명_필수_오류를_반환한다() {
 		assertInvalidRequest(
 			requestBody = "{}",
-			sellerId = "1",
 			expectedCode = "PRODUCT_NAME_REQUIRED",
 			expectedProperty = "name",
 			expectedMessage = "상품명은 필수입니다.",
@@ -318,7 +371,6 @@ class ProductControllerTest {
 	fun 상품명이_100자를_초과_상품명_길이_오류를_반환한다() {
 		assertInvalidRequest(
 			requestBody = """{"name":"${"가".repeat(101)}"}""",
-			sellerId = "1",
 			expectedCode = "PRODUCT_NAME_TOO_LONG",
 			expectedProperty = "name",
 			expectedMessage = "상품명은 100자 이하여야 합니다.",
@@ -330,7 +382,6 @@ class ProductControllerTest {
 	fun 상품_설명이_3000자를_초과_설명_길이_오류를_반환한다() {
 		assertInvalidRequest(
 			requestBody = """{"name":"상품","description":"${"가".repeat(3001)}"}""",
-			sellerId = "1",
 			expectedCode = "PRODUCT_DESCRIPTION_TOO_LONG",
 			expectedProperty = "description",
 			expectedMessage = "상품 설명은 3000자 이하여야 합니다.",
@@ -342,7 +393,6 @@ class ProductControllerTest {
 	fun 요청_JSON을_파싱할_수_없음_공통_본문_오류를_반환한다() {
 		assertInvalidRequest(
 			requestBody = """{"name":}""",
-			sellerId = "1",
 			expectedCode = "COMMON_REQUEST_BODY_MALFORMED",
 		)
 	}
@@ -364,13 +414,13 @@ class ProductControllerTest {
 			ReadyProductCursorCodec(JsonMapper.builder().build()),
 		)
 		val failingMockMvc = MockMvcBuilders
-			.standaloneSetup(ProductController(service))
+			.standaloneSetup(ProductController(service, principalIdentityService))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.build()
 
 		failingMockMvc.perform(
 			post("/api/products")
-				.header("X-Seller-Id", "1")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""{"name":"상품"}"""),
 		)
@@ -382,7 +432,6 @@ class ProductControllerTest {
 
 	private fun assertInvalidRequest(
 		requestBody: String,
-		sellerId: String?,
 		expectedCode: String,
 		expectedProperty: String? = null,
 		expectedMessage: String? = null,
@@ -390,9 +439,6 @@ class ProductControllerTest {
 		val request = post("/api/products")
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(requestBody)
-		if (sellerId != null) {
-			request.header("X-Seller-Id", sellerId)
-		}
 
 		val result = mockMvc.perform(request)
 			.andExpect(status().isBadRequest)

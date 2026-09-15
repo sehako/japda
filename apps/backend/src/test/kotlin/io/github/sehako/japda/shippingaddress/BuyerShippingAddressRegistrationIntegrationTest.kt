@@ -1,12 +1,19 @@
 package io.github.sehako.japda.shippingaddress
 
+import com.jayway.jsonpath.JsonPath
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
+import jakarta.servlet.http.Cookie
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.Base64
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.springframework.beans.factory.annotation.Autowired
@@ -19,7 +26,10 @@ import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
@@ -32,6 +42,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 		"product.image.s3.region=ap-northeast-2",
 		"product.image.s3.bucket=test-product-images",
 		"sale.daily-capacity=20",
+		"spring.security.oauth2.client.registration.google.client-id=synthetic-client-id",
+		"spring.security.oauth2.client.registration.google.client-secret=synthetic-client-secret",
 	],
 )
 @AutoConfigureMockMvc
@@ -44,11 +56,29 @@ class BuyerShippingAddressRegistrationIntegrationTest {
 
 	@Autowired
 	private lateinit var jdbcTemplate: JdbcTemplate
+	private lateinit var userIds: Map<Long, Long>
+	private lateinit var csrfToken: String
+	private lateinit var csrfCookie: Cookie
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
 		jdbcTemplate.update("DELETE FROM buyer_shipping_addresses")
 		jdbcTemplate.update("DELETE FROM buyer_shipping_address_books")
+		jdbcTemplate.update("DELETE FROM buyer_principal_identities WHERE buyer_id IN (123, 124)")
+		userIds = listOf(123L, 124L).associateWith { buyerId ->
+			val userId = jdbcTemplate.queryForObject(
+				"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+				Long::class.java,
+				UUID.randomUUID().toString(),
+				"shipping-${UUID.randomUUID()}@example.com",
+			)!!
+			jdbcTemplate.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, ?)", userId, buyerId)
+			userId
+		}
+		val csrfResponse = mockMvc.perform(get("/api/auth/csrf").cookie(Cookie("JAPDA_ACCESS_TOKEN", tokenFor(userIds.getValue(123L)))))
+			.andExpect(status().isOk).andReturn().response
+		csrfToken = JsonPath.read(csrfResponse.contentAsString, "$.token")
+		csrfCookie = assertNotNull(csrfResponse.cookies.singleOrNull { it.name == "XSRF-TOKEN" })
 	}
 
 	@Test
@@ -64,7 +94,8 @@ class BuyerShippingAddressRegistrationIntegrationTest {
 			.andExpect(jsonPath("$.buyerId").doesNotExist())
 			.andExpect(jsonPath("$.buyerShippingAddressBookId").doesNotExist())
 
-		val row = jdbcTemplate.queryForMap("SELECT address_name, recipient_name, delivery_message FROM buyer_shipping_addresses")
+		val row = jdbcTemplate.queryForMap("SELECT b.buyer_id, a.address_name, a.recipient_name, a.delivery_message FROM buyer_shipping_addresses a JOIN buyer_shipping_address_books b ON b.id = a.buyer_shipping_address_book_id")
+		assertEquals(123L, (row["buyer_id"] as Number).toLong())
 		assertEquals("집", row["address_name"])
 		assertEquals("홍길동", row["recipient_name"])
 		assertEquals("빈 값은 제거", row["delivery_message"])
@@ -116,13 +147,30 @@ class BuyerShippingAddressRegistrationIntegrationTest {
 		assertEquals(2, jdbcTemplate.queryForObject("SELECT count(*) FROM buyer_shipping_addresses", Int::class.java))
 	}
 
+	@Test
+	@DisplayName("위조한 구매자 헤더는 저장된 배송지 소유자를 바꾸지 못한다")
+	fun 위조_구매자_헤더_배송지_소유자를_바꾸지_못한다() {
+		mockMvc.perform(request(123L, "집").header("X-Buyer-Id", "124"))
+			.andExpect(status().isCreated)
+		val buyerId = jdbcTemplate.queryForObject("SELECT buyer_id FROM buyer_shipping_address_books", Long::class.java)
+		assertEquals(123L, buyerId)
+	}
+
 	private fun request(buyerId: Long, addressName: String, deliveryMessage: String = "문 앞") =
 		post("/api/shipping-addresses")
-			.header("X-Buyer-Id", buyerId.toString())
+			.cookie(Cookie("JAPDA_ACCESS_TOKEN", tokenFor(userIds.getValue(buyerId))), csrfCookie)
+			.header("X-CSRF-TOKEN", csrfToken)
 			.contentType(MediaType.APPLICATION_JSON)
 			.content(
 				"""{"addressName":"$addressName","recipientName":" 홍길동 ","phoneNumber":" 010-1234-5678 ","postalCode":" 06236 ","address":" 서울시 강남구 ","detailAddress":" 101호 ","deliveryMessage":"$deliveryMessage"}""",
 			)
+
+	private fun tokenFor(userId: Long): String = ServiceJwtIssuer(
+		SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
+		"http://localhost:8080",
+		"japda-spa",
+		Clock.systemUTC(),
+	).issue(userId)
 
 	@TestConfiguration(proxyBeanMethods = false)
 	class FixedClockConfig {
@@ -138,5 +186,11 @@ class BuyerShippingAddressRegistrationIntegrationTest {
 		@ServiceConnection
 		@JvmStatic
 		val postgres = PostgreSQLContainer("postgres:17-alpine")
+
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 	}
 }

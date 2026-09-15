@@ -1,6 +1,9 @@
 package io.github.sehako.japda.product.presentation.image.controller
 
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.product.application.image.response.ProductImageRegistrationResponse
 import io.github.sehako.japda.product.application.image.service.ProductImageRegistrationService
@@ -8,11 +11,16 @@ import io.github.sehako.japda.product.application.image.response.ProductImageRes
 import io.github.sehako.japda.product.application.image.dto.RegisterProductImagesDto
 import io.github.sehako.japda.product.domain.model.ProductStatus
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.doThrow
 import org.springframework.http.MediaType
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.mock.web.MockMultipartFile
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
@@ -43,6 +51,7 @@ import kotlin.test.assertEquals
 class ProductImageControllerTest {
 	private lateinit var service: ProductImageRegistrationService
 	private lateinit var mockMvc: MockMvc
+	private lateinit var principalIdentityService: PrincipalIdentityService
 	private var capturedDto: RegisterProductImagesDto? = null
 	private val successResponse = ProductImageRegistrationResponse(
 		productId = 42L,
@@ -55,6 +64,10 @@ class ProductImageControllerTest {
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
+		principalIdentityService = mock(PrincipalIdentityService::class.java) { invocation ->
+			if (invocation.method.name == "sellerId") 1L else null
+		}
 		capturedDto = null
 		service = mock(ProductImageRegistrationService::class.java) { invocation ->
 			if (invocation.method.name == "register") {
@@ -65,12 +78,51 @@ class ProductImageControllerTest {
 			}
 		}
 		mockMvc = MockMvcBuilders
-			.standaloneSetup(ProductImageController(service))
+			.standaloneSetup(ProductImageController(service, principalIdentityService))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.apply<org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder>(
 				documentationConfiguration(restDocumentation),
 			)
 			.build()
+	}
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() {
+		SecurityContextHolder.clearContext()
+	}
+
+	@Test
+	@DisplayName("판매자 헤더가 없어도 인증 주체의 판매자 ID로 이미지를 등록한다")
+	fun 판매자_헤더_누락_인증_주체의_판매자_ID로_등록한다() {
+		mockMvc.perform(
+			multipart("/api/products/{productId}/images", 42L)
+				.file(imageFile("files", "first.jpg", byteArrayOf(1)))
+				.file(textPart("representativeIndex", "0")),
+		)
+			.andExpect(status().isCreated)
+		assertEquals(1L, requireNotNull(capturedDto).sellerId)
+	}
+
+	@Test
+	@DisplayName("판매자 헤더가 위조되어도 연결된 판매자 ID로 이미지를 등록한다")
+	fun 판매자_헤더_위조_연결된_판매자_ID로_등록한다() {
+		mockMvc.perform(validRequest().header("X-Seller-Id", "999"))
+			.andExpect(status().isCreated)
+		assertEquals(1L, requireNotNull(capturedDto).sellerId)
+	}
+
+	@Test
+	@DisplayName("판매자 연결이 없으면 잘못된 multipart 입력보다 연결 오류를 먼저 반환한다")
+	fun 판매자_연결_부재_대표_이미지_오류보다_연결_오류를_우선한다() {
+		doThrow(BusinessException(AuthErrorCode.SELLER_LINK_REQUIRED))
+			.`when`(principalIdentityService).sellerId(17L)
+		mockMvc.perform(
+			multipart("/api/products/{productId}/images", 42L)
+				.file(imageFile("files", "first.jpg", byteArrayOf(1))),
+		)
+			.andExpect(status().isForbidden)
+			.andExpect(jsonPath("$.code").value("AUTH_SELLER_LINK_REQUIRED"))
 	}
 
 	@Test
@@ -91,7 +143,10 @@ class ProductImageControllerTest {
 					"product-image-register",
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
-					requestHeaders(headerWithName("X-Seller-Id").description("임시 판매자 식별자")),
+					requestHeaders(
+						headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키"),
+						headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
+					),
 					pathParameters(parameterWithName("productId").description("상품 식별자")),
 					requestParts(
 						partWithName("files").description("수신 순서대로 등록할 이미지 파일 1~10개"),
@@ -126,8 +181,7 @@ class ProductImageControllerTest {
 	fun 대표_이미지_파트_누락_대표_이미지_지정_오류를_반환한다() {
 		assertRepresentativeInvalid(
 			multipart("/api/products/{productId}/images", 42L)
-				.file(imageFile("files", "first.jpg", byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())))
-				.header("X-Seller-Id", "1"),
+				.file(imageFile("files", "first.jpg", byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte()))),
 		)
 			.andDo(
 				document(
@@ -154,8 +208,7 @@ class ProductImageControllerTest {
 			multipart("/api/products/{productId}/images", 42L)
 				.file(imageFile("files", "first.jpg", byteArrayOf(1)))
 				.file(textPart("representativeIndex", "0"))
-				.file(textPart("representativeIndex", "0"))
-				.header("X-Seller-Id", "1"),
+				.file(textPart("representativeIndex", "0")),
 		)
 	}
 
@@ -177,8 +230,7 @@ class ProductImageControllerTest {
 		mockMvc.perform(
 			multipart("/api/products/{productId}/images", "product")
 				.file(imageFile("files", "first.jpg", byteArrayOf(1)))
-				.file(textPart("representativeIndex", "0"))
-				.header("X-Seller-Id", "1"),
+				.file(textPart("representativeIndex", "0")),
 		)
 			.andExpect(status().isBadRequest)
 			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_PARAMETER_INVALID"))
@@ -189,7 +241,6 @@ class ProductImageControllerTest {
 	fun multipart가_아닌_요청_지원하지_않는_미디어_타입_오류를_반환한다() {
 		mockMvc.perform(
 			org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/products/42/images")
-				.header("X-Seller-Id", "1")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("{}"),
 		)
@@ -211,7 +262,8 @@ class ProductImageControllerTest {
 			.file(imageFile("files", "first.jpg", byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())))
 			.file(imageFile("files", "second.png", byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)))
 			.file(textPart("representativeIndex", representativeIndex))
-			.header("X-Seller-Id", "1")
+			.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>")
+			.header("X-CSRF-TOKEN", "<CSRF 토큰>")
 
 	private fun imageFile(name: String, filename: String, content: ByteArray) =
 		MockMultipartFile(name, filename, MediaType.APPLICATION_OCTET_STREAM_VALUE, content)

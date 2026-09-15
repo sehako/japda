@@ -1,7 +1,10 @@
 package io.github.sehako.japda.sale.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.sale.application.response.BuyerSaleProductListResponse
 import io.github.sehako.japda.sale.application.response.BuyerSaleProductDetailImageResponse
 import io.github.sehako.japda.sale.application.response.BuyerSaleProductDetailResponse
@@ -14,6 +17,7 @@ import io.github.sehako.japda.sale.exception.SaleErrorCode
 import io.github.sehako.japda.sale.exception.SaleException
 import java.time.Instant
 import java.time.LocalDate
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
@@ -24,11 +28,13 @@ import org.junit.jupiter.params.provider.MethodSource
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
+import org.springframework.http.HttpHeaders
 import org.springframework.http.MediaType
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
+import org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
 import org.springframework.restdocs.mockmvc.RestDocumentationResultHandler
@@ -41,6 +47,9 @@ import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
 import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
 import org.springframework.restdocs.request.RequestDocumentation.pathParameters
 import org.springframework.restdocs.request.RequestDocumentation.queryParameters
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.ResultActions
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -57,16 +66,59 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 class SaleControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var saleService: SaleService
+	private lateinit var principalIdentityService: PrincipalIdentityService
 
 	@BeforeEach
 	fun setUp(restDocumentation: RestDocumentationContextProvider) {
 		saleService = mock(SaleService::class.java)
+		principalIdentityService = mock(PrincipalIdentityService::class.java)
+		`when`(principalIdentityService.sellerId(7L)).thenReturn(1L)
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(7L, null, emptyList())
 		val restDocsConfigurer: MockMvcConfigurer = documentationConfiguration(restDocumentation)
 		mockMvc = MockMvcBuilders
-			.standaloneSetup(SaleController(saleService))
+			.standaloneSetup(SaleController(saleService, principalIdentityService))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.apply<StandaloneMockMvcBuilder>(restDocsConfigurer)
 			.build()
+	}
+
+	@AfterEach
+	fun clearSecurityContext() {
+		SecurityContextHolder.clearContext()
+	}
+
+	@Test
+	@DisplayName("인증 주체가 없으면 판매자 헤더만으로 판매 일정을 등록할 수 없다")
+	fun 인증_주체_없음_판매자_헤더만으로_판매_일정_등록_불가() {
+		SecurityContextHolder.clearContext()
+		mockMvc.perform(
+			post("/api/sales")
+				.header("X-Seller-Id", "1")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validRequestBody),
+		)
+			.andExpect(status().isUnauthorized)
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+			.andDo(documentSaleAuthError("sale-create-unauthenticated"))
+	}
+
+	@Test
+	@DisplayName("판매자 연결이 없으면 403 응답을 반환하고 문서화한다")
+	fun 판매자_연결_없음_403_응답과_문서화() {
+		`when`(principalIdentityService.sellerId(7L))
+			.thenThrow(BusinessException(AuthErrorCode.SELLER_LINK_REQUIRED))
+
+		mockMvc.perform(
+			post("/api/sales")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validRequestBody),
+		)
+			.andExpect(status().isForbidden)
+			.andExpect(header().string(HttpHeaders.CACHE_CONTROL, "no-store"))
+			.andExpect(jsonPath("$.code").value("AUTH_SELLER_LINK_REQUIRED"))
+			.andDo(documentSaleAuthError("sale-create-seller-link-required"))
 	}
 
 	@Test
@@ -89,7 +141,8 @@ class SaleControllerTest {
 
 		mockMvc.perform(
 			post("/api/sales")
-				.header("X-Seller-Id", "1")
+				.header("Cookie", "JAPDA_ACCESS_TOKEN=synthetic-token")
+				.header("X-CSRF-TOKEN", "synthetic-token")
 				.contentType(MediaType.APPLICATION_JSON)
 				.content("""{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":100}"""),
 		)
@@ -109,7 +162,10 @@ class SaleControllerTest {
 					"sale-create",
 					preprocessRequest(prettyPrint()),
 					preprocessResponse(prettyPrint()),
-					requestHeaders(headerWithName("X-Seller-Id").description("임시 판매자 식별자")),
+					requestHeaders(
+						headerWithName("Cookie").description("서비스 JWT가 저장된 JAPDA_ACCESS_TOKEN 쿠키"),
+						headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
+					),
 					requestFields(
 						fieldWithPath("productId").description("상품 식별자"),
 						fieldWithPath("saleDate").description("Asia/Seoul 기준 판매일"),
@@ -131,6 +187,22 @@ class SaleControllerTest {
 			)
 
 		verify(saleService).create(expectedDto)
+	}
+
+	@Test
+	@DisplayName("판매자 헤더를 위조해도 인증 주체에 연결된 판매자 식별자를 사용한다")
+	fun 판매자_헤더_위조_인증_주체에_연결된_판매자_식별자_사용() {
+		val dto = CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 100)
+		`when`(saleService.create(dto)).thenThrow(SaleException(SaleErrorCode.CAPACITY_EXCEEDED))
+
+		mockMvc.perform(
+			post("/api/sales")
+				.header("X-Seller-Id", "999")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(validRequestBody),
+		)
+			.andExpect(status().isConflict)
+			.andExpect(jsonPath("$.code").value("SALE_CAPACITY_EXCEEDED"))
 	}
 
 	@Test
@@ -347,23 +419,10 @@ class SaleControllerTest {
 	}
 
 	@Test
-	@DisplayName("판매자 헤더가 없으면 공통 헤더 누락 오류를 반환한다")
-	fun 판매자_헤더가_없음_공통_헤더_누락_오류를_반환한다() {
-		assertInvalidRequest(validRequestBody, null, "COMMON_REQUEST_HEADER_MISSING")
-	}
-
-	@Test
-	@DisplayName("판매자 헤더가 Long 형식이 아니면 공통 헤더 형식 오류를 반환한다")
-	fun 판매자_헤더가_Long_형식이_아님_공통_헤더_형식_오류를_반환한다() {
-		assertInvalidRequest(validRequestBody, "9223372036854775808", "COMMON_REQUEST_HEADER_INVALID")
-	}
-
-	@Test
 	@DisplayName("판매일 형식이 올바르지 않으면 공통 본문 오류를 반환한다")
 	fun 판매일_형식이_올바르지_않음_공통_본문_오류를_반환한다() {
 		assertInvalidRequest(
 			"""{"productId":10,"saleDate":"2026-09-31","price":35000,"quantity":100}""",
-			"1",
 			"COMMON_REQUEST_BODY_MALFORMED",
 		)
 	}
@@ -373,7 +432,6 @@ class SaleControllerTest {
 	fun 숫자_필드가_문자열_공통_본문_오류를_반환한다() {
 		assertInvalidRequest(
 			"""{"productId":"10","saleDate":"2026-09-12","price":35000,"quantity":100}""",
-			"1",
 			"COMMON_REQUEST_BODY_MALFORMED",
 		)
 	}
@@ -384,7 +442,6 @@ class SaleControllerTest {
 	fun 필수값_누락_null_양수가_아닌_값_필드별_판매_오류를_반환한다(
 		@Suppress("UNUSED_PARAMETER") 설명: String,
 		requestBody: String,
-		sellerId: String,
 		dto: CreateSaleDto,
 		errorCode: SaleErrorCode,
 		expectedProperty: String,
@@ -393,7 +450,6 @@ class SaleControllerTest {
 
 		assertInvalidRequest(
 			requestBody = requestBody,
-			sellerId = sellerId,
 			expectedCode = errorCode.code,
 			expectedProperty = expectedProperty,
 			expectedMessage = errorCode.message,
@@ -408,7 +464,6 @@ class SaleControllerTest {
 
 		assertInvalidRequest(
 			requestBody = """{"productId":10,"price":35000,"quantity":100}""",
-			sellerId = "1",
 			expectedCode = "SALE_DATE_REQUIRED",
 			expectedProperty = "saleDate",
 			expectedMessage = "판매일은 필수입니다.",
@@ -437,7 +492,7 @@ class SaleControllerTest {
 		@Suppress("UNUSED_PARAMETER") 설명: String,
 		requestBody: String,
 	) {
-		assertInvalidRequest(requestBody, "1", "COMMON_REQUEST_BODY_MALFORMED")
+		assertInvalidRequest(requestBody, "COMMON_REQUEST_BODY_MALFORMED")
 	}
 
 	@ParameterizedTest(name = "{0}")
@@ -453,7 +508,6 @@ class SaleControllerTest {
 
 		assertInvalidRequest(
 			requestBody = validRequestBody,
-			sellerId = "1",
 			expectedCode = errorCode.code,
 			expectedStatus = expectedStatus,
 			expectedProperty = errorCode.property,
@@ -467,7 +521,7 @@ class SaleControllerTest {
 		`when`(saleService.create(CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 100)))
 			.thenThrow(SaleException(SaleErrorCode.CAPACITY_EXCEEDED))
 
-		assertInvalidRequest(validRequestBody, "1", "SALE_CAPACITY_EXCEEDED", expectedStatus = 409)
+		assertInvalidRequest(validRequestBody, "SALE_CAPACITY_EXCEEDED", expectedStatus = 409)
 			.andDo(
 				document(
 					"sale-create-capacity-exceeded",
@@ -488,18 +542,16 @@ class SaleControllerTest {
 
 	private fun assertInvalidRequest(
 		requestBody: String,
-		sellerId: String?,
 		expectedCode: String,
 		expectedStatus: Int = 400,
 		expectedProperty: String? = null,
 		expectedMessage: String? = null,
 	): ResultActions {
-		val request = post("/api/sales")
-			.contentType(MediaType.APPLICATION_JSON)
-			.content(requestBody)
-		if (sellerId != null) request.header("X-Seller-Id", sellerId)
-
-		val result = mockMvc.perform(request)
+		val result = mockMvc.perform(
+			post("/api/sales")
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(requestBody),
+		)
 			.andExpect(status().`is`(expectedStatus))
 			.andExpect(header().string("Content-Type", MediaType.APPLICATION_PROBLEM_JSON_VALUE))
 			.andExpect(jsonPath("$.type").value("about:blank"))
@@ -593,28 +645,41 @@ class SaleControllerTest {
 		),
 	)
 
+	private fun documentSaleAuthError(identifier: String): RestDocumentationResultHandler = document(
+		identifier,
+		preprocessRequest(prettyPrint()),
+		preprocessResponse(prettyPrint()),
+		responseHeaders(headerWithName(HttpHeaders.CACHE_CONTROL).description("인증 오류 응답의 캐시 방지")),
+		responseFields(
+			fieldWithPath("type").description("오류 유형 URI"),
+			fieldWithPath("title").description("오류 제목"),
+			fieldWithPath("status").description("HTTP 상태 코드"),
+			fieldWithPath("detail").description("오류 설명"),
+			fieldWithPath("instance").description("오류가 발생한 요청 경로"),
+			fieldWithPath("code").description("안정적인 오류 코드"),
+		),
+	)
+
 	private companion object {
 		const val validRequestBody =
 			"""{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":100}"""
 
 		@JvmStatic
 		fun 필드의미오류요청(): List<Arguments> = listOf(
-			Arguments.of("상품 식별자 누락", """{"saleDate":"2026-09-12","price":35000,"quantity":100}""", "1", CreateSaleDto(1L, null, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
-			Arguments.of("상품 식별자 null", """{"productId":null,"saleDate":"2026-09-12","price":35000,"quantity":100}""", "1", CreateSaleDto(1L, null, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
-			Arguments.of("상품 식별자 0", """{"productId":0,"saleDate":"2026-09-12","price":35000,"quantity":100}""", "1", CreateSaleDto(1L, 0L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
-			Arguments.of("상품 식별자 음수", """{"productId":-1,"saleDate":"2026-09-12","price":35000,"quantity":100}""", "1", CreateSaleDto(1L, -1L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
-			Arguments.of("판매일 누락", """{"productId":10,"price":35000,"quantity":100}""", "1", CreateSaleDto(1L, 10L, null, 35_000L, 100), SaleErrorCode.DATE_REQUIRED, "saleDate"),
-			Arguments.of("판매일 null", """{"productId":10,"saleDate":null,"price":35000,"quantity":100}""", "1", CreateSaleDto(1L, 10L, null, 35_000L, 100), SaleErrorCode.DATE_REQUIRED, "saleDate"),
-			Arguments.of("가격 누락", """{"productId":10,"saleDate":"2026-09-12","quantity":100}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), null, 100), SaleErrorCode.PRICE_INVALID, "price"),
-			Arguments.of("가격 null", """{"productId":10,"saleDate":"2026-09-12","price":null,"quantity":100}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), null, 100), SaleErrorCode.PRICE_INVALID, "price"),
-			Arguments.of("가격 0", """{"productId":10,"saleDate":"2026-09-12","price":0,"quantity":100}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 0L, 100), SaleErrorCode.PRICE_INVALID, "price"),
-			Arguments.of("가격 음수", """{"productId":10,"saleDate":"2026-09-12","price":-1,"quantity":100}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), -1L, 100), SaleErrorCode.PRICE_INVALID, "price"),
-			Arguments.of("수량 누락", """{"productId":10,"saleDate":"2026-09-12","price":35000}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, null), SaleErrorCode.QUANTITY_INVALID, "quantity"),
-			Arguments.of("수량 null", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":null}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, null), SaleErrorCode.QUANTITY_INVALID, "quantity"),
-			Arguments.of("수량 0", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":0}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 0), SaleErrorCode.QUANTITY_INVALID, "quantity"),
-			Arguments.of("수량 음수", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":-1}""", "1", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, -1), SaleErrorCode.QUANTITY_INVALID, "quantity"),
-			Arguments.of("판매자 식별자 0", validRequestBody, "0", CreateSaleDto(0L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.SELLER_ID_INVALID, "sellerId"),
-			Arguments.of("판매자 식별자 음수", validRequestBody, "-1", CreateSaleDto(-1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.SELLER_ID_INVALID, "sellerId"),
+			Arguments.of("상품 식별자 누락", """{"saleDate":"2026-09-12","price":35000,"quantity":100}""", CreateSaleDto(1L, null, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
+			Arguments.of("상품 식별자 null", """{"productId":null,"saleDate":"2026-09-12","price":35000,"quantity":100}""", CreateSaleDto(1L, null, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
+			Arguments.of("상품 식별자 0", """{"productId":0,"saleDate":"2026-09-12","price":35000,"quantity":100}""", CreateSaleDto(1L, 0L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
+			Arguments.of("상품 식별자 음수", """{"productId":-1,"saleDate":"2026-09-12","price":35000,"quantity":100}""", CreateSaleDto(1L, -1L, LocalDate.parse("2026-09-12"), 35_000L, 100), SaleErrorCode.PRODUCT_ID_INVALID, "productId"),
+			Arguments.of("판매일 누락", """{"productId":10,"price":35000,"quantity":100}""", CreateSaleDto(1L, 10L, null, 35_000L, 100), SaleErrorCode.DATE_REQUIRED, "saleDate"),
+			Arguments.of("판매일 null", """{"productId":10,"saleDate":null,"price":35000,"quantity":100}""", CreateSaleDto(1L, 10L, null, 35_000L, 100), SaleErrorCode.DATE_REQUIRED, "saleDate"),
+			Arguments.of("가격 누락", """{"productId":10,"saleDate":"2026-09-12","quantity":100}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), null, 100), SaleErrorCode.PRICE_INVALID, "price"),
+			Arguments.of("가격 null", """{"productId":10,"saleDate":"2026-09-12","price":null,"quantity":100}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), null, 100), SaleErrorCode.PRICE_INVALID, "price"),
+			Arguments.of("가격 0", """{"productId":10,"saleDate":"2026-09-12","price":0,"quantity":100}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 0L, 100), SaleErrorCode.PRICE_INVALID, "price"),
+			Arguments.of("가격 음수", """{"productId":10,"saleDate":"2026-09-12","price":-1,"quantity":100}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), -1L, 100), SaleErrorCode.PRICE_INVALID, "price"),
+			Arguments.of("수량 누락", """{"productId":10,"saleDate":"2026-09-12","price":35000}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, null), SaleErrorCode.QUANTITY_INVALID, "quantity"),
+			Arguments.of("수량 null", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":null}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, null), SaleErrorCode.QUANTITY_INVALID, "quantity"),
+			Arguments.of("수량 0", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":0}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, 0), SaleErrorCode.QUANTITY_INVALID, "quantity"),
+			Arguments.of("수량 음수", """{"productId":10,"saleDate":"2026-09-12","price":35000,"quantity":-1}""", CreateSaleDto(1L, 10L, LocalDate.parse("2026-09-12"), 35_000L, -1), SaleErrorCode.QUANTITY_INVALID, "quantity"),
 		)
 
 		@JvmStatic

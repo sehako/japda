@@ -26,6 +26,7 @@ import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
+import org.springframework.security.web.csrf.DefaultCsrfToken
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
@@ -114,6 +115,38 @@ class AuthControllerTest {
                     fieldWithPath("detail").description("인증 오류 설명"),
                     fieldWithPath("instance").description("요청 경로"),
                     fieldWithPath("code").description("인증 오류 코드"),
+                ),
+            ))
+    }
+
+    @Test
+    @DisplayName("CSRF 토큰과 헤더 이름을 JSON 및 no-store 헤더로 반환하고 문서화한다")
+    fun CSRF_토큰_응답_문서화() {
+        SecurityContextHolder.getContext().authentication =
+            UsernamePasswordAuthenticationToken(123L, null, emptyList())
+        `when`(service.findCurrentUser(123L)).thenReturn(
+            CurrentUserResponse(123L, "buyer@example.com", listOf("BUYER")),
+        )
+
+        mockMvc.perform(get("/api/auth/csrf")
+            .header("Cookie", "JAPDA_ACCESS_TOKEN=synthetic-token")
+            .requestAttr("_csrf", DefaultCsrfToken("X-CSRF-TOKEN", "_csrf", "synthetic-csrf-token")))
+            .andExpect(status().isOk)
+            .andExpect(header().string("Cache-Control", "no-store"))
+            .andExpect(jsonPath("$.token").value("synthetic-csrf-token"))
+            .andExpect(jsonPath("$.headerName").value("X-CSRF-TOKEN"))
+            .andDo(document(
+                "auth-csrf-token",
+                preprocessRequest(prettyPrint()),
+                preprocessResponse(prettyPrint()),
+                requestHeaders(headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 서비스 JWT 쿠키")),
+                responseHeaders(
+                    headerWithName("Content-Type").description("application/json"),
+                    headerWithName("Cache-Control").description("no-store"),
+                ),
+                responseFields(
+                    fieldWithPath("token").description("상태 변경 요청에 사용할 CSRF 토큰"),
+                    fieldWithPath("headerName").description("CSRF 토큰을 전달할 요청 헤더 이름"),
                 ),
             ))
     }

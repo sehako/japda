@@ -1,9 +1,15 @@
 package io.github.sehako.japda.product
 
 import com.jayway.jsonpath.JsonPath
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
+import jakarta.servlet.http.Cookie
 import java.sql.Date
 import java.sql.Timestamp
 import java.time.Instant
+import java.time.Clock
+import java.util.Base64
+import java.util.UUID
+import javax.crypto.spec.SecretKeySpec
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -14,6 +20,8 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -26,6 +34,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 	properties = [
 		"product.image.s3.region=ap-northeast-2",
 		"product.image.s3.bucket=test-product-images",
+		"spring.security.oauth2.client.registration.google.client-id=synthetic-client-id",
+		"spring.security.oauth2.client.registration.google.client-secret=synthetic-client-secret",
 	],
 )
 @AutoConfigureMockMvc
@@ -37,6 +47,7 @@ class ReadyProductListIntegrationTest {
 
 	@Autowired
 	private lateinit var jdbcTemplate: JdbcTemplate
+	private lateinit var accessToken: String
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
@@ -44,6 +55,20 @@ class ReadyProductListIntegrationTest {
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
 		jdbcTemplate.update("DELETE FROM products")
+		jdbcTemplate.update("DELETE FROM seller_principal_identities WHERE seller_id = 1")
+		val userId = jdbcTemplate.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java,
+			UUID.randomUUID().toString(),
+			"seller-${UUID.randomUUID()}@example.com",
+		)!!
+		jdbcTemplate.update("INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, 1)", userId)
+		accessToken = ServiceJwtIssuer(
+			SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
+			"http://localhost:8080",
+			"japda-spa",
+			Clock.systemUTC(),
+		).issue(userId)
 	}
 
 	@Test
@@ -57,7 +82,7 @@ class ReadyProductListIntegrationTest {
 
 		mockMvc.perform(
 			get("/api/products/ready")
-				.header("X-Seller-Id", "1")
+				.cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken))
 				.queryParam("sort", "latest")
 				.queryParam("size", "10"),
 		)
@@ -100,7 +125,7 @@ class ReadyProductListIntegrationTest {
 
 		do {
 			val request = get("/api/products/ready")
-				.header("X-Seller-Id", "1")
+				.cookie(Cookie("JAPDA_ACCESS_TOKEN", accessToken))
 				.queryParam("sort", sort)
 				.queryParam("size", "2")
 			if (cursor != null) request.queryParam("cursor", cursor)
@@ -151,5 +176,11 @@ class ReadyProductListIntegrationTest {
 		@ServiceConnection
 		@JvmStatic
 		val postgres = PostgreSQLContainer("postgres:17-alpine")
+
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 	}
 }

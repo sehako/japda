@@ -76,7 +76,7 @@ class GlobalExceptionHandler(
 	): ResponseEntity<ProblemDetail> {
 		val problemDetail = problemDetailFactory.create(errorCode, request.requestURI)
 		val response = ResponseEntity.status(problemDetail.status)
-		if (errorCode == AuthErrorCode.UNAUTHENTICATED) response.header(HttpHeaders.CACHE_CONTROL, "no-store")
+		if (errorCode is AuthErrorCode) response.header(HttpHeaders.CACHE_CONTROL, "no-store")
 		return response.body(problemDetail)
 	}
 }

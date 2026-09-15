@@ -6,6 +6,8 @@
 :toclevels: 2
 :sectlinks:
 
+보호 대상 구매자·판매자 API는 `JAPDA_ACCESS_TOKEN` 쿠키의 인증 주체에 연결된 도메인 ID를 사용한다. 상태 변경 요청에는 `GET /api/auth/csrf`에서 받은 토큰을 응답에 지정된 헤더로 전달한다.
+
 == 현재 로그인 사용자 조회
 
 === 성공
@@ -15,6 +17,16 @@ operation::auth-current-user[snippets='http-request,request-headers,http-respons
 === 인증 실패
 
 operation::auth-current-user-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+== CSRF 토큰 조회
+
+=== 성공
+
+operation::auth-csrf-token[snippets='http-request,request-headers,http-response,response-headers,response-fields']
+
+=== CSRF 토큰 오류
+
+operation::auth-csrf-invalid[snippets='http-request,http-response,response-headers,response-fields']
 
 == 판매자 상품 기본 정보 등록
 
@@ -36,6 +48,10 @@ operation::product-ready-list[snippets='http-request,request-headers,query-param
 
 operation::product-ready-list-sort-invalid[snippets='http-request,http-response,response-fields']
 
+=== 판매자 연결 부재
+
+operation::product-ready-list-seller-link-required[snippets='http-request,http-response,response-headers,response-fields']
+
 == 판매자 상품 이미지 최초 등록
 
 === 성공
@@ -51,6 +67,14 @@ operation::product-image-register-representative-invalid[snippets='http-request,
 === 성공
 
 operation::sale-create[snippets='http-request,request-headers,request-fields,http-response,response-fields']
+
+=== 인증 실패
+
+operation::sale-create-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+=== 판매자 연결 부재
+
+operation::sale-create-seller-link-required[snippets='http-request,http-response,response-headers,response-fields']
 
 === 판매일 정원 초과
 
@@ -98,6 +122,14 @@ operation::buyer-sale-product-detail-not-found[snippets='http-request,http-respo
 
 operation::order-create[snippets='http-request,request-headers,request-fields,http-response,response-fields']
 
+=== 인증 실패
+
+operation::order-create-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+=== 구매자 연결 부재
+
+operation::order-create-buyer-link-required[snippets='http-request,http-response,response-headers,response-fields']
+
 === 수령인 이름 오류
 
 operation::order-create-recipient-name-invalid[snippets='http-request,http-response,response-fields']
@@ -108,9 +140,13 @@ operation::order-create-recipient-name-invalid[snippets='http-request,http-respo
 
 operation::payment-confirm[snippets='http-request,request-headers,request-fields,http-response,response-fields']
 
-=== 구매자 헤더 누락
+=== 인증 실패
 
-operation::payment-confirm-header-missing[snippets='http-request,http-response,response-fields']
+operation::payment-confirm-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+=== 구매자 연결 부재
+
+operation::payment-confirm-buyer-link-required[snippets='http-request,http-response,response-headers,response-fields']
 
 === 승인 결과 불명확
 
@@ -121,6 +157,14 @@ operation::payment-confirm-unavailable[snippets='http-request,http-response,resp
 === 성공
 
 operation::checkout-get[snippets='http-request,request-headers,query-parameters,http-response,response-fields']
+
+=== 인증 실패
+
+operation::checkout-get-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+=== 구매자 연결 부재
+
+operation::checkout-get-buyer-link-required[snippets='http-request,http-response,response-headers,response-fields']
 
 === 판매 일정 없음
 
@@ -135,6 +179,14 @@ operation::checkout-get-total-price-invalid[snippets='http-request,http-response
 === 성공
 
 operation::buyer-shipping-address-create[snippets='http-request,request-headers,request-fields,http-response,response-fields']
+
+=== 인증 실패
+
+operation::buyer-shipping-address-create-unauthenticated[snippets='http-request,http-response,response-headers,response-fields']
+
+=== 구매자 연결 부재
+
+operation::buyer-shipping-address-create-buyer-link-required[snippets='http-request,http-response,response-headers,response-fields']
 
 === 배송지명 중복
 

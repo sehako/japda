@@ -1,17 +1,23 @@
 package io.github.sehako.japda.order
 
+import com.jayway.jsonpath.JsonPath
+import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
+import jakarta.servlet.http.Cookie
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
+import java.util.Base64
+import javax.crypto.spec.SecretKeySpec
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertNotNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.springframework.beans.factory.annotation.Autowired
@@ -24,8 +30,11 @@ import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.testcontainers.junit.jupiter.Container
@@ -51,6 +60,10 @@ class OrderCreationIntegrationTest {
 	private lateinit var jdbcTemplate: JdbcTemplate
 
 	private var saleId: Long = 0
+	private lateinit var jwtCookie: Cookie
+	private lateinit var csrfCookie: Cookie
+	private lateinit var csrfToken: String
+	private lateinit var csrfHeaderName: String
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
@@ -59,6 +72,20 @@ class OrderCreationIntegrationTest {
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
 		jdbcTemplate.update("DELETE FROM products")
+		jdbcTemplate.update("DELETE FROM buyer_principal_identities WHERE buyer_id = 123")
+		val userId = jdbcTemplate.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java, UUID.randomUUID().toString(), "buyer-${UUID.randomUUID()}@example.com",
+		)!!
+		jdbcTemplate.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, 123)", userId)
+		jwtCookie = Cookie("JAPDA_ACCESS_TOKEN", ServiceJwtIssuer(
+			SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"), "http://localhost:8080", "japda-spa", Clock.systemUTC(),
+		).issue(userId))
+		val csrfResponse = mockMvc.perform(get("/api/auth/csrf").cookie(jwtCookie))
+			.andExpect(status().isOk).andReturn().response
+		csrfToken = JsonPath.read(csrfResponse.contentAsString, "$.token")
+		csrfHeaderName = JsonPath.read(csrfResponse.contentAsString, "$.headerName")
+		csrfCookie = assertNotNull(csrfResponse.cookies.singleOrNull { it.name == "XSRF-TOKEN" })
 
 		val productId = jdbcTemplate.queryForObject(
 			"INSERT INTO products (seller_id, name, status, created_at) VALUES (1, '통합 상품', 'READY', ?) RETURNING id",
@@ -99,6 +126,14 @@ class OrderCreationIntegrationTest {
 		assertEquals("홍길동", row["recipient_name"])
 		assertEquals("문 앞", row["delivery_message"])
 		assertEquals("PENDING_PAYMENT", row["status"])
+	}
+
+	@Test
+	@DisplayName("위조한 구매자 헤더는 주문 소유자를 바꾸지 못한다")
+	fun 위조한_구매자_헤더_주문_소유자를_바꾸지_못한다() {
+		mockMvc.perform(request(UUID.randomUUID(), quantity = 1).header("X-Buyer-Id", "456"))
+			.andExpect(status().isCreated)
+		assertEquals(123L, jdbcTemplate.queryForObject("SELECT buyer_id FROM orders", Long::class.java))
 	}
 
 	@Test
@@ -145,7 +180,8 @@ class OrderCreationIntegrationTest {
 	}
 
 	private fun request(key: UUID, quantity: Int) = post("/api/orders")
-		.header("X-Buyer-Id", "123")
+		.cookie(jwtCookie, csrfCookie)
+		.header(csrfHeaderName, csrfToken)
 		.header("Idempotency-Key", key.toString())
 		.contentType(MediaType.APPLICATION_JSON)
 		.content(
@@ -169,6 +205,12 @@ class OrderCreationIntegrationTest {
 	private companion object {
 		val SALE_DATE: LocalDate = LocalDate.parse("2026-09-11")
 		val NOW: Instant = Instant.parse("2026-09-11T06:00:00Z")
+
+		@DynamicPropertySource
+		@JvmStatic
+		fun properties(registry: DynamicPropertyRegistry) {
+			registry.add("auth.jwt-signing-key") { Base64.getEncoder().encodeToString(ByteArray(32) { 7 }) }
+		}
 
 		@Container
 		@ServiceConnection

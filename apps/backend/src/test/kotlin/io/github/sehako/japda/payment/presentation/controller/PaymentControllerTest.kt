@@ -1,29 +1,38 @@
 package io.github.sehako.japda.payment.presentation.controller
 
+import io.github.sehako.japda.auth.application.service.PrincipalIdentityService
+import io.github.sehako.japda.auth.exception.AuthErrorCode
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
+import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.payment.application.dto.ConfirmPaymentDto
 import io.github.sehako.japda.payment.application.response.PaymentResponse
 import io.github.sehako.japda.payment.application.service.PaymentService
 import io.github.sehako.japda.payment.exception.PaymentErrorCode
 import io.github.sehako.japda.payment.exception.PaymentException
 import java.time.Instant
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.extension.ExtendWith
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.`when`
 import org.springframework.http.MediaType
 import org.springframework.restdocs.RestDocumentationContextProvider
 import org.springframework.restdocs.RestDocumentationExtension
 import org.springframework.restdocs.headers.HeaderDocumentation.headerWithName
 import org.springframework.restdocs.headers.HeaderDocumentation.requestHeaders
+import org.springframework.restdocs.headers.HeaderDocumentation.responseHeaders
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document
 import org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.documentationConfiguration
 import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
+import org.springframework.security.core.context.SecurityContextHolder
+import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
@@ -36,12 +45,20 @@ import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
 class PaymentControllerTest {
 	private lateinit var mvc: MockMvc
 	private lateinit var service: PaymentService
+	private lateinit var principalIdentityService: PrincipalIdentityService
+
+	@AfterEach
+	fun 인증_주체를_초기화한다() = SecurityContextHolder.clearContext()
 
 	@BeforeEach
 	fun 준비(restDocumentation: RestDocumentationContextProvider) {
+		SecurityContextHolder.getContext().authentication = UsernamePasswordAuthenticationToken(17L, null)
 		service = mock(PaymentService::class.java)
-		mvc = MockMvcBuilders.standaloneSetup(PaymentController(service))
+		principalIdentityService = mock(PrincipalIdentityService::class.java)
+		`when`(principalIdentityService.buyerId(17L)).thenReturn(123L)
+		mvc = MockMvcBuilders.standaloneSetup(PaymentController(service, principalIdentityService))
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
+			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.apply<StandaloneMockMvcBuilder>(documentationConfiguration(restDocumentation))
 			.build()
 	}
@@ -62,7 +79,10 @@ class PaymentControllerTest {
 			.andExpect(jsonPath("$.approvedAt").value("2026-09-13T06:00:00Z"))
 			.andExpect(jsonPath("$.tossIdempotencyKey").doesNotExist())
 			.andDo(document("payment-confirm",
-				requestHeaders(headerWithName("X-Buyer-Id").description("임시 구매자 식별자")),
+				requestHeaders(
+					headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키와 XSRF-TOKEN CSRF 쿠키"),
+					headerWithName("X-CSRF-TOKEN").description("GET /api/auth/csrf에서 받은 CSRF 토큰"),
+				),
 				requestFields(
 					fieldWithPath("paymentKey").description("토스 결제 키"),
 					fieldWithPath("orderId").description("주문 생성 응답의 결제 주문 식별자"),
@@ -79,19 +99,34 @@ class PaymentControllerTest {
 	}
 
 	@Test
-	@DisplayName("구매자 헤더가 없으면 공통 헤더 오류를 반환한다")
-	fun 구매자_헤더_없음_공통_헤더_오류를_반환한다() {
-		mvc.perform(post("/api/payments/confirm").contentType(MediaType.APPLICATION_JSON).content(BODY))
-			.andExpect(status().isBadRequest)
-			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_HEADER_MISSING"))
-			.andDo(document("payment-confirm-header-missing", responseFields(
-				fieldWithPath("type").description("오류 유형 URI"),
-				fieldWithPath("title").description("오류 제목"),
-				fieldWithPath("status").description("HTTP 상태 코드"),
-				fieldWithPath("detail").description("오류 설명"),
-				fieldWithPath("instance").description("요청 경로"),
-				fieldWithPath("code").description("오류 코드"),
-			)))
+	@DisplayName("인증 주체가 없으면 구매자 헤더가 있어도 인증 실패를 반환한다")
+	fun 인증_주체_없음_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
+		mvc.perform(request().header("X-Buyer-Id", "123"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+			.andDo(document("payment-confirm-unauthenticated", authErrorHeaders(), errorFields()))
+	}
+
+	@Test
+	@DisplayName("구매자 헤더를 위조해도 인증 주체의 구매자로 결제한다")
+	fun 구매자_헤더_위조_연결된_구매자로_결제한다() {
+		`when`(service.confirm(ConfirmPaymentDto(123L, "payment-key", ORDER_ID, 70_000L))).thenReturn(
+			PaymentResponse(1000L, ORDER_ID, "PAID", 70_000L, Instant.parse("2026-09-13T06:00:00Z")),
+		)
+		mvc.perform(request().header("X-Buyer-Id", "999"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.orderId").value(1000))
+	}
+
+	@Test
+	@DisplayName("구매자 연결이 없으면 연결 필요 오류를 반환한다")
+	fun 구매자_연결_없음_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.BUYER_LINK_REQUIRED)).`when`(principalIdentityService).buyerId(17L)
+		mvc.perform(request())
+			.andExpect(status().isForbidden)
+			.andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+			.andDo(document("payment-confirm-buyer-link-required", authErrorHeaders(), errorFields()))
 	}
 
 	@Test
@@ -123,9 +158,24 @@ class PaymentControllerTest {
 	}
 
 	private fun request(body: String = BODY) = post("/api/payments/confirm")
-		.header("X-Buyer-Id", "123")
+		.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>; XSRF-TOKEN=<CSRF>")
+		.header("X-CSRF-TOKEN", "<CSRF>")
 		.contentType(MediaType.APPLICATION_JSON)
 		.content(body)
+
+	private fun errorFields() = responseFields(
+		fieldWithPath("type").description("오류 유형 URI"),
+		fieldWithPath("title").description("오류 제목"),
+		fieldWithPath("status").description("HTTP 상태 코드"),
+		fieldWithPath("detail").description("오류 설명"),
+		fieldWithPath("instance").description("요청 경로"),
+		fieldWithPath("code").description("오류 코드"),
+	)
+
+	private fun authErrorHeaders() = responseHeaders(
+		headerWithName("Content-Type").description("application/problem+json"),
+		headerWithName("Cache-Control").description("no-store"),
+	)
 
 	private companion object {
 		const val ORDER_ID = "550e8400-e29b-41d4-a716-446655440000"

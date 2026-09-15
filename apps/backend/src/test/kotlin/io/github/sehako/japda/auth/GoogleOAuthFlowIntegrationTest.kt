@@ -11,6 +11,8 @@ import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotEquals
+import kotlin.test.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -26,6 +28,8 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.testcontainers.junit.jupiter.Container
@@ -74,10 +78,10 @@ class GoogleOAuthFlowIntegrationTest {
     }
 
     @Test
-    @DisplayName("기존 도메인 API는 세션 없이 기존 ID 헤더로 접근한다")
-    fun 기존_API_ID_헤더_계약_유지() {
+    @DisplayName("기존 ID 헤더만으로 보호 대상 API에 접근할 수 없다")
+    fun 기존_ID_헤더만으로_접근_불가() {
         mockMvc.perform(get("/api/products/ready").header("X-Seller-Id", "1"))
-            .andExpect(status().isOk)
+            .andExpect(status().isUnauthorized)
     }
 
     @Test
@@ -86,7 +90,8 @@ class GoogleOAuthFlowIntegrationTest {
         val issuer = ServiceJwtIssuer(SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
             "http://localhost:8080", "japda-spa", Clock.systemUTC())
         val handler = GoogleLoginSuccessHandler(loginService, issuer,
-            "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false)
+            "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false,
+            org.springframework.security.web.csrf.CookieCsrfTokenRepository())
 
         fun login(subject: String, email: String): MockHttpServletResponse {
             val claims = mapOf("sub" to subject, "email" to email, "email_verified" to true)
@@ -99,13 +104,46 @@ class GoogleOAuthFlowIntegrationTest {
         assertEquals("http://localhost:5173/auth/success", login("sub-1", "admin@gmail.com").redirectedUrl)
         assertEquals("http://localhost:5173/auth/success", login("sub-2", "admin@gmail.com").redirectedUrl)
 
-        assertEquals(2, jdbcTemplate.queryForObject("SELECT count(*) FROM users", Int::class.java))
+        assertEquals(2, jdbcTemplate.queryForObject("SELECT count(*) FROM users WHERE provider_subject IN ('sub-1', 'sub-2')", Int::class.java))
         assertEquals("admin@gmail.com", jdbcTemplate.queryForObject(
             "SELECT email FROM users WHERE provider = 'GOOGLE' AND provider_subject = 'sub-1'", String::class.java))
         assertEquals(2, jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM user_roles WHERE role = 'BUYER'", Int::class.java))
+            "SELECT count(*) FROM user_roles WHERE role = 'BUYER' AND user_id IN (SELECT id FROM users WHERE provider_subject IN ('sub-1', 'sub-2'))", Int::class.java))
         assertEquals(2, jdbcTemplate.queryForObject(
-            "SELECT count(*) FROM user_roles WHERE role = 'ADMIN'", Int::class.java))
+            "SELECT count(*) FROM user_roles WHERE role = 'ADMIN' AND user_id IN (SELECT id FROM users WHERE provider_subject IN ('sub-1', 'sub-2'))", Int::class.java))
+    }
+
+    @Test
+    @DisplayName("로그인 성공은 이전 CSRF 쿠키를 폐기하고 새 조회에서 다른 토큰을 발급한다")
+    fun 로그인_후_CSRF_토큰_갱신() {
+        val subject = "csrf-refresh-sub"
+        val userId = loginService.login(subject, "csrf-refresh@example.com")
+        val issuer = ServiceJwtIssuer(SecretKeySpec(ByteArray(32) { 7 }, "HmacSHA256"),
+            "http://localhost:8080", "japda-spa", Clock.systemUTC())
+        val accessCookie = jakarta.servlet.http.Cookie("JAPDA_ACCESS_TOKEN", issuer.issue(userId))
+        val before = mockMvc.perform(get("/api/auth/csrf").cookie(accessCookie))
+            .andExpect(status().isOk).andReturn()
+        val oldToken = com.jayway.jsonpath.JsonPath.read<String>(before.response.contentAsString, "$.token")
+        val oldCsrfCookie = before.response.cookies.first { it.name == "XSRF-TOKEN" }
+
+        val repository = org.springframework.security.web.csrf.CookieCsrfTokenRepository().apply { setCookiePath("/api") }
+        val handler = GoogleLoginSuccessHandler(loginService, issuer,
+            "http://localhost:5173/auth/success", "http://localhost:5173/auth/failure", false, repository)
+        val claims = mapOf("sub" to subject, "email" to "csrf-refresh@example.com", "email_verified" to true)
+        val idToken = OidcIdToken("synthetic-id-token", Instant.now(), Instant.now().plusSeconds(3600), claims)
+        val authentication = UsernamePasswordAuthenticationToken(DefaultOidcUser(emptyList(), idToken), null, emptyList())
+        val loginResponse = MockHttpServletResponse()
+        handler.onAuthenticationSuccess(MockHttpServletRequest().apply { setCookies(oldCsrfCookie) }, loginResponse, authentication)
+        assertTrue(loginResponse.getHeaders("Set-Cookie").any { it.contains("XSRF-TOKEN=") && it.contains("Max-Age=0") })
+
+        val after = mockMvc.perform(get("/api/auth/csrf").cookie(accessCookie))
+            .andExpect(status().isOk).andReturn()
+        val newToken = com.jayway.jsonpath.JsonPath.read<String>(after.response.contentAsString, "$.token")
+        val newCsrfCookie = after.response.cookies.first { it.name == "XSRF-TOKEN" }
+        assertNotEquals(oldToken, newToken)
+        mockMvc.perform(post("/api/products").cookie(accessCookie, newCsrfCookie).header("X-CSRF-TOKEN", oldToken))
+            .andExpect(status().isForbidden)
+            .andExpect(jsonPath("$.code").value("AUTH_CSRF_INVALID"))
     }
 
     companion object {
