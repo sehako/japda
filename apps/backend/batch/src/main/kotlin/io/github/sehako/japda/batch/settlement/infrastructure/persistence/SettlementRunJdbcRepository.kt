@@ -14,7 +14,7 @@ class SettlementRunJdbcRepository(
 		jdbcTemplate.query(
 			"""
 			SELECT id, settlement_date, platform_fee_rate_bps, status,
-			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at, completed_at
 			FROM settlement_runs
 			WHERE settlement_date = ?
 			""".trimIndent(),
@@ -45,6 +45,7 @@ class SettlementRunJdbcRepository(
 			collectedAmount = 0,
 			collectionCompletedAt = null,
 			confirmationCompletedAt = null,
+			completedAt = null,
 		)
 	}
 
@@ -85,7 +86,7 @@ class SettlementRunJdbcRepository(
 		jdbcTemplate.query(
 			"""
 			SELECT id, settlement_date, platform_fee_rate_bps, status,
-			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at, completed_at
 			FROM settlement_runs
 			WHERE id = ?
 			""".trimIndent(),
@@ -97,7 +98,7 @@ class SettlementRunJdbcRepository(
 		jdbcTemplate.query(
 			"""
 			SELECT id, settlement_date, platform_fee_rate_bps, status,
-			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at, completed_at
 			FROM settlement_runs
 			WHERE id = ?
 			FOR UPDATE
@@ -121,6 +122,21 @@ class SettlementRunJdbcRepository(
 		}
 	}
 
+	fun markCompleted(settlementRunId: Long, completedAt: Instant) {
+		val updated = jdbcTemplate.update(
+			"""
+			UPDATE settlement_runs
+			SET status = 'COMPLETED', completed_at = ?
+			WHERE id = ? AND status = 'CONFIRMED'
+			""".trimIndent(),
+			completedAt.atOffset(ZoneOffset.UTC),
+			settlementRunId,
+		)
+		if (updated != 1) {
+			throw SettlementRunStateException("CONFIRMED 상태의 SettlementRun을 완료할 수 없습니다: settlementRunId=$settlementRunId")
+		}
+	}
+
 	private fun java.sql.ResultSet.toSettlementRunSnapshot() = SettlementRunSnapshot(
 		id = getLong("id"),
 		settlementDate = getObject("settlement_date", LocalDate::class.java),
@@ -130,6 +146,7 @@ class SettlementRunJdbcRepository(
 		collectedAmount = getLong("collected_amount"),
 		collectionCompletedAt = getTimestamp("collection_completed_at")?.toInstant(),
 		confirmationCompletedAt = getTimestamp("confirmation_completed_at")?.toInstant(),
+		completedAt = getTimestamp("completed_at")?.toInstant(),
 	)
 }
 
@@ -142,6 +159,7 @@ data class SettlementRunSnapshot(
 	val collectedAmount: Long,
 	val collectionCompletedAt: Instant?,
 	val confirmationCompletedAt: Instant?,
+	val completedAt: Instant?,
 )
 
 data class SettlementDetailAggregate(
@@ -153,6 +171,7 @@ enum class SettlementRunStatus {
 	COLLECTING,
 	COLLECTED,
 	CONFIRMED,
+	COMPLETED,
 }
 
 class SettlementRunStateException(message: String) : IllegalStateException(message)

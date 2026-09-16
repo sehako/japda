@@ -24,6 +24,7 @@ class CompleteSettlementCollectionTasklet(
 			SettlementRunStatus.COLLECTING -> settlementRunRepository.markCollected(settlementRunId, aggregate, Instant.now(clock))
 			SettlementRunStatus.COLLECTED,
 			SettlementRunStatus.CONFIRMED,
+			SettlementRunStatus.COMPLETED,
 			-> if (
 				settlementRun.collectedCount != aggregate.collectedCount ||
 				settlementRun.collectedAmount != aggregate.collectedAmount

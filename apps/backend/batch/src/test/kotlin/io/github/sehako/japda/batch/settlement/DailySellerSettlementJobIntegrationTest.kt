@@ -39,7 +39,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 @Testcontainers(disabledWithoutDocker = true)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @Execution(ExecutionMode.SAME_THREAD)
-@DisplayName("판매자 일일 정산 수집·확정 Job")
+@DisplayName("판매자 일일 정산 Job")
 class DailySellerSettlementJobIntegrationTest {
 	private lateinit var context: ConfigurableApplicationContext
 	private lateinit var jdbcTemplate: JdbcTemplate
@@ -85,7 +85,7 @@ class DailySellerSettlementJobIntegrationTest {
 		jdbcTemplate.execute(
 			"""
 			TRUNCATE TABLE
-				seller_settlements, settlement_details, settlement_runs, payments, orders,
+				ledger_entries, wallets, seller_settlements, settlement_details, settlement_runs, payments, orders,
 				seller_principal_identities, buyer_principal_identities, user_roles, users,
 				sales, sale_days, products,
 				batch_step_execution_context, batch_job_execution_context,
@@ -109,16 +109,21 @@ class DailySellerSettlementJobIntegrationTest {
 				"collectSettlementDetailsStep",
 				"completeSettlementCollectionStep",
 				"confirmSellerSettlementsStep",
+				"creditSellerWalletsStep",
+				"completeSettlementRunStep",
 			),
 			execution.stepExecutions.sortedBy { it.startTime }.map { it.stepName },
 		)
 		val run = jdbcTemplate.queryForMap("SELECT * FROM settlement_runs WHERE settlement_date = ?", EMPTY_SETTLEMENT_DATE)
-		assertEquals("CONFIRMED", run["status"])
+		assertEquals("COMPLETED", run["status"])
 		assertEquals(0L, (run["collected_count"] as Number).toLong())
 		assertEquals(0L, (run["collected_amount"] as Number).toLong())
 		assertNotNull(run["collection_completed_at"])
 		assertNotNull(run["confirmation_completed_at"])
+		assertNotNull(run["completed_at"])
 		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements", Long::class.java))
+		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM wallets", Long::class.java))
+		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
 	}
 
 	@Test
@@ -144,7 +149,16 @@ class DailySellerSettlementJobIntegrationTest {
 		assertEquals(10_000L, (sellerSettlement["gross_amount"] as Number).toLong())
 		assertEquals(300L, (sellerSettlement["platform_fee_amount"] as Number).toLong())
 		assertEquals(9_700L, (sellerSettlement["net_amount"] as Number).toLong())
-		assertEquals("CONFIRMED", sellerSettlement["status"])
+		assertEquals("CREDITED", sellerSettlement["status"])
+		assertNotNull(sellerSettlement["credited_at"])
+		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
+		assertEquals(9_700L, jdbcTemplate.queryForObject("SELECT balance FROM wallets", Long::class.java))
+		val ledgerEntry = jdbcTemplate.queryForMap("SELECT * FROM ledger_entries")
+		assertEquals("CREDIT", ledgerEntry["direction"])
+		assertEquals(9_700L, (ledgerEntry["amount"] as Number).toLong())
+		assertEquals(9_700L, (ledgerEntry["balance_after"] as Number).toLong())
+		assertEquals("SELLER_SETTLEMENT", ledgerEntry["source_type"])
+		assertEquals((sellerSettlement["id"] as Number).toLong(), (ledgerEntry["source_id"] as Number).toLong())
 	}
 
 	@Test
@@ -271,7 +285,12 @@ class DailySellerSettlementJobIntegrationTest {
 
 		assertEquals(BatchStatus.COMPLETED, restarted.status)
 		assertEquals(
-			listOf("prepareSettlementRunStep", "confirmSellerSettlementsStep"),
+			listOf(
+				"prepareSettlementRunStep",
+				"confirmSellerSettlementsStep",
+				"creditSellerWalletsStep",
+				"completeSettlementRunStep",
+			),
 			restarted.stepExecutions.sortedBy { it.startTime }.map { it.stepName },
 		)
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements", Long::class.java))
@@ -310,14 +329,139 @@ class DailySellerSettlementJobIntegrationTest {
 
 		assertEquals(BatchStatus.COMPLETED, restarted.status)
 		assertEquals(
-			listOf("prepareSettlementRunStep", "confirmSellerSettlementsStep"),
+			listOf(
+				"prepareSettlementRunStep",
+				"confirmSellerSettlementsStep",
+				"creditSellerWalletsStep",
+				"completeSettlementRunStep",
+			),
 			restarted.stepExecutions.sortedBy { it.startTime }.map { it.stepName },
 		)
-		assertEquals("CONFIRMED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
+		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements", Long::class.java))
 		assertEquals(2L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_execution", Long::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_instance", Long::class.java))
+	}
+
+	@Test
+	@DisplayName("입금 chunk 중간 실패 후 재시작하면 이전 chunk를 유지하고 중복 입금하지 않는다")
+	fun 입금_chunk_중간_실패_후_재시작하면_이전_chunk를_유지하고_중복_입금하지_않는다() {
+		repeat(101) { index ->
+			insertPayment(
+				approvedAt = Instant.parse("2026-09-05T15:00:00Z").plusMillis(index.toLong()),
+			)
+		}
+		jdbcTemplate.execute(
+			"""
+			CREATE FUNCTION fail_last_settlement_credit() RETURNS trigger AS ${'$'}${'$'}
+			BEGIN
+				IF NEW.source_id = 101 THEN RAISE EXCEPTION '마지막 입금 실패 재현'; END IF;
+				RETURN NEW;
+			END;
+			${'$'}${'$'} LANGUAGE plpgsql;
+			CREATE TRIGGER fail_last_settlement_credit_trigger
+			BEFORE INSERT ON ledger_entries
+			FOR EACH ROW EXECUTE FUNCTION fail_last_settlement_credit();
+			""".trimIndent(),
+		)
+
+		val failed = launch(CREDIT_RESTART_SETTLEMENT_DATE, 0L)
+
+		assertEquals(BatchStatus.FAILED, failed.status)
+		assertEquals("CONFIRMED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
+		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements WHERE status = 'CREDITED'", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements WHERE status = 'CONFIRMED'", Long::class.java))
+		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM wallets", Long::class.java))
+		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
+		val failedCreditStep = failed.stepExecutions.single { it.stepName == "creditSellerWalletsStep" }
+		assertEquals(100L, failedCreditStep.writeCount)
+		assertTrue(failedCreditStep.executionContext.containsKey("sellerSettlementIdReader.start.after"))
+
+		jdbcTemplate.execute("DROP TRIGGER fail_last_settlement_credit_trigger ON ledger_entries")
+		jdbcTemplate.execute("DROP FUNCTION fail_last_settlement_credit()")
+		val restarted = launch(CREDIT_RESTART_SETTLEMENT_DATE, 0L)
+
+		assertEquals(BatchStatus.COMPLETED, restarted.status)
+		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
+		assertEquals(101L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements WHERE status = 'CREDITED'", Long::class.java))
+		assertEquals(101L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM wallets", Long::class.java))
+		assertEquals(101L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
+		val restartedCreditStep = restarted.stepExecutions.single { it.stepName == "creditSellerWalletsStep" }
+		assertEquals(1L, restartedCreditStep.readCount)
+		assertEquals(1L, restartedCreditStep.writeCount)
+	}
+
+	@Test
+	@DisplayName("0원 정산은 지갑과 원장 없이 입금 완료한다")
+	fun 금액이_0인_정산은_지갑과_원장_없이_입금_완료한다() {
+		insertPayment(approvedAt = Instant.parse("2026-09-04T15:00:00Z"))
+
+		val execution = launch(ZERO_CREDIT_SETTLEMENT_DATE, 10_000L)
+
+		assertEquals(BatchStatus.COMPLETED, execution.status)
+		val settlement = jdbcTemplate.queryForMap("SELECT * FROM seller_settlements")
+		assertEquals(0L, (settlement["net_amount"] as Number).toLong())
+		assertEquals("CREDITED", settlement["status"])
+		assertNotNull(settlement["credited_at"])
+		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM wallets", Long::class.java))
+		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
+	}
+
+	@Test
+	@DisplayName("완료된 실행의 원장이 변조되면 재검산에 실패한다")
+	fun 완료된_실행의_원장이_변조되면_재검산에_실패한다() {
+		insertPayment(approvedAt = Instant.parse("2026-09-03T15:00:00Z"))
+		val firstExecution = launch(COMPLETED_REVALIDATION_SETTLEMENT_DATE, 500L)
+		assertEquals(BatchStatus.COMPLETED, firstExecution.status)
+		val originalBalance = jdbcTemplate.queryForObject("SELECT balance FROM wallets", Long::class.java)
+		jdbcTemplate.update("UPDATE ledger_entries SET amount = amount + 1")
+		markStepAndJobFailed(firstExecution, "confirmSellerSettlementsStep")
+
+		val restarted = launch(COMPLETED_REVALIDATION_SETTLEMENT_DATE, 500L)
+
+		assertEquals(BatchStatus.FAILED, restarted.status)
+		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
+		assertEquals(originalBalance, jdbcTemplate.queryForObject("SELECT balance FROM wallets", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
+		assertEquals(BatchStatus.FAILED, restarted.stepExecutions.single { it.stepName == "creditSellerWalletsStep" }.status)
+	}
+
+	@Test
+	@DisplayName("입금 업무 반영 후 Step 완료 전 장애를 재시작하면 기존 결과를 재검산한다")
+	fun 입금_업무_반영_후_Step_완료_전_장애를_재시작하면_기존_결과를_재검산한다() {
+		insertPayment(approvedAt = Instant.parse("2026-09-02T15:00:00Z"))
+		val firstExecution = launch(CREDIT_METADATA_RESTART_SETTLEMENT_DATE, 500L)
+		assertEquals(BatchStatus.COMPLETED, firstExecution.status)
+		val originalWallet = jdbcTemplate.queryForMap("SELECT id, user_id, balance, created_at, updated_at FROM wallets")
+		val originalLedger = jdbcTemplate.queryForMap("SELECT * FROM ledger_entries")
+		markStepAndJobFailed(firstExecution, "creditSellerWalletsStep")
+		jdbcTemplate.update(
+			"""
+			UPDATE batch_step_execution_context target
+			SET short_context = source.short_context, serialized_context = source.serialized_context
+			FROM batch_step_execution target_step, batch_step_execution source_step,
+			     batch_step_execution_context source
+			WHERE target.step_execution_id = target_step.step_execution_id
+			  AND target_step.job_execution_id = ?
+			  AND target_step.step_name = 'creditSellerWalletsStep'
+			  AND source.step_execution_id = source_step.step_execution_id
+			  AND source_step.job_execution_id = ?
+			  AND source_step.step_name = 'confirmSellerSettlementsStep'
+			""".trimIndent(),
+			firstExecution.id,
+			firstExecution.id,
+		)
+
+		val restarted = launch(CREDIT_METADATA_RESTART_SETTLEMENT_DATE, 500L)
+
+		assertEquals(BatchStatus.COMPLETED, restarted.status)
+		val creditStep = restarted.stepExecutions.single { it.stepName == "creditSellerWalletsStep" }
+		assertEquals(1L, creditStep.readCount)
+		assertEquals(1L, creditStep.writeCount)
+		assertEquals(originalWallet, jdbcTemplate.queryForMap("SELECT id, user_id, balance, created_at, updated_at FROM wallets"))
+		assertEquals(originalLedger, jdbcTemplate.queryForMap("SELECT * FROM ledger_entries"))
+		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
 	}
 
 	private fun launch(settlementDate: LocalDate, platformFeeRateBps: Long) =
@@ -328,6 +472,18 @@ class DailySellerSettlementJobIntegrationTest {
 				.addLong("platformFeeRateBps", platformFeeRateBps, false)
 				.toJobParameters(),
 		)
+
+	private fun markStepAndJobFailed(execution: org.springframework.batch.core.job.JobExecution, stepName: String) {
+		jdbcTemplate.update(
+			"UPDATE batch_step_execution SET status = 'FAILED', exit_code = 'FAILED' WHERE job_execution_id = ? AND step_name = ?",
+			execution.id,
+			stepName,
+		)
+		jdbcTemplate.update(
+			"UPDATE batch_job_execution SET status = 'FAILED', exit_code = 'FAILED' WHERE job_execution_id = ?",
+			execution.id,
+		)
+	}
 
 	private fun String.withCurrentSchema(schema: String): String =
 		this + if (contains('?')) "&currentSchema=$schema" else "?currentSchema=$schema"
@@ -437,6 +593,10 @@ class DailySellerSettlementJobIntegrationTest {
 		val IDEMPOTENCY_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 11)
 		val CONFIRMATION_RESTART_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 8)
 		val CONFIRMATION_FAILURE_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 7)
+		val CREDIT_RESTART_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 6)
+		val ZERO_CREDIT_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 5)
+		val COMPLETED_REVALIDATION_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 4)
+		val CREDIT_METADATA_RESTART_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 3)
 		var nextSellerId = 100L
 		var nextBuyerId = 1L
 

@@ -11,6 +11,67 @@ import org.springframework.stereotype.Repository
 class SellerSettlementJdbcRepository(
 	private val jdbcTemplate: JdbcTemplate,
 ) {
+	fun findByIdForUpdate(sellerSettlementId: Long): SellerSettlementSnapshot? =
+		jdbcTemplate.query(
+			"""
+			SELECT id, settlement_run_id, seller_id, recipient_user_id, net_amount, status, credited_at
+			FROM seller_settlements
+			WHERE id = ?
+			FOR UPDATE
+			""".trimIndent(),
+			{ resultSet, _ ->
+				SellerSettlementSnapshot(
+					id = resultSet.getLong("id"),
+					settlementRunId = resultSet.getLong("settlement_run_id"),
+					sellerId = resultSet.getLong("seller_id"),
+					recipientUserId = resultSet.getLong("recipient_user_id"),
+					netAmount = resultSet.getLong("net_amount"),
+					status = SellerSettlementStatus.valueOf(resultSet.getString("status")),
+					creditedAt = resultSet.getTimestamp("credited_at")?.toInstant(),
+				)
+			},
+			sellerSettlementId,
+		).singleOrNull()
+
+	fun markCredited(sellerSettlementId: Long, creditedAt: Instant) {
+		val updated = jdbcTemplate.update(
+			"""
+			UPDATE seller_settlements
+			SET status = 'CREDITED', credited_at = ?
+			WHERE id = ? AND status = 'CONFIRMED'
+			""".trimIndent(),
+			creditedAt.atOffset(ZoneOffset.UTC),
+			sellerSettlementId,
+		)
+		if (updated != 1) {
+			throw IllegalStateException("판매자별 정산을 입금 완료 상태로 전환할 수 없습니다: sellerSettlementId=$sellerSettlementId")
+		}
+	}
+
+	fun findCreditResultMismatchSellerId(settlementRunId: Long): Long? =
+		jdbcTemplate.query(
+			"""
+			SELECT ss.seller_id
+			FROM seller_settlements ss
+			LEFT JOIN ledger_entries le
+			  ON le.source_type = 'SELLER_SETTLEMENT' AND le.source_id = ss.id
+			LEFT JOIN wallets w ON w.id = le.wallet_id
+			WHERE ss.settlement_run_id = ?
+			  AND (
+				ss.status <> 'CREDITED'
+				OR ss.credited_at IS NULL
+				OR (ss.net_amount > 0 AND (
+					le.id IS NULL OR w.user_id <> ss.recipient_user_id
+					OR le.direction <> 'CREDIT' OR le.amount <> ss.net_amount
+				))
+				OR (ss.net_amount = 0 AND le.id IS NOT NULL)
+			  )
+			ORDER BY ss.seller_id
+			LIMIT 1
+			""".trimIndent(),
+			{ resultSet, _ -> resultSet.getLong("seller_id") },
+			settlementRunId,
+		).singleOrNull()
 	fun lockDetails(settlementRunId: Long) {
 		jdbcTemplate.query(
 			"SELECT id FROM settlement_details WHERE settlement_run_id = ? FOR UPDATE",
@@ -152,7 +213,7 @@ class SellerSettlementJdbcRepository(
 			  AND (
 				platform_fee_amount::NUMERIC <> FLOOR(gross_amount::NUMERIC * ?::NUMERIC / 10000::NUMERIC)
 				OR gross_amount::NUMERIC <> platform_fee_amount::NUMERIC + net_amount::NUMERIC
-				OR status <> 'CONFIRMED'
+				OR status NOT IN ('CONFIRMED', 'CREDITED')
 				OR confirmed_at IS NULL
 			  )
 			ORDER BY seller_id
@@ -190,7 +251,7 @@ class SellerSettlementJdbcRepository(
 				   OR saved.gross_amount::NUMERIC <> expected.gross_amount
 				   OR saved.platform_fee_amount::NUMERIC <> expected.platform_fee_amount
 				   OR saved.net_amount::NUMERIC <> expected.gross_amount - expected.platform_fee_amount
-				   OR saved.status <> 'CONFIRMED'
+				   OR saved.status NOT IN ('CONFIRMED', 'CREDITED')
 				   OR saved.confirmed_at IS NULL
 			)
 			SELECT seller_id FROM mismatches ORDER BY seller_id LIMIT 1
@@ -206,3 +267,18 @@ data class SettlementAggregate(
 	val itemCount: BigDecimal,
 	val totalAmount: BigDecimal,
 )
+
+data class SellerSettlementSnapshot(
+	val id: Long,
+	val settlementRunId: Long,
+	val sellerId: Long,
+	val recipientUserId: Long,
+	val netAmount: Long,
+	val status: SellerSettlementStatus,
+	val creditedAt: Instant?,
+)
+
+enum class SellerSettlementStatus {
+	CONFIRMED,
+	CREDITED,
+}

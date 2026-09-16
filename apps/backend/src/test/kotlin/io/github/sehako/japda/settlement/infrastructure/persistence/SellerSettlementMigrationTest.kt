@@ -272,6 +272,7 @@ class SellerSettlementMigrationTest {
 			ColumnDefinition("net_amount", "bigint", null, "NO", null, "NO"),
 			ColumnDefinition("status", "character varying", 30, "NO", null, "NO"),
 			ColumnDefinition("confirmed_at", "timestamp with time zone", null, "NO", null, "NO"),
+			ColumnDefinition("credited_at", "timestamp with time zone", null, "YES", null, "NO"),
 			ColumnDefinition("created_at", "timestamp with time zone", null, "NO", null, "NO"),
 		)
 
