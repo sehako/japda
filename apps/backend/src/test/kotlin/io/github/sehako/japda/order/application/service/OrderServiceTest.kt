@@ -1,11 +1,15 @@
 package io.github.sehako.japda.order.application.service
 
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
+import io.github.sehako.japda.order.application.inventory.InventoryReservation
+import io.github.sehako.japda.order.application.inventory.InventoryReservationResult
+import io.github.sehako.japda.order.application.inventory.InventoryReservationToken
 import io.github.sehako.japda.order.domain.model.Order
-import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.domain.model.OrderRequest
+import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
+import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
 import io.github.sehako.japda.product.domain.model.Product
 import io.github.sehako.japda.product.domain.repository.ProductRepository
 import io.github.sehako.japda.product.domain.repository.ReadyProductQuery
@@ -50,13 +54,189 @@ class OrderServiceTest {
 		val orderRepository = RecordingOrderRepository(existing = existing)
 		val saleRepository = StubSaleRepository(sale())
 
-		val response = service(orderRepository, saleRepository).create(dto())
+		val inventoryReservation = RecordingInventoryReservation()
+		val response = service(orderRepository, saleRepository, inventoryReservation).create(dto())
 
 		assertEquals(9L, response.orderId)
 		assertEquals(existing.paymentOrderId, response.paymentOrderId)
 		assertEquals(NOW.plusSeconds(180), response.expiresAt)
 		assertEquals(0, saleRepository.lockCount)
+		assertEquals(0, inventoryReservation.reserveCount)
 		assertNull(orderRepository.savedOrder)
+	}
+
+	@Test
+	@DisplayName("Redis 선점에 성공하고 신규 주문이 생성되면 예약을 유지한다")
+	fun Redis_선점_성공_신규_주문_생성_예약을_유지한다() {
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+
+		val response = service(
+			RecordingOrderRepository(),
+			StubSaleRepository(sale()),
+			inventoryReservation,
+		).create(dto())
+
+		assertEquals(1L, response.orderId)
+		assertEquals(1, inventoryReservation.reserveCount)
+		assertEquals(0, inventoryReservation.restoreCount)
+		assertEquals(0, inventoryReservation.invalidateCount)
+	}
+
+	@Test
+	@DisplayName("Redis가 우회를 반환하면 DB 주문을 생성한다")
+	fun Redis_우회_반환_DB_주문을_생성한다() {
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Fallback)
+		val orderRepository = RecordingOrderRepository()
+
+		val response = service(orderRepository, StubSaleRepository(sale()), inventoryReservation).create(dto())
+
+		assertEquals(1L, response.orderId)
+		assertEquals(1, inventoryReservation.reserveCount)
+		assertEquals(1L, orderRepository.savedOrder?.id)
+	}
+
+	@Test
+	@DisplayName("Redis가 재고 부족을 반환하면 DB transaction 없이 주문을 거절한다")
+	fun Redis_재고_부족_반환_DB_transaction_없이_주문을_거절한다() {
+		val saleRepository = StubSaleRepository(sale())
+		val exception = assertFailsWith<OrderException> {
+			service(
+				RecordingOrderRepository(),
+				saleRepository,
+				RecordingInventoryReservation(InventoryReservationResult.Insufficient),
+			).create(dto())
+		}
+
+		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
+		assertEquals(0, saleRepository.lockCount)
+	}
+
+	@Test
+	@DisplayName("Redis 선점 후 DB가 재고 부족을 확정하면 현재 세대를 폐기한다")
+	fun Redis_선점_후_DB_재고_부족_확정_현재_세대를_폐기한다() {
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+		val exception = assertFailsWith<OrderException> {
+			service(
+				RecordingOrderRepository(reservedQuantity = 9),
+				StubSaleRepository(sale(quantity = 10)),
+				inventoryReservation,
+			).create(dto(quantity = 2))
+		}
+
+		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
+		assertEquals(0, inventoryReservation.restoreCount)
+		assertEquals(1, inventoryReservation.invalidateCount)
+	}
+
+	@Test
+	@DisplayName("Redis 선점 후 주문이 생성되지 않으면 예약을 복원한다")
+	fun Redis_선점_후_주문_미생성_예약을_복원한다() {
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+		val exception = assertFailsWith<OrderException> {
+			service(
+				RecordingOrderRepository(),
+				StubSaleRepository(sale(saleDate = LocalDate.parse("2026-09-10"))),
+				inventoryReservation,
+			).create(dto())
+		}
+
+		assertEquals(OrderErrorCode.SALE_NOT_OPEN, exception.errorCode)
+		assertEquals(1, inventoryReservation.restoreCount)
+		assertEquals(0, inventoryReservation.invalidateCount)
+	}
+
+	@Test
+	@DisplayName("DB 잠금 후 기존 멱등 주문을 반환하면 Redis 예약을 복원한다")
+	fun DB_잠금_후_기존_멱등_주문_반환_Redis_예약을_복원한다() {
+		val request = dto().toDomainRequest()
+		val existing = Order.create(request, "서버 상품명", 35_000L, NOW).also { setId(it, 9L) }
+		val orderRepository = RecordingOrderRepository(existingResults = listOf(null, existing))
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+
+		val response = service(orderRepository, StubSaleRepository(sale()), inventoryReservation).create(dto())
+
+		assertEquals(9L, response.orderId)
+		assertEquals(1, inventoryReservation.restoreCount)
+	}
+
+	@Test
+	@DisplayName("멱등 unique 충돌을 기존 주문으로 복구하면 Redis 예약을 복원한다")
+	fun 멱등_unique_충돌_기존_주문_복구_Redis_예약을_복원한다() {
+		val request = dto().toDomainRequest()
+		val existing = Order.create(request, "서버 상품명", 35_000L, NOW).also { setId(it, 9L) }
+		val orderRepository = RecordingOrderRepository(
+			existingResults = listOf(null, null, existing),
+			saveFailure = OrderIdempotencyPersistenceException(IllegalStateException("테스트 충돌")),
+		)
+		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+
+		val response = service(orderRepository, StubSaleRepository(sale()), inventoryReservation).create(dto())
+
+		assertEquals(9L, response.orderId)
+		assertEquals(1, inventoryReservation.restoreCount)
+	}
+
+	@Test
+	@DisplayName("Redis 복원 실패는 DB 주문 거절 결과를 덮지 않는다")
+	fun Redis_복원_실패_DB_주문_거절_결과를_덮지_않는다() {
+		val inventoryReservation = RecordingInventoryReservation(
+			result = InventoryReservationResult.Reserved(TOKEN),
+			restoreFailure = IllegalStateException("테스트 복원 실패"),
+		)
+
+		val exception = assertFailsWith<OrderException> {
+			service(
+				RecordingOrderRepository(),
+				StubSaleRepository(sale(saleDate = LocalDate.parse("2026-09-10"))),
+				inventoryReservation,
+			).create(dto())
+		}
+
+		assertEquals(OrderErrorCode.SALE_NOT_OPEN, exception.errorCode)
+		assertEquals(1, inventoryReservation.restoreCount)
+	}
+
+	@Test
+	@DisplayName("Redis 폐기 실패는 DB 재고 부족 결과를 덮지 않는다")
+	fun Redis_폐기_실패_DB_재고_부족_결과를_덮지_않는다() {
+		val inventoryReservation = RecordingInventoryReservation(
+			result = InventoryReservationResult.Reserved(TOKEN),
+			invalidateFailure = IllegalStateException("테스트 폐기 실패"),
+		)
+
+		val exception = assertFailsWith<OrderException> {
+			service(
+				RecordingOrderRepository(reservedQuantity = 9),
+				StubSaleRepository(sale(quantity = 10)),
+				inventoryReservation,
+			).create(dto(quantity = 2))
+		}
+
+		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
+		assertEquals(1, inventoryReservation.invalidateCount)
+	}
+
+	@Test
+	@DisplayName("DB transaction에서 신규 주문을 저장하면 생성 결과를 반환한다")
+	fun DB_transaction_신규_주문_저장_생성_결과를_반환한다() {
+		val result = transactionService(RecordingOrderRepository(), StubSaleRepository(sale()))
+			.create(dto().toDomainRequest())
+
+		assertEquals(true, result.created)
+		assertEquals(1L, result.response.orderId)
+	}
+
+	@Test
+	@DisplayName("DB transaction의 잠금 후 기존 주문이 보이면 미생성 결과를 반환한다")
+	fun DB_transaction_잠금_후_기존_주문_존재_미생성_결과를_반환한다() {
+		val request = dto().toDomainRequest()
+		val existing = Order.create(request, "서버 상품명", 35_000L, NOW).also { setId(it, 9L) }
+
+		val result = transactionService(RecordingOrderRepository(existing = existing), StubSaleRepository(sale()))
+			.create(request)
+
+		assertEquals(false, result.created)
+		assertEquals(9L, result.response.orderId)
 	}
 
 	@Test
@@ -97,15 +277,21 @@ class OrderServiceTest {
 	private fun service(
 		orderRepository: RecordingOrderRepository,
 		saleRepository: StubSaleRepository,
+		inventoryReservation: InventoryReservation = RecordingInventoryReservation(),
 	): OrderService {
-		val transactionService = OrderCreationTransactionService(
+		val transactionService = transactionService(orderRepository, saleRepository)
+		return OrderService(orderRepository, transactionService, inventoryReservation)
+	}
+
+	private fun transactionService(
+		orderRepository: RecordingOrderRepository,
+		saleRepository: StubSaleRepository,
+	) = OrderCreationTransactionService(
 			orderRepository,
 			saleRepository,
 			StubProductRepository(product()),
 			Clock.fixed(NOW, ZoneOffset.UTC),
 		)
-		return OrderService(orderRepository, transactionService)
-	}
 
 	private fun dto(quantity: Int? = 2) = CreateOrderDto(
 		buyerId = 123L,
@@ -129,31 +315,64 @@ class OrderServiceTest {
 	private fun product(): Product = Product.create(1L, "서버 상품명", null, NOW).also { setId(it, 10L) }
 
 	private class RecordingOrderRepository(
-		private val existing: Order? = null,
+		existing: Order? = null,
+		existingResults: List<Order?>? = null,
 		private val reservedQuantity: Long = 0,
+		private val saveFailure: RuntimeException? = null,
 	) : OrderRepository {
+		private val existingResults = ArrayDeque(existingResults ?: listOf(existing))
+		private val lastExisting = existingResults?.lastOrNull() ?: existing
 		var savedOrder: Order? = null
 		var aggregatedAt: Instant? = null
 
-		override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? = existing
+		override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? =
+			if (existingResults.isEmpty()) lastExisting else existingResults.removeFirst()
 
-		override fun findByPaymentOrderId(paymentOrderId: String): Order? = existing?.takeIf { it.paymentOrderId == paymentOrderId }
+		override fun findByPaymentOrderId(paymentOrderId: String): Order? = lastExisting?.takeIf { it.paymentOrderId == paymentOrderId }
 
 		override fun findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId: String, buyerId: Long): Long? =
-			existing?.takeIf { it.paymentOrderId == paymentOrderId && it.buyerId == buyerId }?.saleId
+			lastExisting?.takeIf { it.paymentOrderId == paymentOrderId && it.buyerId == buyerId }?.saleId
 
-		override fun findById(id: Long): Order? = existing?.takeIf { it.id == id }
+		override fun findById(id: Long): Order? = lastExisting?.takeIf { it.id == id }
 
-		override fun findSaleIdById(id: Long): Long? = existing?.takeIf { it.id == id }?.saleId
+		override fun findSaleIdById(id: Long): Long? = lastExisting?.takeIf { it.id == id }?.saleId
 
 		override fun sumCommittedQuantity(saleId: Long, now: Instant): Long {
 			aggregatedAt = now
 			return reservedQuantity
 		}
 
-		override fun save(order: Order): Order = order.also {
-			setId(it, 1L)
-			savedOrder = it
+		override fun save(order: Order): Order {
+			saveFailure?.let { throw it }
+			return order.also {
+				setId(it, 1L)
+				savedOrder = it
+			}
+		}
+	}
+
+	private class RecordingInventoryReservation(
+		private val result: InventoryReservationResult = InventoryReservationResult.Fallback,
+		private val restoreFailure: RuntimeException? = null,
+		private val invalidateFailure: RuntimeException? = null,
+	) : InventoryReservation {
+		var reserveCount = 0
+		var restoreCount = 0
+		var invalidateCount = 0
+
+		override fun reserve(saleId: Long, quantity: Int): InventoryReservationResult {
+			reserveCount++
+			return result
+		}
+
+		override fun restore(token: InventoryReservationToken) {
+			restoreCount++
+			restoreFailure?.let { throw it }
+		}
+
+		override fun invalidate(token: InventoryReservationToken) {
+			invalidateCount++
+			invalidateFailure?.let { throw it }
 		}
 	}
 
@@ -174,6 +393,12 @@ class OrderServiceTest {
 	private companion object {
 		val NOW: Instant = Instant.parse("2026-09-11T06:00:00Z")
 		val IDEMPOTENCY_KEY: UUID = UUID.fromString("550e8400-e29b-41d4-a716-446655440000")
+		val TOKEN = InventoryReservationToken(
+			reservationId = "7f722e88-84e5-4ace-b25c-985b62304d65",
+			saleId = 100L,
+			generation = "e951261e-e793-48e7-ac4b-afd7e5bb7734",
+			quantity = 2,
+		)
 
 		fun setId(target: Any, id: Long) {
 			target::class.java.getDeclaredField("id").apply {
