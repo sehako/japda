@@ -61,12 +61,14 @@ class BatchApplicationIntegrationTest {
 	private fun startApplication(schema: String) =
 		SpringApplicationBuilder(BatchApplication::class.java)
 			.web(WebApplicationType.NONE)
-			.properties(
-				"spring.datasource.url=${postgres.jdbcUrl}?currentSchema=$schema",
-				"spring.datasource.username=${postgres.username}",
-				"spring.datasource.password=${postgres.password}",
+			.run(
+				"--spring.datasource.url=${postgres.jdbcUrl.withCurrentSchema(schema)}",
+				"--spring.datasource.username=${postgres.username}",
+				"--spring.datasource.password=${postgres.password}",
 			)
-			.run()
+
+	private fun String.withCurrentSchema(schema: String): String =
+		this + if (contains('?')) "&currentSchema=$schema" else "?currentSchema=$schema"
 
 	private fun createSchema(schema: String) {
 		DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
