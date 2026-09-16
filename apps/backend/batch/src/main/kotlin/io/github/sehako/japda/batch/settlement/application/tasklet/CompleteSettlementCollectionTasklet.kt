@@ -22,7 +22,9 @@ class CompleteSettlementCollectionTasklet(
 		val aggregate = settlementRunRepository.aggregateDetails(settlementRunId)
 		when (settlementRun.status) {
 			SettlementRunStatus.COLLECTING -> settlementRunRepository.markCollected(settlementRunId, aggregate, Instant.now(clock))
-			SettlementRunStatus.COLLECTED -> if (
+			SettlementRunStatus.COLLECTED,
+			SettlementRunStatus.CONFIRMED,
+			-> if (
 				settlementRun.collectedCount != aggregate.collectedCount ||
 				settlementRun.collectedAmount != aggregate.collectedAmount
 			) {

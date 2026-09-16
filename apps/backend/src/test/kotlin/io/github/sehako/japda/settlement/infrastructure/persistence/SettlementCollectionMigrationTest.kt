@@ -172,6 +172,7 @@ class SettlementCollectionMigrationTest {
 			ColumnDefinition("settlement_runs", "collected_amount", "bigint", null, "NO", "0", "NO"),
 			ColumnDefinition("settlement_runs", "started_at", "timestamp with time zone", null, "NO", null, "NO"),
 			ColumnDefinition("settlement_runs", "collection_completed_at", "timestamp with time zone", null, "YES", null, "NO"),
+			ColumnDefinition("settlement_runs", "confirmation_completed_at", "timestamp with time zone", null, "YES", null, "NO"),
 			ColumnDefinition("settlement_runs", "created_at", "timestamp with time zone", null, "NO", null, "NO"),
 			ColumnDefinition("settlement_details", "id", "bigint", null, "NO", null, "YES"),
 			ColumnDefinition("settlement_details", "settlement_run_id", "bigint", null, "NO", null, "NO"),
