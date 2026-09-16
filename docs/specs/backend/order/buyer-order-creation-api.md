@@ -18,7 +18,7 @@
 
 ## 기존 구조와 결정
 
-[백엔드 아키텍처](../../../architecture/backend.md), [상품 원본과 판매 일정의 도메인 경계 결정](../../../architecture/decisions/ADR-009-product-and-sale-domain-boundaries.md), [주문 행 기반 재고 예약과 판매 일정 잠금 결정](../../../architecture/decisions/ADR-015-order-row-reservation-with-sale-lock.md)을 따른다.
+[백엔드 아키텍처](../../../architecture/backend.md), [상품 원본과 판매 일정의 도메인 경계 결정](../../../architecture/decisions/ADR-009-product-and-sale-domain-boundaries.md), [주문 행 기반 재고 예약과 판매 일정 잠금 결정](../../../architecture/decisions/ADR-015-order-row-reservation-with-sale-lock.md), [동적 Redis 재고 선점 결정](../../../architecture/decisions/ADR-026-dynamic-redis-inventory-reservation.md)을 따른다.
 
 기존 `Product`는 상품명과 상품 원본을, `Sale`은 상품 ID, 판매일, 판매 가격과 최초 판매 수량을 관리한다. `Sale`의 판매 기간은 `Asia/Seoul` 기준 판매일 00:00 이상 다음 날 00:00 미만이다. 현재 상품과 판매 조건을 수정하는 API는 없지만, 결제 금액과 주문 이력이 이후 원본 데이터의 변화에 영향받지 않도록 주문 생성 시 필요한 값을 복사한다.
 
@@ -26,7 +26,7 @@
 
 ## 범위
 
-포함 범위는 `POST /api/orders`, 단일 판매 상품 주문, 배송 정보 스냅샷, 가격 계산, 3분 재고 예약, 판매 일정 잠금, 멱등성 처리, 결제 요청용 주문 식별자 생성·저장·응답, 오류 응답, PostgreSQL 테스트와 API 문서이다.
+포함 범위는 `POST /api/orders`, 단일 판매 상품 주문, 배송 정보 스냅샷, 가격 계산, 3분 재고 예약, 판매 일정 잠금, 멱등성 처리, 결제 요청용 주문 식별자 생성·저장·응답, 동적 Redis 재고 선점, 오류 응답, PostgreSQL·Redis 테스트와 API 문서이다.
 
 다음은 제외한다.
 
@@ -35,6 +35,8 @@
 - 만료된 주문의 상태를 갱신하는 Scheduler 또는 배치
 - 복수 상품 주문, `order_items`와 장바구니
 - 별도 재고·예약 테이블
+- Redis 예약의 영속 복구와 정합성 복구 배치
+- DB 비관적 잠금 제거
 - 회원 주소록 API와 주소 식별자 참조
 - 실제 인증·인가 체계
 - 배송 접수·추적·완료 처리
@@ -143,6 +145,12 @@ UUID 충돌은 현실적으로 무시할 수 있을 만큼 희박하므로 별�
 
 ## 재고 예약과 동시성
 
+신규 주문 가능성이 있는 요청은 DB transaction에 진입하기 전에 [동적 Redis 재고 선점 설계](dynamic-redis-inventory-reservation.md)에 따라 짧은 수명의 재고 선점을 시도한다. 같은 판매 일정의 cache miss는 Single-flight로 초기화하고 Lua script가 재고 확인과 차감을 원자적으로 수행한다. Redis가 품절을 반환하면 기존 `ORDER_QUANTITY_UNAVAILABLE` 오류를 즉시 반환한다.
+
+Redis 연결 실패, timeout, script 오류와 초기화 실패는 기존 DB 주문 경로로 우회한다. Redis 선점에 성공한 요청도 아래 DB 잠금과 예약 집계를 모두 수행하며, DB에서 신규 주문이 생성되지 않으면 세대가 일치하는 Redis 예약을 멱등하게 복원한다. Redis 재고는 초기화 후 고정 30초 동안 유지하고 요청 처리로 TTL을 연장하지 않는다.
+
+Redis는 품절 요청을 빠르게 거절하는 보조 계층이며 DB 재고 검증을 대체하지 않는다. Redis 재고가 실제보다 적으면 최대 30초 동안 보수적으로 품절 응답을 할 수 있고, 실제보다 많으면 DB 최종 검증이 초과 판매를 막는다.
+
 판매 가능한 최초 수량의 원천은 `Sale.quantity`이다. 주문 생성 시 같은 `sale`에 대해 다음 순서를 하나의 DB 트랜잭션으로 수행한다.
 
 1. `SaleRepository.findByIdForUpdate(saleId)`로 `sales` 행에 비관적 쓰기 잠금을 획득한다.
@@ -186,9 +194,9 @@ UUID 충돌은 현실적으로 무시할 수 있을 만큼 희박하므로 별�
 ## 계층과 데이터 흐름
 
 - `presentation`: `OrderController`가 `X-Buyer-Id`, `Idempotency-Key`와 `CreateOrderRequest`를 받고 application DTO로 변환한다. 비즈니스 로직과 JPA 타입을 포함하지 않는다.
-- `application`: `OrderService`가 선행 멱등성 조회와 persistence 충돌 처리를 담당하고, 주문 생성 트랜잭션 서비스가 판매 잠금, 시간·재고 검증, 상품 조회와 저장을 조율한다. 응답은 저장된 `paymentOrderId`를 포함한 `OrderResponse`로 변환한다.
+- `application`: `OrderService`가 선행 멱등성 조회, Redis 재고 선점, DB 결과에 따른 복원과 persistence 충돌 처리를 담당하고, 주문 생성 트랜잭션 서비스가 판매 잠금, 시간·재고 검증, 상품 조회와 저장을 조율한다. 응답은 저장된 `paymentOrderId`를 포함한 `OrderResponse`로 변환한다.
 - `domain`: `Order`, `ShippingAddress`, `OrderStatus`, `OrderRepository`가 주문 상태와 생성 규칙, `paymentOrderId` 생성, 입력 정규화, 금액 계산 및 영속성 계약을 관리한다.
-- `infrastructure`: Spring Data JPA 기반 주문 저장·조회·예약 수량 집계와 unique 제약 변환을 구현한다. 기존 `SaleRepository`의 비관적 잠금 조회 구현도 infrastructure에 둔다.
+- `infrastructure`: Spring Data JPA 기반 주문 저장·조회·예약 수량 집계와 unique 제약 변환, Redis 연결과 Lua script 실행을 구현한다. 기존 `SaleRepository`의 비관적 잠금 조회 구현도 infrastructure에 둔다.
 
 의존 방향은 `order.presentation → order.application → order.domain`을 따른다. 주문 application은 유스케이스 조율을 위해 `sale.domain`, `product.domain`의 Repository와 Entity를 사용할 수 있지만, `Order` Entity가 다른 도메인의 Entity나 Repository에 의존하지 않는다. `sale`과 `product`는 `order`를 의존하지 않는다.
 
@@ -248,6 +256,18 @@ UUID 충돌은 현실적으로 무시할 수 있을 만큼 희박하므로 별�
 - 같은 멱등성 키와 동일 요청에는 기존 주문의 `paymentOrderId`를 반환하고 새 값을 생성하지 않는지 확인한다.
 - 최초 조회 뒤 같은 판매 일정의 잠금을 기다린 동일 키 요청도 재고 부족보다 기존 주문을 우선 반환하는지 확인한다.
 - 멱등성 재요청이 만료 시각을 연장하지 않는지 확인한다.
+- Redis 품절 응답에서는 DB 주문 transaction을 호출하지 않는지 확인한다.
+- Redis 장애와 초기화 실패에서는 기존 DB 주문 경로를 실행하는지 확인한다.
+- Redis 선점 후 DB에서 신규 주문이 생성되지 않으면 예약을 한 번만 복원하는지 확인한다.
+
+### Redis와 Single-flight
+
+- 같은 판매 일정의 동시 cache miss가 DB 재고 snapshot을 한 번만 읽는지 확인한다.
+- 서로 다른 판매 일정의 초기화가 독립적으로 처리되는지 확인한다.
+- 병렬 Lua 선점의 성공 수량 합이 초기 Redis 재고를 넘지 않는지 확인한다.
+- 중복 복원과 이전 cache generation의 늦은 복원이 현재 재고를 증가시키지 않는지 확인한다.
+- 재고 TTL이 초기화 후 30초로 고정되고 주문 요청으로 연장되지 않는지 확인한다.
+- Redis timeout과 script 오류가 기존 DB 주문 결과를 변경하지 않는지 확인한다.
 
 ### PostgreSQL 영속성과 동시성
 
@@ -273,6 +293,6 @@ UUID 충돌은 현실적으로 무시할 수 있을 만큼 희박하므로 별�
 
 ## 주요 결정
 
-주문 행을 예약 기록으로 사용하고 판매 일정 행 잠금으로 동시 주문을 직렬화하는 결정은 ADR-015로 기록했다. 이 결정은 현재 단일 상품 주문의 정합성을 단순한 구조로 보장하며, 결제 상태 전이·취소·복수 상품이 추가될 때 해당 요구사항과 함께 다시 검토한다.
+주문 행을 예약 기록으로 사용하고 판매 일정 행 잠금으로 동시 주문을 직렬화하는 결정은 ADR-015로 기록했다. 이 결정은 현재 단일 상품 주문의 최종 정합성을 보장한다. 품절 요청을 DB 전에 거절하는 짧은 수명의 동적 Redis 선점 계층은 ADR-026으로 추가했으며 기존 DB 잠금과 집계를 제거하지 않는다. 결제 상태 전이·취소·복수 상품 또는 영속 예약 복구가 추가될 때 해당 요구사항과 함께 다시 검토한다.
 
 결제 요청용 식별자는 내부 주문 ID나 구매자 제공 멱등성 키를 재사용하지 않고 서버가 생성한 canonical UUID v4로 관리한다. 이는 [토스페이먼츠 주문서형 결제 JavaScript SDK](https://docs.tosspayments.com/sdk/v2/js/payment-widget)의 `orderId` 규격을 만족하면서 내부 식별자와 외부 결제 프로토콜의 역할을 분리한다. 이번 변경은 기존 주문 모델 내부의 필드와 API 응답을 확장할 뿐 도메인 경계나 외부 시스템 연동 구조를 변경하지 않으므로 별도 ADR을 작성하지 않는다.
