@@ -14,21 +14,11 @@ class SettlementRunJdbcRepository(
 		jdbcTemplate.query(
 			"""
 			SELECT id, settlement_date, platform_fee_rate_bps, status,
-			       collected_count, collected_amount, collection_completed_at
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
 			FROM settlement_runs
 			WHERE settlement_date = ?
 			""".trimIndent(),
-			{ resultSet, _ ->
-				SettlementRunSnapshot(
-					id = resultSet.getLong("id"),
-					settlementDate = resultSet.getObject("settlement_date", LocalDate::class.java),
-					platformFeeRateBps = resultSet.getInt("platform_fee_rate_bps"),
-					status = SettlementRunStatus.valueOf(resultSet.getString("status")),
-					collectedCount = resultSet.getLong("collected_count"),
-					collectedAmount = resultSet.getLong("collected_amount"),
-					collectionCompletedAt = resultSet.getTimestamp("collection_completed_at")?.toInstant(),
-				)
-			},
+			{ resultSet, _ -> resultSet.toSettlementRunSnapshot() },
 			settlementDate,
 		).singleOrNull()
 
@@ -54,6 +44,7 @@ class SettlementRunJdbcRepository(
 			collectedCount = 0,
 			collectedAmount = 0,
 			collectionCompletedAt = null,
+			confirmationCompletedAt = null,
 		)
 	}
 
@@ -94,23 +85,52 @@ class SettlementRunJdbcRepository(
 		jdbcTemplate.query(
 			"""
 			SELECT id, settlement_date, platform_fee_rate_bps, status,
-			       collected_count, collected_amount, collection_completed_at
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
 			FROM settlement_runs
 			WHERE id = ?
 			""".trimIndent(),
-			{ resultSet, _ ->
-				SettlementRunSnapshot(
-					id = resultSet.getLong("id"),
-					settlementDate = resultSet.getObject("settlement_date", LocalDate::class.java),
-					platformFeeRateBps = resultSet.getInt("platform_fee_rate_bps"),
-					status = SettlementRunStatus.valueOf(resultSet.getString("status")),
-					collectedCount = resultSet.getLong("collected_count"),
-					collectedAmount = resultSet.getLong("collected_amount"),
-					collectionCompletedAt = resultSet.getTimestamp("collection_completed_at")?.toInstant(),
-				)
-			},
+			{ resultSet, _ -> resultSet.toSettlementRunSnapshot() },
 			settlementRunId,
 		).singleOrNull()
+
+	fun findByIdForUpdate(settlementRunId: Long): SettlementRunSnapshot? =
+		jdbcTemplate.query(
+			"""
+			SELECT id, settlement_date, platform_fee_rate_bps, status,
+			       collected_count, collected_amount, collection_completed_at, confirmation_completed_at
+			FROM settlement_runs
+			WHERE id = ?
+			FOR UPDATE
+			""".trimIndent(),
+			{ resultSet, _ -> resultSet.toSettlementRunSnapshot() },
+			settlementRunId,
+		).singleOrNull()
+
+	fun markConfirmed(settlementRunId: Long, confirmedAt: Instant) {
+		val updated = jdbcTemplate.update(
+			"""
+			UPDATE settlement_runs
+			SET status = 'CONFIRMED', confirmation_completed_at = ?
+			WHERE id = ? AND status = 'COLLECTED'
+			""".trimIndent(),
+			confirmedAt.atOffset(ZoneOffset.UTC),
+			settlementRunId,
+		)
+		if (updated != 1) {
+			throw SettlementRunStateException("COLLECTED 상태의 SettlementRun을 확정할 수 없습니다: settlementRunId=$settlementRunId")
+		}
+	}
+
+	private fun java.sql.ResultSet.toSettlementRunSnapshot() = SettlementRunSnapshot(
+		id = getLong("id"),
+		settlementDate = getObject("settlement_date", LocalDate::class.java),
+		platformFeeRateBps = getInt("platform_fee_rate_bps"),
+		status = SettlementRunStatus.valueOf(getString("status")),
+		collectedCount = getLong("collected_count"),
+		collectedAmount = getLong("collected_amount"),
+		collectionCompletedAt = getTimestamp("collection_completed_at")?.toInstant(),
+		confirmationCompletedAt = getTimestamp("confirmation_completed_at")?.toInstant(),
+	)
 }
 
 data class SettlementRunSnapshot(
@@ -121,6 +141,7 @@ data class SettlementRunSnapshot(
 	val collectedCount: Long,
 	val collectedAmount: Long,
 	val collectionCompletedAt: Instant?,
+	val confirmationCompletedAt: Instant?,
 )
 
 data class SettlementDetailAggregate(
@@ -131,6 +152,7 @@ data class SettlementDetailAggregate(
 enum class SettlementRunStatus {
 	COLLECTING,
 	COLLECTED,
+	CONFIRMED,
 }
 
 class SettlementRunStateException(message: String) : IllegalStateException(message)

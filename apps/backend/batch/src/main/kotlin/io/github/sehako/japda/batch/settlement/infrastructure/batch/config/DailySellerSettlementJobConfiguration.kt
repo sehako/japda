@@ -4,11 +4,13 @@ import io.github.sehako.japda.batch.settlement.application.dto.CreateSettlementD
 import io.github.sehako.japda.batch.settlement.application.dto.SettlementPaymentProjection
 import io.github.sehako.japda.batch.settlement.application.processor.SettlementPaymentProcessor
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementCollectionTasklet
+import io.github.sehako.japda.batch.settlement.application.tasklet.ConfirmSellerSettlementsTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.PrepareSettlementRunTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.PrepareSettlementRunTasklet.Companion.SETTLEMENT_RUN_ID_CONTEXT_KEY
 import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.validation.DailySellerSettlementJobParametersValidator
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
+import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import java.time.Clock
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -53,6 +55,13 @@ class DailySellerSettlementJobConfiguration {
 		settlementRunRepository: SettlementRunJdbcRepository,
 		clock: Clock,
 	) = CompleteSettlementCollectionTasklet(settlementRunRepository, clock)
+
+	@Bean
+	fun confirmSellerSettlementsTasklet(
+		settlementRunRepository: SettlementRunJdbcRepository,
+		sellerSettlementRepository: SellerSettlementJdbcRepository,
+		clock: Clock,
+	) = ConfirmSellerSettlementsTasklet(settlementRunRepository, sellerSettlementRepository, clock)
 
 	@Bean
 	fun settlementRunIdPromotionListener() = ExecutionContextPromotionListener().apply {
@@ -175,17 +184,28 @@ class DailySellerSettlementJobConfiguration {
 		.build()
 
 	@Bean
+	fun confirmSellerSettlementsStep(
+		jobRepository: JobRepository,
+		transactionManager: PlatformTransactionManager,
+		confirmSellerSettlementsTasklet: ConfirmSellerSettlementsTasklet,
+	): Step = StepBuilder(CONFIRM_STEP_NAME, jobRepository)
+		.tasklet(confirmSellerSettlementsTasklet, transactionManager)
+		.build()
+
+	@Bean
 	fun dailySellerSettlementJob(
 		jobRepository: JobRepository,
 		dailySellerSettlementJobParametersValidator: DailySellerSettlementJobParametersValidator,
 		@Qualifier("prepareSettlementRunStep") prepareSettlementRunStep: Step,
 		@Qualifier("collectSettlementDetailsStep") collectSettlementDetailsStep: Step,
 		@Qualifier("completeSettlementCollectionStep") completeSettlementCollectionStep: Step,
+		@Qualifier("confirmSellerSettlementsStep") confirmSellerSettlementsStep: Step,
 	): Job = JobBuilder(JOB_NAME, jobRepository)
 		.validator(dailySellerSettlementJobParametersValidator)
 		.start(prepareSettlementRunStep)
 		.next(collectSettlementDetailsStep)
 		.next(completeSettlementCollectionStep)
+		.next(confirmSellerSettlementsStep)
 		.build()
 
 	private fun java.sql.ResultSet.getNullableLong(columnName: String): Long? =
@@ -199,6 +219,7 @@ class DailySellerSettlementJobConfiguration {
 		const val PREPARE_STEP_NAME = "prepareSettlementRunStep"
 		const val COLLECT_STEP_NAME = "collectSettlementDetailsStep"
 		const val COMPLETE_STEP_NAME = "completeSettlementCollectionStep"
+		const val CONFIRM_STEP_NAME = "confirmSellerSettlementsStep"
 		const val CHUNK_SIZE = 100
 		const val APPROVED_PAYMENT_STATUS = "APPROVED"
 
