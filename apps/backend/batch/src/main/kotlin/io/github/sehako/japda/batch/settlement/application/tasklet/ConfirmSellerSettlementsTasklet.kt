@@ -55,7 +55,9 @@ class ConfirmSellerSettlementsTasklet(
 
 		when (settlementRun.status) {
 			SettlementRunStatus.COLLECTED -> confirm(settlementRun)
-			SettlementRunStatus.CONFIRMED -> validateConfirmed(settlementRun)
+			SettlementRunStatus.CONFIRMED,
+			SettlementRunStatus.COMPLETED,
+			-> validateConfirmed(settlementRun)
 			SettlementRunStatus.COLLECTING -> fail(
 				SettlementConfirmationErrorType.INVALID_RUN_STATUS,
 				"확정할 수 없는 SettlementRun 상태입니다: settlementRunId=$settlementRunId, status=${settlementRun.status}",

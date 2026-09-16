@@ -27,6 +27,7 @@ val snippetsDir = layout.buildDirectory.dir("generated-snippets")
 val asciidoctorOutputDir = layout.buildDirectory.dir("docs/asciidoc")
 
 dependencies {
+	implementation(project(":modules:ledger"))
 	implementation(platform("software.amazon.awssdk:bom:2.54.9"))
 	implementation("software.amazon.awssdk:s3")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
