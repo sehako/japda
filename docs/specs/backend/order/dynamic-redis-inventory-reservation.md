@@ -18,7 +18,7 @@
 
 ## 기존 구조와 결정
 
-[백엔드 아키텍처](../../../architecture/backend.md), [주문 행 기반 재고 예약과 판매 일정 잠금 결정](../../../architecture/decisions/ADR-015-order-row-reservation-with-sale-lock.md), [동적 Redis 재고 선점 결정](../../../architecture/decisions/ADR-026-dynamic-redis-inventory-reservation.md)을 따른다.
+[백엔드 아키텍처](../../../architecture/backend.md), [주문 행 기반 재고 예약과 판매 일정 잠금 결정](../../../architecture/decisions/ADR-015-order-row-reservation-with-sale-lock.md), [동적 Redis 재고 선점 결정](../../../architecture/decisions/ADR-026-dynamic-redis-inventory-reservation.md), [Redis 분산 lock 기반 초기화 결정](../../../architecture/decisions/ADR-027-redis-only-inventory-initialization-single-flight.md)을 따른다.
 
 현재 주문 생성은 대상 `sales` 행에 비관적 쓰기 잠금을 획득한 뒤 유효한 주문 예약과 결제 상태를 집계한다. 이번 단계는 모든 판매 재고를 Redis에 상시 적재하지 않는다. 실제 주문 요청이 발생한 `saleId`만 짧게 활성화하고, Redis가 명백한 품절로 판단한 요청을 빠르게 거절한다. 별도 DB 예약 테이블과 복구 배치가 없는 동안 Redis는 최종 재고 원천이나 영구 예약 기록이 아니다.
 

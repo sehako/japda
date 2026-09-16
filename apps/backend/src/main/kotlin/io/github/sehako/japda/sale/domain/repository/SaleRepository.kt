@@ -9,5 +9,7 @@ interface SaleRepository {
 
 	fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate): Boolean
 
+	fun findQuantityById(id: Long): Int? = null
+
 	fun findByIdForUpdate(id: Long): Sale?
 }

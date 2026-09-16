@@ -85,6 +85,21 @@ class SaleRepositoryTest {
 	}
 
 	@Test
+	@DisplayName("판매 일정의 수량만 잠금 없이 조회한다")
+	fun 판매_일정_수량만_잠금_없이_조회한다() {
+		val productId = insertProduct()
+		saleDayRepository.createIfAbsent(SALE_DATE, 20)
+		val saleId = assertNotNull(
+			saleRepository.save(Sale.create(productId, 1L, SALE_DATE, 35_000L, 37, CREATED_AT)).id,
+		)
+		entityManager.flush()
+		entityManager.clear()
+
+		assertEquals(37, saleRepository.findQuantityById(saleId))
+		assertEquals(null, saleRepository.findQuantityById(Long.MAX_VALUE))
+	}
+
+	@Test
 	@DisplayName("판매자와 판매일 유일성 충돌만 판매자 중복 persistence 오류로 분류한다")
 	fun 판매자와_판매일_유일성_충돌만_판매자_중복_persistence_오류로_분류한다() {
 		val firstProductId = insertProduct()

@@ -55,4 +55,5 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 023 | [구매자·판매자 식별을 인증 주체 연결로 전환하고 쿠키 API에 CSRF 보호 적용](ADR-023-buyer-seller-principal-identity-and-cookie-csrf.md) | backend | 승인 |
 | 024 | [API·배치·원장 기능을 점진적 Gradle 멀티 프로젝트로 구성](ADR-024-backend-api-batch-ledger-multi-project.md) | backend | 승인 |
 | 025 | [판매자 일일 정산과 사용자 플랫폼 지갑 원장](ADR-025-daily-seller-settlement-and-user-wallet-ledger.md) | backend | 승인 |
-| 026 | [짧은 수명의 동적 Redis 재고 선점 계층 도입](ADR-026-dynamic-redis-inventory-reservation.md) | backend | 승인 |
+| 026 | [짧은 수명의 동적 Redis 재고 선점 계층 도입](ADR-026-dynamic-redis-inventory-reservation.md) | backend | 대체됨 |
+| 027 | [Redis 분산 lock만으로 재고 초기화 Single-flight 구성](ADR-027-redis-only-inventory-initialization-single-flight.md) | backend | 승인 |

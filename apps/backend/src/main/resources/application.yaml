@@ -1,4 +1,11 @@
 spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration
+      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
   application:
     name: backend
   datasource:
@@ -42,6 +49,20 @@ payment:
     connect-timeout: ${TOSS_CONNECT_TIMEOUT:PT3S}
     response-timeout: ${TOSS_RESPONSE_TIMEOUT:PT10S}
 
+order:
+  inventory:
+    redis:
+      enabled: ${ORDER_INVENTORY_REDIS_ENABLED:false}
+      namespace: ${ORDER_INVENTORY_REDIS_NAMESPACE:japda}
+      host: ${ORDER_INVENTORY_REDIS_HOST:localhost}
+      port: ${ORDER_INVENTORY_REDIS_PORT:6379}
+      connect-timeout: ${ORDER_INVENTORY_REDIS_CONNECT_TIMEOUT:PT0.5S}
+      command-timeout: ${ORDER_INVENTORY_REDIS_COMMAND_TIMEOUT:PT0.2S}
+      stock-ttl: ${ORDER_INVENTORY_REDIS_STOCK_TTL:PT30S}
+      lock-ttl: ${ORDER_INVENTORY_REDIS_LOCK_TTL:PT3S}
+      polling-timeout: ${ORDER_INVENTORY_REDIS_POLLING_TIMEOUT:PT0.5S}
+      polling-interval: ${ORDER_INVENTORY_REDIS_POLLING_INTERVAL:PT0.025S}
+
 cors:
   allowed-origins:
     - http://localhost:5173
@@ -54,3 +75,9 @@ auth:
   failure-url: ${AUTH_FAILURE_URL:http://localhost:5173/auth/failure}
   cookie-secure: ${AUTH_COOKIE_SECURE:false}
   admin-emails: ${AUTH_ADMIN_EMAILS:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        exclude: "*"
