@@ -1,6 +1,7 @@
 package io.github.sehako.japda.order.infrastructure.persistence
 
 import io.github.sehako.japda.order.domain.model.Order
+import io.github.sehako.japda.order.domain.model.OrderStatus
 import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.domain.model.OrderRequest
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
@@ -118,49 +119,6 @@ class OrderRepositoryTest {
 	}
 
 	@Test
-	@DisplayName("현재 시각보다 늦게 만료되는 결제 대기 주문만 예약 수량에 포함한다")
-	fun 현재_시각보다_늦게_만료되는_주문만_예약_수량에_포함한다() {
-		insertOrder(UUID.randomUUID(), 2, NOW.plusSeconds(1))
-		insertOrder(UUID.randomUUID(), 3, NOW)
-		insertOrder(UUID.randomUUID(), 4, NOW.minusSeconds(1))
-
-		assertEquals(2L, orderRepository.sumCommittedQuantity(saleId, NOW))
-	}
-
-	@Test
-	@DisplayName("만료 후 승인 중인 주문과 결제 완료 주문은 판매 수량에 포함한다")
-	fun 만료_후_승인_중과_결제_완료_주문_판매_수량에_포함한다() {
-		val confirming = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
-		val paid = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
-		jdbcTemplate.update(
-			"UPDATE orders SET created_at = ?, expires_at = ? WHERE id IN (?, ?)",
-			java.sql.Timestamp.from(NOW.minusSeconds(300)),
-			java.sql.Timestamp.from(NOW.minusSeconds(1)),
-			confirming.id,
-			paid.id,
-		)
-		paymentRepository.save(Payment.create(requireNotNull(confirming.id), "payment-key", confirming.totalPrice, NOW))
-		paid.markPaid()
-
-		assertEquals(4L, orderRepository.sumCommittedQuantity(saleId, NOW))
-	}
-
-	@Test
-	@DisplayName("수동 확인 주문은 계속 예약하고 확정 실패 주문은 예약에서 제외한다")
-	fun 수동_확인_주문_예약_유지_확정_실패_주문_제외한다() {
-		val reviewing = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
-		val failed = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
-		jdbcTemplate.update(
-			"UPDATE orders SET created_at = ?, expires_at = ? WHERE id IN (?, ?)",
-			java.sql.Timestamp.from(NOW.minusSeconds(300)), java.sql.Timestamp.from(NOW.minusSeconds(1)), reviewing.id, failed.id,
-		)
-		paymentRepository.save(Payment.create(requireNotNull(reviewing.id), "review-key", reviewing.totalPrice, NOW).also { it.requireReview(NOW) })
-		paymentRepository.save(Payment.create(requireNotNull(failed.id), "failed-key", failed.totalPrice, NOW).also { it.fail(NOW) })
-
-		assertEquals(2L, orderRepository.sumCommittedQuantity(saleId, NOW))
-	}
-
-	@Test
 	@DisplayName("서로 다른 주문의 같은 결제 키는 DB 제약으로 거절한다")
 	fun 결제_키_유일성_제약을_적용한다() {
 		val first = orderRepository.save(order(idempotencyKey = UUID.randomUUID()))
@@ -191,6 +149,16 @@ class OrderRepositoryTest {
 		assertFailsWith<OrderIdempotencyPersistenceException> {
 			orderRepository.save(order())
 		}
+	}
+
+	@Test
+	@DisplayName("결제 대기 주문만 결제 완료로 변경한다")
+	fun 결제_대기_주문만_결제_완료로_변경한다() {
+		val saved = orderRepository.save(order())
+
+		assertTrue(orderRepository.markPaidIfPending(requireNotNull(saved.id)))
+		assertEquals(OrderStatus.PAID, orderRepository.findById(requireNotNull(saved.id))?.status)
+		assertEquals(false, orderRepository.markPaidIfPending(requireNotNull(saved.id)))
 	}
 
 	@Test
@@ -259,23 +227,6 @@ class OrderRepositoryTest {
 			isAccessible = true
 			set(order, paymentOrderId)
 		}
-	}
-
-	private fun insertOrder(key: UUID, quantity: Int, expiresAt: Instant) {
-		jdbcTemplate.update(
-			"""INSERT INTO orders (
-				sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
-				recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-			) VALUES (?, ?, ?, ?, ?, '상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
-			saleId,
-			key.mostSignificantBits.and(Long.MAX_VALUE) + 1,
-			key,
-			UUID.randomUUID().toString(),
-			quantity,
-			35_000L * quantity,
-			java.sql.Timestamp.from(NOW.minusSeconds(60)),
-			java.sql.Timestamp.from(expiresAt),
-		)
 	}
 
 	private companion object {

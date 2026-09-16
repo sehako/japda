@@ -1,7 +1,6 @@
 package io.github.sehako.japda.order.domain.repository
 
 import io.github.sehako.japda.order.domain.model.Order
-import java.time.Instant
 import java.util.UUID
 
 interface OrderRepository {
@@ -15,7 +14,7 @@ interface OrderRepository {
 
 	fun findSaleIdById(id: Long): Long?
 
-	fun sumCommittedQuantity(saleId: Long, now: Instant): Long
+	fun markPaidIfPending(orderId: Long): Boolean
 
 	fun save(order: Order): Order
 }

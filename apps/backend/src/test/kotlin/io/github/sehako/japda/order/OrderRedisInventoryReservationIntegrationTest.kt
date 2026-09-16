@@ -78,8 +78,10 @@ class OrderRedisInventoryReservationIntegrationTest {
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
 		checkNotNull(redisTemplate.connectionFactory).connection.use { it.serverCommands().flushDb() }
+		jdbcTemplate.update("DELETE FROM inventory_reservations")
 		jdbcTemplate.update("DELETE FROM payments")
 		jdbcTemplate.update("DELETE FROM orders")
+		jdbcTemplate.update("DELETE FROM sale_inventory_counters")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
@@ -99,6 +101,12 @@ class OrderRedisInventoryReservationIntegrationTest {
 			SALE_DATE,
 			java.sql.Timestamp.from(NOW),
 		)!!
+		jdbcTemplate.update(
+			"INSERT INTO sale_inventory_counters (sale_id, committed_quantity, created_at, updated_at) VALUES (?, 0, ?, ?)",
+			saleId,
+			java.sql.Timestamp.from(NOW),
+			java.sql.Timestamp.from(NOW),
+		)
 	}
 
 	@AfterEach
@@ -246,12 +254,13 @@ class OrderRedisInventoryReservationIntegrationTest {
 		jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java)!!
 
 	private fun insertCommittedOrder(saleId: Long, quantity: Int) {
-		jdbcTemplate.update(
+		val orderId = jdbcTemplate.queryForObject(
 			"""INSERT INTO orders (
 				sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
 				recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
 			) VALUES (?, 999, ?, ?, ?, '기존 상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010-1234-5678',
-				'06236', '서울시 강남구', '101호', ?, ?)""",
+				'06236', '서울시 강남구', '101호', ?, ?) RETURNING id""",
+			Long::class.java,
 			saleId,
 			UUID.randomUUID(),
 			UUID.randomUUID().toString(),
@@ -259,6 +268,23 @@ class OrderRedisInventoryReservationIntegrationTest {
 			35_000L * quantity,
 			java.sql.Timestamp.from(NOW.minusSeconds(60)),
 			java.sql.Timestamp.from(NOW.plusSeconds(120)),
+		)!!
+		jdbcTemplate.update(
+			"""INSERT INTO inventory_reservations
+				(id, sale_id, order_id, quantity, status, expires_at, created_at, updated_at)
+				VALUES (?, ?, ?, ?, 'RESERVED', ?, ?, ?)""",
+			UUID.randomUUID(),
+			saleId,
+			orderId,
+			quantity,
+			java.sql.Timestamp.from(NOW.plusSeconds(120)),
+			java.sql.Timestamp.from(NOW.minusSeconds(60)),
+			java.sql.Timestamp.from(NOW.minusSeconds(60)),
+		)
+		jdbcTemplate.update(
+			"UPDATE sale_inventory_counters SET committed_quantity = ? WHERE sale_id = ?",
+			quantity,
+			saleId,
 		)
 	}
 

@@ -13,4 +13,16 @@ interface PaymentRepository {
 	fun findDue(now: Instant, limit: Int): List<Payment>
 
 	fun save(payment: Payment): Payment
+
+	fun approveIfConfirming(id: Long, approvedAt: Instant): Boolean
+
+	fun failIfConfirming(id: Long, checkedAt: Instant): Boolean
+
+	fun claimIfDue(id: Long, now: Instant, nextReconcileAt: Instant): Boolean
+
+	fun deferIfConfirming(id: Long, checkedAt: Instant, nextReconcileAt: Instant): Boolean
+
+	fun requireReviewIfConfirming(id: Long, checkedAt: Instant): Boolean
+
+	fun requireReviewIfOverdue(id: Long, requestedAtOrBefore: Instant, checkedAt: Instant): Boolean
 }

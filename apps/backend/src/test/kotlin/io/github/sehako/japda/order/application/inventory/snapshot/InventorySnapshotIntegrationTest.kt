@@ -1,6 +1,8 @@
 package io.github.sehako.japda.order.application.inventory.snapshot
 
-import io.github.sehako.japda.order.infrastructure.persistence.OrderRepositoryImpl
+import io.github.sehako.japda.order.application.inventory.ExpiredInventoryReservationReleaseService
+import io.github.sehako.japda.order.infrastructure.persistence.InventoryReservationRepositoryImpl
+import io.github.sehako.japda.order.infrastructure.persistence.SaleInventoryCounterRepositoryImpl
 import io.github.sehako.japda.sale.infrastructure.persistence.SaleRepositoryImpl
 import java.time.Clock
 import java.time.Instant
@@ -29,7 +31,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(
 	InventorySnapshotService::class,
-	OrderRepositoryImpl::class,
+	ExpiredInventoryReservationReleaseService::class,
+	InventoryReservationRepositoryImpl::class,
+	SaleInventoryCounterRepositoryImpl::class,
 	SaleRepositoryImpl::class,
 	InventorySnapshotIntegrationTest.ClockConfiguration::class,
 )
@@ -46,8 +50,10 @@ class InventorySnapshotIntegrationTest {
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
+		jdbcTemplate.update("DELETE FROM inventory_reservations")
 		jdbcTemplate.update("DELETE FROM payments")
 		jdbcTemplate.update("DELETE FROM orders")
+		jdbcTemplate.update("DELETE FROM sale_inventory_counters")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
@@ -64,25 +70,35 @@ class InventorySnapshotIntegrationTest {
 			productId,
 			SALE_DATE,
 		)!!
+		jdbcTemplate.update(
+			"INSERT INTO sale_inventory_counters (sale_id, committed_quantity, created_at, updated_at) VALUES (?, 7, ?, ?)",
+			saleId,
+			java.sql.Timestamp.from(NOW),
+			java.sql.Timestamp.from(NOW),
+		)
 	}
 
 	@Test
 	@Transactional(propagation = Propagation.NOT_SUPPORTED)
 	@DisplayName("동일한 DB snapshot에서 판매 수량과 유효한 예약을 읽어 가용 수량을 계산한다")
 	fun 판매_수량과_유효한_예약_동일_DB_snapshot으로_계산한다() {
-		insertOrder(quantity = 3, expiresAt = NOW.plusSeconds(1))
-		insertOrder(quantity = 4, expiresAt = NOW)
+		insertReservation(quantity = 3, expiresAt = NOW.plusSeconds(1))
+		insertReservation(quantity = 4, expiresAt = NOW)
 
 		assertEquals(InventorySnapshotResult.Available(7), inventorySnapshotService.read(saleId))
+		assertEquals(3, jdbcTemplate.queryForObject("SELECT committed_quantity FROM sale_inventory_counters WHERE sale_id = ?", Int::class.java, saleId))
+		assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM inventory_reservations WHERE status = 'RELEASED'", Int::class.java))
 	}
 
-	private fun insertOrder(quantity: Int, expiresAt: Instant) {
+	private fun insertReservation(quantity: Int, expiresAt: Instant) {
 		val key = UUID.randomUUID()
-		jdbcTemplate.update(
+		val orderId = jdbcTemplate.queryForObject(
 			"""INSERT INTO orders (
 				sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
 				recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-			) VALUES (?, ?, ?, ?, ?, '상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)""",
+			) VALUES (?, ?, ?, ?, ?, '상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010', '06236', '서울', '101호', ?, ?)
+			RETURNING id""",
+			Long::class.java,
 			saleId,
 			key.mostSignificantBits.and(Long.MAX_VALUE) + 1,
 			key,
@@ -91,6 +107,18 @@ class InventorySnapshotIntegrationTest {
 			35_000L * quantity,
 			java.sql.Timestamp.from(NOW.minusSeconds(60)),
 			java.sql.Timestamp.from(expiresAt),
+		)!!
+		jdbcTemplate.update(
+			"""INSERT INTO inventory_reservations
+				(id, sale_id, order_id, quantity, status, expires_at, created_at, updated_at)
+				VALUES (?, ?, ?, ?, 'RESERVED', ?, ?, ?)""",
+			UUID.randomUUID(),
+			saleId,
+			orderId,
+			quantity,
+			java.sql.Timestamp.from(expiresAt),
+			java.sql.Timestamp.from(NOW.minusSeconds(60)),
+			java.sql.Timestamp.from(NOW.minusSeconds(60)),
 		)
 	}
 

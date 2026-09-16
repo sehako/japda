@@ -1,9 +1,11 @@
 package io.github.sehako.japda.sale.application.service
 
-import io.github.sehako.japda.sale.application.config.SaleDailyCapacity
-import io.github.sehako.japda.sale.application.dto.CreateSaleDto
+import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
+import io.github.sehako.japda.order.domain.repository.SaleInventoryReserveResult
 import io.github.sehako.japda.product.domain.model.Product
 import io.github.sehako.japda.product.domain.repository.ProductRepository
+import io.github.sehako.japda.sale.application.config.SaleDailyCapacity
+import io.github.sehako.japda.sale.application.dto.CreateSaleDto
 import io.github.sehako.japda.sale.domain.model.Sale
 import io.github.sehako.japda.sale.domain.model.SaleDay
 import io.github.sehako.japda.sale.domain.repository.SaleDayRepository
@@ -31,12 +33,15 @@ class SaleServiceTest {
         val product = readyProduct(id = 10L, sellerId = 1L)
         val saleRepository = RecordingSaleRepository()
         val saleDayRepository = RecordingSaleDayRepository()
-        val service = service(product, saleRepository, saleDayRepository)
+        val counterRepository = RecordingSaleInventoryCounterRepository()
+        val service = service(product, saleRepository, saleDayRepository, counterRepository)
 
         val response = service.create(CreateSaleDto(1L, 10L, saleDate, 35_000L, 100))
 
         assertEquals(1, saleDayRepository.savedSaleDay?.registeredCount)
         assertEquals(10L, saleRepository.savedSale?.productId)
+        assertEquals(1L, counterRepository.createdSaleId)
+        assertEquals(now, counterRepository.createdAt)
         assertEquals(1L, response.id)
         assertEquals(Instant.parse("2026-09-11T15:00:00Z"), response.startsAt)
         assertEquals(Instant.parse("2026-09-12T15:00:00Z"), response.endsAt)
@@ -99,15 +104,34 @@ class SaleServiceTest {
         product: Product?,
         saleRepository: RecordingSaleRepository = RecordingSaleRepository(),
         saleDayRepository: RecordingSaleDayRepository = RecordingSaleDayRepository(),
+        counterRepository: RecordingSaleInventoryCounterRepository = RecordingSaleInventoryCounterRepository(),
     ): SaleService {
         val transactionService = SaleRegistrationTransactionService(
             productRepository = StubProductRepository(product),
             saleRepository = saleRepository,
             saleDayRepository = saleDayRepository,
+            saleInventoryCounterRepository = counterRepository,
             dailyCapacity = SaleDailyCapacity(20),
             clock = Clock.fixed(now, ZoneOffset.UTC),
         )
         return SaleService(transactionService)
+    }
+
+    private class RecordingSaleInventoryCounterRepository : SaleInventoryCounterRepository {
+        var createdSaleId: Long? = null
+        var createdAt: Instant? = null
+
+        override fun create(saleId: Long, now: Instant) {
+            createdSaleId = saleId
+            createdAt = now
+        }
+
+        override fun reserve(saleId: Long, quantity: Int, now: Instant): SaleInventoryReserveResult =
+            SaleInventoryReserveResult.ACQUIRED
+
+        override fun release(saleId: Long, quantity: Int, now: Instant): Boolean = true
+
+        override fun findCommittedQuantity(saleId: Long): Int? = 0
     }
 
     private fun product(id: Long, sellerId: Long): Product = Product.create(
