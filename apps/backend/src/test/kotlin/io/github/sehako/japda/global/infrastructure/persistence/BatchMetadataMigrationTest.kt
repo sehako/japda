@@ -47,7 +47,10 @@ class BatchMetadataMigrationTest {
 			}
 
 			connection.prepareStatement(
-				"SELECT constraint_name FROM information_schema.table_constraints WHERE constraint_schema = ? AND constraint_type = 'FOREIGN KEY' AND constraint_name LIKE '%_fk'",
+				"""SELECT constraint_name FROM information_schema.table_constraints
+					WHERE constraint_schema = ?
+					AND constraint_type = 'FOREIGN KEY'
+					AND table_name LIKE 'batch_%'""",
 			).use { statement ->
 				statement.setString(1, SCHEMA)
 				statement.executeQuery().use { result ->

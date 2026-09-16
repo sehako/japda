@@ -1,0 +1,12 @@
+package io.github.sehako.japda.batch.settlement.exception
+
+enum class SettlementCollectionErrorType {
+	ORDER_MISSING,
+	SALE_MISSING,
+	ORDER_NOT_PAID,
+	ORDER_QUANTITY_INVALID,
+	ORDER_UNIT_PRICE_INVALID,
+	ORDER_TOTAL_PRICE_INVALID,
+	PAYMENT_AMOUNT_MISMATCH,
+	RECIPIENT_USER_MISSING,
+}

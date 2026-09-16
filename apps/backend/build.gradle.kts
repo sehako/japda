@@ -6,7 +6,6 @@ plugins {
 	kotlin("plugin.jpa") version "2.3.21"
 	id("org.springframework.boot") version "4.1.1"
 	id("io.spring.dependency-management") version "1.1.7"
-	id("org.asciidoctor.jvm.convert") version "4.0.5"
 }
 
 group = "io.github.sehako"
@@ -23,11 +22,9 @@ repositories {
 	mavenCentral()
 }
 
-val asciidoctorExt = configurations.create("asciidoctorExt")
-
-extensions.configure<org.asciidoctor.gradle.jvm.AsciidoctorJExtension> {
-	setVersion("3.0.0")
-}
+val asciidoctorRuntime = configurations.create("asciidoctorRuntime")
+val snippetsDir = layout.buildDirectory.dir("generated-snippets")
+val asciidoctorOutputDir = layout.buildDirectory.dir("docs/asciidoc")
 
 dependencies {
 	implementation(platform("software.amazon.awssdk:bom:2.54.9"))
@@ -41,7 +38,8 @@ dependencies {
 	implementation("tools.jackson.module:jackson-module-kotlin")
 	runtimeOnly("org.postgresql:postgresql")
 
-	asciidoctorExt("org.springframework.restdocs:spring-restdocs-asciidoctor")
+	asciidoctorRuntime("org.asciidoctor:asciidoctorj-cli:3.0.0")
+	asciidoctorRuntime("org.springframework.restdocs:spring-restdocs-asciidoctor")
 
 	testImplementation("org.springframework.boot:spring-boot-testcontainers")
 	testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test")
@@ -67,15 +65,30 @@ tasks.withType<Test> {
 	environment("AUTH_JWT_SIGNING_KEY", Base64.getEncoder().encodeToString(ByteArray(32) { 7 }))
 }
 
-tasks.asciidoctor {
+val asciidoctor = tasks.register<JavaExec>("asciidoctor") {
+	group = "documentation"
+	description = "Asciidoctor 문서를 생성한다."
 	dependsOn(tasks.test)
-	configurations(asciidoctorExt.name)
-	inputs.dir(layout.buildDirectory.dir("generated-snippets"))
+	inputs.dir(snippetsDir)
+	inputs.dir(layout.projectDirectory.dir("src/docs/asciidoc"))
+	outputs.dir(asciidoctorOutputDir)
+	classpath = asciidoctorRuntime
+	mainClass.set("org.asciidoctor.cli.jruby.AsciidoctorInvoker")
+	jvmArgs("--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow")
+	args(
+		"-D",
+		asciidoctorOutputDir.get().asFile.absolutePath,
+		"-a",
+		"snippets=${snippetsDir.get().asFile.absolutePath}",
+		"-a",
+		"gradle-projectdir=${layout.projectDirectory.asFile.absolutePath}",
+		layout.projectDirectory.file("src/docs/asciidoc/index.adoc").asFile.absolutePath,
+	)
 }
 
 tasks.bootJar {
-	dependsOn(tasks.asciidoctor)
-	from(tasks.asciidoctor.map { it.outputDir }) {
+	dependsOn(asciidoctor)
+	from(asciidoctorOutputDir) {
 		into("BOOT-INF/classes/static/docs")
 	}
 }

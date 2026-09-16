@@ -8,5 +8,7 @@ spring:
   flyway:
     enabled: false
   batch:
+    job:
+      enabled: false
     jdbc:
       initialize-schema: never
