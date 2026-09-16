@@ -37,6 +37,7 @@ import org.springframework.batch.infrastructure.item.database.builder.JdbcPaging
 import org.springframework.batch.infrastructure.item.database.support.PostgresPagingQueryProvider
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.annotation.Qualifier
+import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
@@ -44,7 +45,10 @@ import org.springframework.transaction.PlatformTransactionManager
 
 @Configuration(proxyBeanMethods = false)
 @Import(LedgerConfiguration::class)
-class DailySellerSettlementJobConfiguration {
+@EnableConfigurationProperties(DailySellerSettlementBatchProperties::class)
+class DailySellerSettlementJobConfiguration(
+	private val properties: DailySellerSettlementBatchProperties,
+) {
 	@Bean
 	fun dailySellerSettlementJobParametersValidator(clock: Clock) =
 		DailySellerSettlementJobParametersValidator(clock)
@@ -127,8 +131,8 @@ class DailySellerSettlementJobConfiguration {
 					"endExclusive" to dateRange.endExclusive.atOffset(ZoneOffset.UTC),
 				),
 			)
-			.pageSize(CHUNK_SIZE)
-			.fetchSize(CHUNK_SIZE)
+			.pageSize(properties.pageSize)
+			.fetchSize(properties.fetchSize)
 			.saveState(true)
 			.rowMapper { resultSet, _ ->
 				SettlementPaymentProjection(
@@ -181,7 +185,7 @@ class DailySellerSettlementJobConfiguration {
 		settlementPaymentProcessor: ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand>,
 		settlementDetailWriter: JdbcBatchItemWriter<CreateSettlementDetailCommand>,
 	): Step = StepBuilder(COLLECT_STEP_NAME, jobRepository)
-		.chunk<SettlementPaymentProjection, CreateSettlementDetailCommand>(CHUNK_SIZE)
+		.chunk<SettlementPaymentProjection, CreateSettlementDetailCommand>(properties.chunkSize)
 		.transactionManager(transactionManager)
 		.reader(settlementPaymentReader)
 		.stream(settlementPaymentReader)
@@ -224,8 +228,8 @@ class DailySellerSettlementJobConfiguration {
 			.dataSource(dataSource)
 			.queryProvider(queryProvider)
 			.parameterValues(mapOf("settlementRunId" to settlementRunId))
-			.pageSize(CHUNK_SIZE)
-			.fetchSize(CHUNK_SIZE)
+			.pageSize(properties.pageSize)
+			.fetchSize(properties.fetchSize)
 			.saveState(true)
 			.rowMapper { resultSet, _ -> resultSet.getLong("id") }
 			.build()
@@ -256,7 +260,7 @@ class DailySellerSettlementJobConfiguration {
 		sellerSettlementIdReader: JdbcPagingItemReader<Long>,
 		sellerWalletCreditWriter: ItemWriter<Long>,
 	): Step = StepBuilder(CREDIT_STEP_NAME, jobRepository)
-		.chunk<Long, Long>(CHUNK_SIZE)
+		.chunk<Long, Long>(properties.chunkSize)
 		.transactionManager(transactionManager)
 		.reader(sellerSettlementIdReader)
 		.stream(sellerSettlementIdReader)
@@ -308,7 +312,6 @@ class DailySellerSettlementJobConfiguration {
 		const val CONFIRM_STEP_NAME = "confirmSellerSettlementsStep"
 		const val CREDIT_STEP_NAME = "creditSellerWalletsStep"
 		const val COMPLETE_RUN_STEP_NAME = "completeSettlementRunStep"
-		const val CHUNK_SIZE = 100
 		const val APPROVED_PAYMENT_STATUS = "APPROVED"
 
 		val PAYMENT_PROJECTION_FROM_CLAUSE =
