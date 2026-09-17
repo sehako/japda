@@ -22,4 +22,6 @@ enum class OrderErrorCode(
 	QUANTITY_UNAVAILABLE("ORDER_QUANTITY_UNAVAILABLE", "남은 판매 수량이 부족합니다.", "quantity", ErrorCategory.CONFLICT),
 	IDEMPOTENCY_CONFLICT("ORDER_IDEMPOTENCY_CONFLICT", "같은 멱등성 키에 다른 요청을 사용할 수 없습니다.", null, ErrorCategory.CONFLICT),
 	TOTAL_PRICE_INVALID("ORDER_TOTAL_PRICE_INVALID", "주문 총액을 계산할 수 없습니다.", null, ErrorCategory.CONFLICT),
+	CURSOR_INVALID("ORDER_CURSOR_INVALID", "주문 목록 커서가 올바르지 않습니다.", "cursor"),
+	PAGE_SIZE_INVALID("ORDER_PAGE_SIZE_INVALID", "페이지 크기는 1 이상 100 이하여야 합니다.", "size"),
 }

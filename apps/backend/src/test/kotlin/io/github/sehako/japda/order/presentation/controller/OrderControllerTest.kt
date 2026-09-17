@@ -6,9 +6,14 @@ import io.github.sehako.japda.global.exception.BusinessException
 import io.github.sehako.japda.global.error.GlobalExceptionHandler
 import io.github.sehako.japda.global.error.ProblemDetailFactory
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
+import io.github.sehako.japda.order.application.cursor.OrderCursorCodec
 import io.github.sehako.japda.order.application.response.OrderResponse
+import io.github.sehako.japda.order.application.service.BuyerOrderHistoryService
 import io.github.sehako.japda.order.application.service.OrderService
 import io.github.sehako.japda.order.domain.model.OrderStatus
+import io.github.sehako.japda.order.domain.repository.BuyerOrderQuery
+import io.github.sehako.japda.order.domain.repository.BuyerOrderQueryRepository
+import io.github.sehako.japda.order.domain.repository.BuyerOrderSummary
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import java.time.Instant
@@ -36,16 +41,20 @@ import org.springframework.restdocs.operation.preprocess.Preprocessors.prettyPri
 import org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath
 import org.springframework.restdocs.payload.PayloadDocumentation.requestFields
 import org.springframework.restdocs.payload.PayloadDocumentation.responseFields
+import org.springframework.restdocs.request.RequestDocumentation.parameterWithName
+import org.springframework.restdocs.request.RequestDocumentation.queryParameters
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
 import org.springframework.security.core.context.SecurityContextHolder
 import org.springframework.security.web.method.annotation.AuthenticationPrincipalArgumentResolver
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.header
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.status
 import org.springframework.test.web.servlet.setup.MockMvcBuilders
 import org.springframework.test.web.servlet.setup.StandaloneMockMvcBuilder
+import tools.jackson.databind.json.JsonMapper
 
 @DisplayName("주문 API")
 @ExtendWith(RestDocumentationExtension::class)
@@ -53,6 +62,7 @@ class OrderControllerTest {
 	private lateinit var mockMvc: MockMvc
 	private lateinit var orderService: OrderService
 	private lateinit var principalIdentityService: PrincipalIdentityService
+	private lateinit var orderHistoryRepository: RecordingBuyerOrderQueryRepository
 
 	@AfterEach
 	fun 인증_주체를_초기화한다() = SecurityContextHolder.clearContext()
@@ -63,11 +73,143 @@ class OrderControllerTest {
 		orderService = mock(OrderService::class.java)
 		principalIdentityService = mock(PrincipalIdentityService::class.java)
 		`when`(principalIdentityService.buyerId(17L)).thenReturn(123L)
-		mockMvc = MockMvcBuilders.standaloneSetup(OrderController(orderService, principalIdentityService))
+		orderHistoryRepository = RecordingBuyerOrderQueryRepository()
+		val orderHistoryService = BuyerOrderHistoryService(orderHistoryRepository, OrderCursorCodec(JsonMapper.builder().build()))
+		mockMvc = MockMvcBuilders.standaloneSetup(OrderController(orderService, orderHistoryService, principalIdentityService))
 			.setControllerAdvice(GlobalExceptionHandler(ProblemDetailFactory()))
 			.setCustomArgumentResolvers(AuthenticationPrincipalArgumentResolver())
 			.apply<StandaloneMockMvcBuilder>(documentationConfiguration(restDocumentation))
 			.build()
+	}
+
+	@Test
+	@DisplayName("쿼리 매개변수를 생략하면 인증 주체의 구매자 주문을 기본 크기로 반환한다")
+	fun 주문_내역_기본_크기로_반환한다() {
+		orderHistoryRepository.result = listOf(
+			BuyerOrderSummary(
+				1000L,
+				OrderStatus.PENDING_PAYMENT,
+				"한정판 상품",
+				2,
+				35_000L,
+				70_000L,
+				Instant.parse("2026-09-11T06:00:00Z"),
+				Instant.parse("2026-09-11T06:03:00Z"),
+			),
+		)
+
+		mockMvc.perform(get("/api/orders"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items[0].orderId").value(1000))
+			.andExpect(jsonPath("$.items[0].status").value("PENDING_PAYMENT"))
+			.andExpect(jsonPath("$.items[0].productName").value("한정판 상품"))
+			.andExpect(jsonPath("$.items[0].quantity").value(2))
+			.andExpect(jsonPath("$.items[0].unitPrice").value(35000))
+			.andExpect(jsonPath("$.items[0].totalPrice").value(70000))
+			.andExpect(jsonPath("$.items[0].createdAt").value("2026-09-11T06:00:00Z"))
+			.andExpect(jsonPath("$.items[0].expiresAt").value("2026-09-11T06:03:00Z"))
+			.andExpect(jsonPath("$.nextCursor").value(null))
+
+		kotlin.test.assertEquals(BuyerOrderQuery(123L, null, 21), orderHistoryRepository.query)
+	}
+
+	@Test
+	@DisplayName("지정한 페이지 크기로 다음 주문 내역과 커서를 반환하고 계약을 문서화한다")
+	fun 주문_내역_지정_크기와_커서를_반환하고_문서화한다() {
+		orderHistoryRepository.result = listOf(
+			orderSummary(1000L, "2026-09-11T06:00:00Z"),
+			orderSummary(999L, "2026-09-11T05:00:00Z"),
+		)
+
+		mockMvc.perform(
+			get("/api/orders")
+				.header("Cookie", "JAPDA_ACCESS_TOKEN=<JWT>")
+				.queryParam("size", "1"),
+		)
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items.length()").value(1))
+			.andExpect(jsonPath("$.nextCursor").isString)
+			.andDo(
+				document(
+					"order-list",
+					preprocessRequest(prettyPrint()),
+					preprocessResponse(prettyPrint()),
+					requestHeaders(headerWithName("Cookie").description("JAPDA_ACCESS_TOKEN 인증 쿠키")),
+					queryParameters(
+						parameterWithName("cursor").description("직전 응답에서 받은 불투명 커서").optional(),
+						parameterWithName("size").description("페이지 크기(1~100, 기본값 20)").optional(),
+					),
+					responseFields(
+						fieldWithPath("items").description("구매자 주문 내역"),
+						fieldWithPath("items[].orderId").description("주문 식별자"),
+						fieldWithPath("items[].status").description("주문 상태"),
+						fieldWithPath("items[].productName").description("주문 시점 상품명"),
+						fieldWithPath("items[].quantity").description("주문 수량"),
+						fieldWithPath("items[].unitPrice").description("주문 시점 단가"),
+						fieldWithPath("items[].totalPrice").description("주문 총액"),
+						fieldWithPath("items[].createdAt").description("주문 생성 시각"),
+						fieldWithPath("items[].expiresAt").description("예약 만료 시각"),
+						fieldWithPath("nextCursor").description("다음 페이지 커서, 마지막 페이지이면 null"),
+					),
+				),
+			)
+
+		kotlin.test.assertEquals(BuyerOrderQuery(123L, null, 2), orderHistoryRepository.query)
+	}
+
+	@Test
+	@DisplayName("주문 내역이 없으면 빈 목록을 반환한다")
+	fun 주문_내역_없음_빈_목록을_반환한다() {
+		mockMvc.perform(get("/api/orders"))
+			.andExpect(status().isOk)
+			.andExpect(jsonPath("$.items").isEmpty)
+			.andExpect(jsonPath("$.nextCursor").value(null))
+	}
+
+	@Test
+	@DisplayName("주문 내역 조회에 인증 주체가 없으면 인증 실패를 반환한다")
+	fun 주문_내역_인증_주체_없음_인증_실패를_반환한다() {
+		SecurityContextHolder.clearContext()
+
+		mockMvc.perform(get("/api/orders"))
+			.andExpect(status().isUnauthorized)
+			.andExpect(jsonPath("$.code").value("AUTH_UNAUTHENTICATED"))
+	}
+
+	@Test
+	@DisplayName("주문 내역 조회에 구매자 연결이 없으면 연결 필요 오류를 반환한다")
+	fun 주문_내역_구매자_연결_없음_연결_필요_오류를_반환한다() {
+		doThrow(BusinessException(AuthErrorCode.BUYER_LINK_REQUIRED)).`when`(principalIdentityService).buyerId(17L)
+
+		mockMvc.perform(get("/api/orders"))
+			.andExpect(status().isForbidden)
+			.andExpect(jsonPath("$.code").value("AUTH_BUYER_LINK_REQUIRED"))
+	}
+
+	@Test
+	@DisplayName("주문 내역 페이지 크기가 숫자가 아니면 공통 매개변수 오류를 반환한다")
+	fun 주문_내역_페이지_크기_숫자_아님_공통_매개변수_오류를_반환한다() {
+		mockMvc.perform(get("/api/orders").queryParam("size", "large"))
+			.andExpect(status().isBadRequest)
+			.andExpect(jsonPath("$.code").value("COMMON_REQUEST_PARAMETER_INVALID"))
+	}
+
+	@Test
+	@DisplayName("주문 내역 페이지 크기가 범위 밖이면 주문 페이지 크기 오류를 반환한다")
+	fun 주문_내역_페이지_크기_범위_밖_주문_오류를_반환한다() {
+		mockMvc.perform(get("/api/orders").queryParam("size", "101"))
+			.andExpect(status().isBadRequest)
+			.andExpect(jsonPath("$.code").value("ORDER_PAGE_SIZE_INVALID"))
+			.andExpect(jsonPath("$.errors.size").exists())
+	}
+
+	@Test
+	@DisplayName("주문 내역 커서가 잘못되면 주문 커서 오류를 반환한다")
+	fun 주문_내역_잘못된_커서_주문_오류를_반환한다() {
+		mockMvc.perform(get("/api/orders").queryParam("cursor", "%%%"))
+			.andExpect(status().isBadRequest)
+			.andExpect(jsonPath("$.code").value("ORDER_CURSOR_INVALID"))
+			.andExpect(jsonPath("$.errors.cursor").exists())
 	}
 
 	@Test
@@ -256,6 +398,27 @@ class OrderControllerTest {
 		headerWithName("Content-Type").description("application/problem+json"),
 		headerWithName("Cache-Control").description("no-store"),
 	)
+
+	private fun orderSummary(orderId: Long, createdAt: String) = BuyerOrderSummary(
+		orderId,
+		OrderStatus.PENDING_PAYMENT,
+		"한정판 상품",
+		2,
+		35_000L,
+		70_000L,
+		Instant.parse(createdAt),
+		Instant.parse(createdAt).plusSeconds(180),
+	)
+
+	private class RecordingBuyerOrderQueryRepository : BuyerOrderQueryRepository {
+		var result: List<BuyerOrderSummary> = emptyList()
+		var query: BuyerOrderQuery? = null
+
+		override fun findAll(query: BuyerOrderQuery): List<BuyerOrderSummary> {
+			this.query = query
+			return result
+		}
+	}
 
 	private companion object {
 		const val IDEMPOTENCY_KEY = "550e8400-e29b-41d4-a716-446655440000"
