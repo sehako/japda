@@ -6,9 +6,11 @@ import io.github.sehako.japda.batch.settlement.infrastructure.persistence.Seller
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementStatus
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
+import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStatus
 import io.github.sehako.japda.ledger.application.dto.CreditWalletCommand
 import io.github.sehako.japda.ledger.application.service.CreditWalletService
+import io.github.sehako.japda.ledger.application.service.LedgerSourceMismatchException
 import io.github.sehako.japda.ledger.domain.model.LedgerDirection
 import io.github.sehako.japda.ledger.domain.model.LedgerEntrySnapshot
 import io.github.sehako.japda.ledger.domain.model.LedgerSourceType
@@ -27,22 +29,33 @@ class SellerWalletCreditWriter(
 	private val clock: Clock,
 ) : ItemWriter<Long> {
 	override fun write(chunk: Chunk<out Long>) {
-		chunk.forEach(::credit)
+		var run: SettlementRunSnapshot? = null
+		chunk.forEach { sellerSettlementId ->
+			val settlement = findSettlement(sellerSettlementId)
+			val currentRun = run ?: findRun().also { run = it }
+			credit(settlement, currentRun)
+		}
 	}
 
-	private fun credit(sellerSettlementId: Long) {
+	private fun findSettlement(sellerSettlementId: Long): SellerSettlementSnapshot {
 		val settlement = sellerSettlementRepository.findByIdForUpdate(sellerSettlementId)
 			?: fail(SettlementCreditErrorType.SELLER_SETTLEMENT_NOT_FOUND, "판매자별 정산을 찾을 수 없습니다: sellerSettlementId=$sellerSettlementId", sellerSettlementId)
 		if (settlement.settlementRunId != settlementRunId) {
 			fail(SettlementCreditErrorType.RUN_MISMATCH, "판매자별 정산의 실행 ID가 다릅니다: sellerSettlementId=$sellerSettlementId", sellerSettlementId, settlement.sellerId)
 		}
-		val run = settlementRunRepository.findByIdForUpdate(settlementRunId)
+		return settlement
+	}
+
+	private fun findRun(): SettlementRunSnapshot =
+		settlementRunRepository.findByIdForUpdate(settlementRunId)
 			?: fail(SettlementCreditErrorType.RUN_NOT_FOUND, "SettlementRun을 찾을 수 없습니다: settlementRunId=$settlementRunId")
+
+	private fun credit(settlement: SellerSettlementSnapshot, run: SettlementRunSnapshot) {
 		if (run.status !in setOf(SettlementRunStatus.CONFIRMED, SettlementRunStatus.COMPLETED)) {
-			fail(SettlementCreditErrorType.INVALID_RUN_STATUS, "입금할 수 없는 SettlementRun 상태입니다: settlementRunId=$settlementRunId, status=${run.status}", sellerSettlementId, settlement.sellerId)
+			fail(SettlementCreditErrorType.INVALID_RUN_STATUS, "입금할 수 없는 SettlementRun 상태입니다: settlementRunId=$settlementRunId, status=${run.status}", settlement.id, settlement.sellerId)
 		}
 		if (run.status == SettlementRunStatus.COMPLETED && settlement.status != SellerSettlementStatus.CREDITED) {
-			fail(SettlementCreditErrorType.CREDIT_RESULT_MISMATCH, "완료된 실행에 입금되지 않은 판매자별 정산이 있습니다: sellerSettlementId=$sellerSettlementId", sellerSettlementId, settlement.sellerId)
+			fail(SettlementCreditErrorType.CREDIT_RESULT_MISMATCH, "완료된 실행에 입금되지 않은 판매자별 정산이 있습니다: sellerSettlementId=${settlement.id}", settlement.id, settlement.sellerId)
 		}
 		when (settlement.status) {
 			SellerSettlementStatus.CONFIRMED -> creditConfirmed(settlement)
@@ -51,19 +64,27 @@ class SellerWalletCreditWriter(
 	}
 
 	private fun creditConfirmed(settlement: SellerSettlementSnapshot) {
-		val existing = ledgerEntryRepository.findBySource(LedgerSourceType.SELLER_SETTLEMENT, settlement.id)
-		if (existing != null) {
-			fail(SettlementCreditErrorType.UNEXPECTED_LEDGER_ENTRY, "입금 전 판매자별 정산에 이미 원장이 있습니다: sellerSettlementId=${settlement.id}", settlement.id, settlement.sellerId)
-		}
 		if (settlement.netAmount > 0) {
-			creditWalletService.credit(
-				CreditWalletCommand(
-					userId = settlement.recipientUserId,
-					amount = settlement.netAmount,
-					sourceType = LedgerSourceType.SELLER_SETTLEMENT,
-					sourceId = settlement.id,
-				),
-			)
+			val result = try {
+				creditWalletService.credit(
+					CreditWalletCommand(
+						userId = settlement.recipientUserId,
+						amount = settlement.netAmount,
+						sourceType = LedgerSourceType.SELLER_SETTLEMENT,
+						sourceId = settlement.id,
+					),
+				)
+			} catch (exception: LedgerSourceMismatchException) {
+				throw unexpectedLedgerEntry(settlement, exception)
+			}
+			if (result.alreadyApplied) {
+				throw unexpectedLedgerEntry(settlement)
+			}
+		} else {
+			val existing = ledgerEntryRepository.findBySource(LedgerSourceType.SELLER_SETTLEMENT, settlement.id)
+			if (existing != null) {
+				throw unexpectedLedgerEntry(settlement)
+			}
 		}
 		try {
 			sellerSettlementRepository.markCredited(settlement.id, Instant.now(clock))
@@ -71,6 +92,17 @@ class SellerWalletCreditWriter(
 			throw SettlementCreditException(SettlementCreditErrorType.STATE_TRANSITION_FAILED, "판매자별 정산 입금 상태 전환에 실패했습니다: sellerSettlementId=${settlement.id}", settlement.id, settlement.sellerId, exception)
 		}
 	}
+
+	private fun unexpectedLedgerEntry(
+		settlement: SellerSettlementSnapshot,
+		cause: Throwable? = null,
+	): SettlementCreditException = SettlementCreditException(
+		errorType = SettlementCreditErrorType.UNEXPECTED_LEDGER_ENTRY,
+		message = "입금 전 판매자별 정산에 이미 원장이 있습니다: sellerSettlementId=${settlement.id}",
+		sellerSettlementId = settlement.id,
+		sellerId = settlement.sellerId,
+		cause = cause,
+	)
 
 	private fun validateCredited(settlement: SellerSettlementSnapshot) {
 		if (settlement.creditedAt == null) {
