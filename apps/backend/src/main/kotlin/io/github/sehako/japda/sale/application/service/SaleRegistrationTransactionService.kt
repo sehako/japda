@@ -1,10 +1,11 @@
 package io.github.sehako.japda.sale.application.service
 
+import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
+import io.github.sehako.japda.product.domain.model.ProductStatus
+import io.github.sehako.japda.product.domain.repository.ProductRepository
 import io.github.sehako.japda.sale.application.config.SaleDailyCapacity
 import io.github.sehako.japda.sale.application.dto.CreateSaleDto
 import io.github.sehako.japda.sale.application.response.SaleResponse
-import io.github.sehako.japda.product.domain.repository.ProductRepository
-import io.github.sehako.japda.product.domain.model.ProductStatus
 import io.github.sehako.japda.sale.domain.model.Sale
 import io.github.sehako.japda.sale.domain.repository.SaleDayRepository
 import io.github.sehako.japda.sale.domain.repository.SaleRepository
@@ -19,6 +20,7 @@ class SaleRegistrationTransactionService(
 	private val productRepository: ProductRepository,
 	private val saleRepository: SaleRepository,
 	private val saleDayRepository: SaleDayRepository,
+	private val saleInventoryCounterRepository: SaleInventoryCounterRepository,
 	private val dailyCapacity: SaleDailyCapacity,
 	private val clock: Clock,
 ) {
@@ -50,7 +52,9 @@ class SaleRegistrationTransactionService(
 
 		saleDay.reserve()
 		saleDayRepository.save(saleDay)
-		return saleRepository.save(sale).toResponse()
+		val savedSale = saleRepository.save(sale)
+		saleInventoryCounterRepository.create(requireNotNull(savedSale.id), savedSale.createdAt)
+		return savedSale.toResponse()
 	}
 
 	private fun Sale.toResponse(): SaleResponse = SaleResponse(

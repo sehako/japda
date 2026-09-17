@@ -70,8 +70,10 @@ class PaymentConfirmationIntegrationTest {
 		toss.lastIdempotencyKey = null
 		toss.confirmEntered = null
 		toss.confirmRelease = null
+		jdbc.update("DELETE FROM inventory_reservations")
 		jdbc.update("DELETE FROM payments")
 		jdbc.update("DELETE FROM orders")
+		jdbc.update("DELETE FROM sale_inventory_counters")
 		jdbc.update("DELETE FROM sales")
 		jdbc.update("DELETE FROM sale_days")
 		jdbc.update("DELETE FROM product_images")
@@ -98,6 +100,12 @@ class PaymentConfirmationIntegrationTest {
 			"INSERT INTO sales (product_id, seller_id, sale_date, price, quantity, created_at) VALUES (?, 1, ?, 35000, 2, ?) RETURNING id",
 			Long::class.java, productId, SALE_DATE, java.sql.Timestamp.from(NOW),
 		)!!
+		jdbc.update(
+			"INSERT INTO sale_inventory_counters (sale_id, committed_quantity, created_at, updated_at) VALUES (?, 0, ?, ?)",
+			saleId,
+			java.sql.Timestamp.from(NOW),
+			java.sql.Timestamp.from(NOW),
+		)
 	}
 
 	@Test
@@ -115,6 +123,9 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals(1, toss.confirmCalls)
 		assertEquals("PAID", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
 		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
+		assertEquals("CONFIRMED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(NOW, jdbc.queryForObject("SELECT updated_at FROM inventory_reservations", java.time.OffsetDateTime::class.java)!!.toInstant())
+		assertEquals(2, committedQuantity())
 		mvc.perform(orderRequest(orderKey)).andExpect(status().isCreated).andExpect(jsonPath("$.status").value("PAID"))
 	}
 
@@ -131,6 +142,8 @@ class PaymentConfirmationIntegrationTest {
 
 		assertEquals(firstKey, toss.lastIdempotencyKey)
 		assertEquals("FAILED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
+		assertEquals("RELEASED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(0, committedQuantity())
 		mvc.perform(orderRequest()).andExpect(status().isCreated)
 	}
 
@@ -148,6 +161,8 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals(1, toss.confirmCalls)
 		assertEquals("REVIEW_REQUIRED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 		assertEquals("PENDING_PAYMENT", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
+		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(2, committedQuantity())
 	}
 
 	@Test
@@ -161,6 +176,8 @@ class PaymentConfirmationIntegrationTest {
 		paymentService.reconcileDue()
 
 		assertEquals("REVIEW_REQUIRED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
+		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(2, committedQuantity())
 	}
 
 	@Test
@@ -249,6 +266,12 @@ class PaymentConfirmationIntegrationTest {
 	private fun createOrder(key: UUID = UUID.randomUUID()): String = mvc.perform(orderRequest(key))
 		.andExpect(status().isCreated)
 		.andReturn().response.contentAsString.let { Regex("\"paymentOrderId\":\"([^\"]+)\"").find(it)!!.groupValues[1] }
+
+	private fun committedQuantity(): Int = jdbc.queryForObject(
+		"SELECT committed_quantity FROM sale_inventory_counters WHERE sale_id = ?",
+		Int::class.java,
+		saleId,
+	)!!
 
 	private fun orderRequest(key: UUID = UUID.randomUUID()) = post("/api/orders")
 		.cookie(jwtCookie(123L), csrfCookie)

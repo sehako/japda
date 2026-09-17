@@ -4,6 +4,11 @@ import io.github.sehako.japda.order.application.dto.CreateOrderDto
 import io.github.sehako.japda.order.application.inventory.InventoryReservation
 import io.github.sehako.japda.order.application.inventory.InventoryReservationResult
 import io.github.sehako.japda.order.application.inventory.InventoryReservationToken
+import io.github.sehako.japda.order.application.inventory.ExpiredInventoryReservationReleaseService
+import io.github.sehako.japda.order.domain.model.InventoryReservationStatus
+import io.github.sehako.japda.order.domain.repository.InventoryReservationRepository
+import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
+import io.github.sehako.japda.order.domain.repository.SaleInventoryReserveResult
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.model.OrderRequest
 import io.github.sehako.japda.order.domain.repository.OrderRepository
@@ -30,8 +35,8 @@ import org.junit.jupiter.api.DisplayName
 @DisplayName("주문 서비스")
 class OrderServiceTest {
 	@Test
-	@DisplayName("판매 중인 상품을 주문하면 서버 원본으로 주문을 저장한다")
-	fun 판매_중인_상품_주문_서버_원본으로_주문을_저장한다() {
+	@DisplayName("판매 중인 상품을 주문하면 판매 일정 잠금 없이 서버 원본으로 주문을 저장한다")
+	fun 판매_중인_상품_주문_판매_일정_잠금_없이_서버_원본으로_주문을_저장한다() {
 		val orderRepository = RecordingOrderRepository(reservedQuantity = 3)
 		val saleRepository = StubSaleRepository(sale(quantity = 10, price = 35_000L))
 		val service = service(orderRepository, saleRepository)
@@ -41,9 +46,8 @@ class OrderServiceTest {
 		assertEquals("서버 상품명", response.productName)
 		assertEquals(35_000L, response.unitPrice)
 		assertEquals(70_000L, response.totalPrice)
-		assertEquals(NOW, orderRepository.aggregatedAt)
 		assertEquals(NOW, orderRepository.savedOrder?.createdAt)
-		assertEquals(1, saleRepository.lockCount)
+		assertEquals(0, saleRepository.lockCount)
 	}
 
 	@Test
@@ -69,17 +73,20 @@ class OrderServiceTest {
 	@DisplayName("Redis 선점에 성공하고 신규 주문이 생성되면 예약을 유지한다")
 	fun Redis_선점_성공_신규_주문_생성_예약을_유지한다() {
 		val inventoryReservation = RecordingInventoryReservation(InventoryReservationResult.Reserved(TOKEN))
+		val databaseReservationRepository = RecordingDatabaseReservationRepository()
 
 		val response = service(
 			RecordingOrderRepository(),
 			StubSaleRepository(sale()),
 			inventoryReservation,
+			databaseReservationRepository,
 		).create(dto())
 
 		assertEquals(1L, response.orderId)
 		assertEquals(1, inventoryReservation.reserveCount)
 		assertEquals(0, inventoryReservation.restoreCount)
 		assertEquals(0, inventoryReservation.invalidateCount)
+		assertEquals(UUID.fromString(TOKEN.reservationId), databaseReservationRepository.saved?.id)
 	}
 
 	@Test
@@ -146,8 +153,8 @@ class OrderServiceTest {
 	}
 
 	@Test
-	@DisplayName("DB 잠금 후 기존 멱등 주문을 반환하면 Redis 예약을 복원한다")
-	fun DB_잠금_후_기존_멱등_주문_반환_Redis_예약을_복원한다() {
+	@DisplayName("DB transaction 재확인에서 기존 멱등 주문을 반환하면 Redis 예약을 복원한다")
+	fun DB_transaction_재확인_기존_멱등_주문_반환_Redis_예약을_복원한다() {
 		val request = dto().toDomainRequest()
 		val existing = Order.create(request, "서버 상품명", 35_000L, NOW).also { setId(it, 9L) }
 		val orderRepository = RecordingOrderRepository(existingResults = listOf(null, existing))
@@ -220,20 +227,20 @@ class OrderServiceTest {
 	@DisplayName("DB transaction에서 신규 주문을 저장하면 생성 결과를 반환한다")
 	fun DB_transaction_신규_주문_저장_생성_결과를_반환한다() {
 		val result = transactionService(RecordingOrderRepository(), StubSaleRepository(sale()))
-			.create(dto().toDomainRequest())
+			.create(dto().toDomainRequest(), UUID.randomUUID())
 
 		assertEquals(true, result.created)
 		assertEquals(1L, result.response.orderId)
 	}
 
 	@Test
-	@DisplayName("DB transaction의 잠금 후 기존 주문이 보이면 미생성 결과를 반환한다")
-	fun DB_transaction_잠금_후_기존_주문_존재_미생성_결과를_반환한다() {
+	@DisplayName("DB transaction 재확인에서 기존 주문이 보이면 미생성 결과를 반환한다")
+	fun DB_transaction_재확인_기존_주문_존재_미생성_결과를_반환한다() {
 		val request = dto().toDomainRequest()
 		val existing = Order.create(request, "서버 상품명", 35_000L, NOW).also { setId(it, 9L) }
 
 		val result = transactionService(RecordingOrderRepository(existing = existing), StubSaleRepository(sale()))
-			.create(request)
+			.create(request, UUID.randomUUID())
 
 		assertEquals(false, result.created)
 		assertEquals(9L, result.response.orderId)
@@ -278,20 +285,28 @@ class OrderServiceTest {
 		orderRepository: RecordingOrderRepository,
 		saleRepository: StubSaleRepository,
 		inventoryReservation: InventoryReservation = RecordingInventoryReservation(),
+		databaseReservationRepository: RecordingDatabaseReservationRepository = RecordingDatabaseReservationRepository(),
 	): OrderService {
-		val transactionService = transactionService(orderRepository, saleRepository)
+		val transactionService = transactionService(orderRepository, saleRepository, databaseReservationRepository)
 		return OrderService(orderRepository, transactionService, inventoryReservation)
 	}
 
 	private fun transactionService(
 		orderRepository: RecordingOrderRepository,
 		saleRepository: StubSaleRepository,
+		databaseReservationRepository: RecordingDatabaseReservationRepository = RecordingDatabaseReservationRepository(),
 	) = OrderCreationTransactionService(
-			orderRepository,
-			saleRepository,
-			StubProductRepository(product()),
-			Clock.fixed(NOW, ZoneOffset.UTC),
-		)
+		orderRepository,
+		saleRepository,
+		StubProductRepository(product()),
+		databaseReservationRepository,
+		RecordingCounterRepository(orderRepository.reservedQuantity, saleRepository.sale?.quantity),
+		ExpiredInventoryReservationReleaseService(
+			RecordingDatabaseReservationRepository(),
+			RecordingCounterRepository(orderRepository.reservedQuantity, saleRepository.sale?.quantity),
+		),
+		Clock.fixed(NOW, ZoneOffset.UTC),
+	)
 
 	private fun dto(quantity: Int? = 2) = CreateOrderDto(
 		buyerId = 123L,
@@ -317,13 +332,12 @@ class OrderServiceTest {
 	private class RecordingOrderRepository(
 		existing: Order? = null,
 		existingResults: List<Order?>? = null,
-		private val reservedQuantity: Long = 0,
+		val reservedQuantity: Long = 0,
 		private val saveFailure: RuntimeException? = null,
 	) : OrderRepository {
 		private val existingResults = ArrayDeque(existingResults ?: listOf(existing))
 		private val lastExisting = existingResults?.lastOrNull() ?: existing
 		var savedOrder: Order? = null
-		var aggregatedAt: Instant? = null
 
 		override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? =
 			if (existingResults.isEmpty()) lastExisting else existingResults.removeFirst()
@@ -337,10 +351,7 @@ class OrderServiceTest {
 
 		override fun findSaleIdById(id: Long): Long? = lastExisting?.takeIf { it.id == id }?.saleId
 
-		override fun sumCommittedQuantity(saleId: Long, now: Instant): Long {
-			aggregatedAt = now
-			return reservedQuantity
-		}
+		override fun markPaidIfPending(orderId: Long): Boolean = false
 
 		override fun save(order: Order): Order {
 			saveFailure?.let { throw it }
@@ -376,11 +387,37 @@ class OrderServiceTest {
 		}
 	}
 
-	private class StubSaleRepository(private val sale: Sale?) : SaleRepository {
+	private class StubSaleRepository(val sale: Sale?) : SaleRepository {
 		var lockCount = 0
 		override fun save(sale: Sale): Sale = sale
 		override fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate) = false
+		override fun findById(id: Long): Sale? = sale
 		override fun findByIdForUpdate(id: Long): Sale? = sale.also { lockCount++ }
+	}
+
+	private class RecordingDatabaseReservationRepository : InventoryReservationRepository {
+		var saved: io.github.sehako.japda.order.domain.model.InventoryReservation? = null
+		override fun findByOrderId(orderId: Long) = null
+		override fun findExpiredReservedBySaleId(saleId: Long, now: Instant) = emptyList<io.github.sehako.japda.order.domain.model.InventoryReservation>()
+		override fun save(reservation: io.github.sehako.japda.order.domain.model.InventoryReservation) = reservation.also { saved = it }
+		override fun markPaymentPendingIfReservedAndNotExpired(orderId: Long, now: Instant) = false
+		override fun transitionById(id: UUID, expectedStatus: InventoryReservationStatus, targetStatus: InventoryReservationStatus, updatedAt: Instant) = false
+		override fun transitionByOrderId(orderId: Long, expectedStatus: InventoryReservationStatus, targetStatus: InventoryReservationStatus, updatedAt: Instant) = false
+	}
+
+	private class RecordingCounterRepository(
+		private val committedQuantity: Long,
+		private val saleQuantity: Int?,
+	) : SaleInventoryCounterRepository {
+		override fun create(saleId: Long, now: Instant) = Unit
+		override fun reserve(saleId: Long, quantity: Int, now: Instant) =
+			if (saleQuantity != null && saleQuantity.toLong() - committedQuantity >= quantity.toLong()) {
+				SaleInventoryReserveResult.ACQUIRED
+			} else {
+				SaleInventoryReserveResult.INSUFFICIENT
+			}
+		override fun release(saleId: Long, quantity: Int, now: Instant) = true
+		override fun findCommittedQuantity(saleId: Long): Int? = committedQuantity.toInt()
 	}
 
 	private class StubProductRepository(private val product: Product?) : ProductRepository {

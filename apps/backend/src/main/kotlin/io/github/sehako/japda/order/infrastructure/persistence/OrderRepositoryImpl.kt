@@ -3,7 +3,6 @@ package io.github.sehako.japda.order.infrastructure.persistence
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
-import java.time.Instant
 import java.util.UUID
 import org.hibernate.exception.ConstraintViolationException
 import org.springframework.dao.DataIntegrityViolationException
@@ -25,8 +24,7 @@ class OrderRepositoryImpl(
 
 	override fun findSaleIdById(id: Long): Long? = orderJpaRepository.findSaleIdById(id)
 
-	override fun sumCommittedQuantity(saleId: Long, now: Instant): Long =
-		orderJpaRepository.sumCommittedQuantity(saleId, now)
+	override fun markPaidIfPending(orderId: Long): Boolean = orderJpaRepository.markPaidIfPending(orderId) == 1
 
 	override fun save(order: Order): Order = try {
 		orderJpaRepository.saveAndFlush(order)

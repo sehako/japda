@@ -1,7 +1,11 @@
 package io.github.sehako.japda.order.application.inventory.snapshot
 
-import io.github.sehako.japda.order.domain.model.Order
-import io.github.sehako.japda.order.domain.repository.OrderRepository
+import io.github.sehako.japda.order.application.inventory.ExpiredInventoryReservationReleaseService
+import io.github.sehako.japda.order.domain.model.InventoryReservation
+import io.github.sehako.japda.order.domain.model.InventoryReservationStatus
+import io.github.sehako.japda.order.domain.repository.InventoryReservationRepository
+import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
+import io.github.sehako.japda.order.domain.repository.SaleInventoryReserveResult
 import io.github.sehako.japda.sale.domain.model.Sale
 import io.github.sehako.japda.sale.domain.repository.SaleRepository
 import java.time.Clock
@@ -11,7 +15,7 @@ import java.time.ZoneOffset
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import org.junit.jupiter.api.DisplayName
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource
@@ -19,95 +23,91 @@ import org.springframework.transaction.annotation.AnnotationTransactionAttribute
 @DisplayName("재고 snapshot 서비스")
 class InventorySnapshotServiceTest {
 	@Test
-	@DisplayName("snapshot 조회는 REPEATABLE_READ 읽기 전용 transaction을 2초로 제한한다")
-	fun snapshot_조회_REPEATABLE_READ_읽기_전용_transaction_2초로_제한한다() {
+	@DisplayName("snapshot 조회는 REPEATABLE_READ 쓰기 transaction을 2초로 제한한다")
+	fun snapshot_조회_REPEATABLE_READ_쓰기_transaction_2초로_제한한다() {
 		val method = InventorySnapshotService::class.java.getMethod("read", Long::class.javaPrimitiveType)
 		val attribute = checkNotNull(
 			AnnotationTransactionAttributeSource().getTransactionAttribute(method, InventorySnapshotService::class.java),
 		)
 
-		assertTrue(attribute.isReadOnly)
+		assertFalse(attribute.isReadOnly)
 		assertEquals(TransactionDefinition.ISOLATION_REPEATABLE_READ, attribute.isolationLevel)
 		assertEquals(2, attribute.timeout)
 	}
 
 	@Test
-	@DisplayName("판매 수량에서 유효한 예약 수량을 뺀 가용 수량을 반환한다")
-	fun 판매_수량에서_유효한_예약_수량을_뺀_가용_수량을_반환한다() {
-		val orderRepository = StubOrderRepository(committedQuantity = 4L)
+	@DisplayName("만료 예약을 반환한 뒤 판매 수량에서 카운터 수량을 뺀 가용 수량을 반환한다")
+	fun 만료_예약_반환_후_판매_수량에서_카운터_수량을_뺀_가용_수량을_반환한다() {
+		val counterRepository = StubCounterRepository(committedQuantity = 4)
+		val reservationRepository = RecordingReservationRepository()
 		val service = InventorySnapshotService(
-			orderRepository,
+			counterRepository,
 			StubSaleRepository(quantity = 10),
+			ExpiredInventoryReservationReleaseService(reservationRepository, counterRepository),
 			Clock.fixed(NOW, ZoneOffset.UTC),
 		)
 
 		val result = service.read(100L)
 
 		assertEquals(InventorySnapshotResult.Available(6), result)
-		assertEquals(100L, orderRepository.aggregatedSaleId)
-		assertEquals(NOW, orderRepository.aggregatedAt)
+		assertEquals(100L, reservationRepository.expiredSaleId)
+		assertEquals(NOW, reservationRepository.expiredAt)
 	}
 
 	@Test
 	@DisplayName("판매 일정이 없으면 초기화 실패를 반환한다")
-	fun 판매_일정이_없으면_초기화_실패를_반환한다() {
-		val result = InventorySnapshotService(
-			StubOrderRepository(committedQuantity = 0L),
-			StubSaleRepository(quantity = null),
-			Clock.fixed(NOW, ZoneOffset.UTC),
-		).read(100L)
-
-		assertEquals(InventorySnapshotResult.InitializationFailed, result)
+	fun 판매_일정_없음_초기화_실패를_반환한다() {
+		assertEquals(InventorySnapshotResult.InitializationFailed, service(0, null).read(100L))
 	}
 
 	@Test
-	@DisplayName("예약 수량이 판매 수량보다 많으면 초기화 실패를 반환한다")
-	fun 음수_가용_수량_초기화_실패를_반환한다() {
-		val result = InventorySnapshotService(
-			StubOrderRepository(committedQuantity = 11L),
-			StubSaleRepository(quantity = 10),
-			Clock.fixed(NOW, ZoneOffset.UTC),
-		).read(100L)
-
-		assertEquals(InventorySnapshotResult.InitializationFailed, result)
+	@DisplayName("재고 카운터가 없으면 초기화 실패를 반환한다")
+	fun 재고_카운터_없음_초기화_실패를_반환한다() {
+		assertEquals(InventorySnapshotResult.InitializationFailed, service(null, 10).read(100L))
 	}
 
 	@Test
-	@DisplayName("계산 결과가 Int 최댓값을 넘으면 초기화 실패를 반환한다")
-	fun Int_최댓값_초과_초기화_실패를_반환한다() {
-		val result = InventorySnapshotService(
-			StubOrderRepository(committedQuantity = -1L),
-			StubSaleRepository(quantity = Int.MAX_VALUE),
-			Clock.fixed(NOW, ZoneOffset.UTC),
-		).read(100L)
-
-		assertEquals(InventorySnapshotResult.InitializationFailed, result)
+	@DisplayName("카운터 수량이 판매 수량보다 많으면 초기화 실패를 반환한다")
+	fun 카운터_수량_판매_수량_초과_초기화_실패를_반환한다() {
+		assertEquals(InventorySnapshotResult.InitializationFailed, service(11, 10).read(100L))
 	}
 
-	private class StubOrderRepository(
-		private val committedQuantity: Long,
-	) : OrderRepository {
-		var aggregatedSaleId: Long? = null
-		var aggregatedAt: Instant? = null
+	private fun service(committedQuantity: Int?, saleQuantity: Int?): InventorySnapshotService {
+		val counterRepository = StubCounterRepository(committedQuantity)
+		val reservationRepository = RecordingReservationRepository()
+		return InventorySnapshotService(
+			counterRepository,
+			StubSaleRepository(saleQuantity),
+			ExpiredInventoryReservationReleaseService(reservationRepository, counterRepository),
+			Clock.fixed(NOW, ZoneOffset.UTC),
+		)
+	}
 
-		override fun findByBuyerIdAndIdempotencyKey(buyerId: Long, idempotencyKey: UUID): Order? = null
-		override fun findByPaymentOrderId(paymentOrderId: String): Order? = null
-		override fun findSaleIdByPaymentOrderIdAndBuyerId(paymentOrderId: String, buyerId: Long): Long? = null
-		override fun findById(id: Long): Order? = null
-		override fun findSaleIdById(id: Long): Long? = null
-		override fun sumCommittedQuantity(saleId: Long, now: Instant): Long {
-			aggregatedSaleId = saleId
-			aggregatedAt = now
-			return committedQuantity
+	private class RecordingReservationRepository : InventoryReservationRepository {
+		var expiredSaleId: Long? = null
+		var expiredAt: Instant? = null
+		override fun findByOrderId(orderId: Long): InventoryReservation? = null
+		override fun findExpiredReservedBySaleId(saleId: Long, now: Instant): List<InventoryReservation> {
+			expiredSaleId = saleId
+			expiredAt = now
+			return emptyList()
 		}
-		override fun save(order: Order): Order = order
+		override fun save(reservation: InventoryReservation) = reservation
+		override fun markPaymentPendingIfReservedAndNotExpired(orderId: Long, now: Instant) = false
+		override fun transitionById(id: UUID, expectedStatus: InventoryReservationStatus, targetStatus: InventoryReservationStatus, updatedAt: Instant) = false
+		override fun transitionByOrderId(orderId: Long, expectedStatus: InventoryReservationStatus, targetStatus: InventoryReservationStatus, updatedAt: Instant) = false
 	}
 
-	private class StubSaleRepository(
-		private val quantity: Int?,
-	) : SaleRepository {
+	private class StubCounterRepository(private val committedQuantity: Int?) : SaleInventoryCounterRepository {
+		override fun create(saleId: Long, now: Instant) = Unit
+		override fun reserve(saleId: Long, quantity: Int, now: Instant) = SaleInventoryReserveResult.ACQUIRED
+		override fun release(saleId: Long, quantity: Int, now: Instant) = true
+		override fun findCommittedQuantity(saleId: Long): Int? = committedQuantity
+	}
+
+	private class StubSaleRepository(private val quantity: Int?) : SaleRepository {
 		override fun save(sale: Sale): Sale = sale
-		override fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate): Boolean = false
+		override fun existsBySellerIdAndSaleDate(sellerId: Long, saleDate: LocalDate) = false
 		override fun findByIdForUpdate(id: Long): Sale? = null
 		override fun findQuantityById(id: Long): Int? = quantity
 	}

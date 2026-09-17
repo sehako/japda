@@ -11,5 +11,7 @@ interface SaleRepository {
 
 	fun findQuantityById(id: Long): Int? = null
 
+	fun findById(id: Long): Sale? = null
+
 	fun findByIdForUpdate(id: Long): Sale?
 }

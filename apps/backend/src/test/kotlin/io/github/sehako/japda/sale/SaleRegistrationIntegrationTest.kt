@@ -68,6 +68,8 @@ class SaleRegistrationIntegrationTest {
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
 		clock.set(FIXED_INSTANT)
+		jdbcTemplate.update("DELETE FROM inventory_reservations")
+		jdbcTemplate.update("DELETE FROM sale_inventory_counters")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
@@ -143,12 +145,52 @@ class SaleRegistrationIntegrationTest {
 
 		assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM sales", Int::class.java))
 		assertEquals(
+			0,
+			jdbcTemplate.queryForObject("SELECT committed_quantity FROM sale_inventory_counters", Int::class.java),
+		)
+		assertEquals(
 			1,
 			jdbcTemplate.queryForObject(
 				"SELECT registered_count FROM sale_days WHERE sale_date = DATE '2026-09-12'",
 				Int::class.java,
 			),
 		)
+	}
+
+	@Test
+	@DisplayName("재고 카운터 저장 실패 시 판매 일정과 판매일 자리를 함께 롤백한다")
+	fun 재고_카운터_저장_실패_판매_일정과_판매일_자리_롤백() {
+		val productId = insertReadyProduct(1L)
+		val seller = authenticatedSeller(1L)
+		jdbcTemplate.execute(
+			"""CREATE FUNCTION reject_sale_inventory_counter() RETURNS trigger AS ${'$'}${'$'}
+				BEGIN
+					RAISE EXCEPTION '재고 카운터 저장 실패';
+				END;
+				${'$'}${'$'} LANGUAGE plpgsql""",
+		)
+		jdbcTemplate.execute(
+			"""CREATE TRIGGER reject_sale_inventory_counter_insert
+				BEFORE INSERT ON sale_inventory_counters
+				FOR EACH ROW EXECUTE FUNCTION reject_sale_inventory_counter()""",
+		)
+
+		try {
+			mockMvc.perform(
+				post("/api/sales")
+					.cookie(seller.jwtCookie, *seller.csrfCookies)
+					.header(seller.csrfHeaderName, seller.csrfToken)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("""{"productId":$productId,"saleDate":"2026-09-12","price":35000,"quantity":100}"""),
+			).andExpect(status().is5xxServerError)
+		} finally {
+			jdbcTemplate.execute("DROP TRIGGER IF EXISTS reject_sale_inventory_counter_insert ON sale_inventory_counters")
+			jdbcTemplate.execute("DROP FUNCTION IF EXISTS reject_sale_inventory_counter()")
+		}
+
+		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM sale_inventory_counters", Int::class.java))
+		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM sales", Int::class.java))
+		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM sale_days", Int::class.java))
 	}
 
 	@Test

@@ -29,6 +29,8 @@ class SaleRepositoryImpl(
 
 	override fun findQuantityById(id: Long): Int? = saleJpaRepository.findQuantityById(id)
 
+	override fun findById(id: Long): Sale? = saleJpaRepository.findById(id).orElse(null)
+
 	override fun findByIdForUpdate(id: Long): Sale? = saleJpaRepository.findByIdForUpdate(id)
 
 	private companion object {

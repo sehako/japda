@@ -44,11 +44,11 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 012 | [프론트엔드 클라이언트 라우팅에 React Router 사용](ADR-012-frontend-routing-with-react-router.md) | frontend | 승인 |
 | 013 | [프론트엔드 서버 상태에 TanStack Query 사용](ADR-013-frontend-server-state-with-tanstack-query.md) | frontend | 승인 |
 | 014 | [프론트엔드 테스트에 Vitest와 Testing Library 사용](ADR-014-frontend-testing-with-vitest-and-testing-library.md) | frontend | 승인 |
-| 015 | [주문 행 기반 재고 예약과 판매 일정 잠금](ADR-015-order-row-reservation-with-sale-lock.md) | backend | 승인 |
+| 015 | [주문 행 기반 재고 예약과 판매 일정 잠금](ADR-015-order-row-reservation-with-sale-lock.md) | backend | 대체됨 |
 | 016 | [백엔드 계층 내부를 역할별 하위 패키지로 구성](ADR-016-backend-role-based-package-structure.md) | backend | 승인 |
 | 017 | [구매자 배송지 목록 도메인과 잠금 행 구성](ADR-017-buyer-shipping-address-book-domain-and-locking.md) | backend | 승인 |
 | 018 | [구매자 체크아웃을 주문 영역의 조회 전용 모델로 구성](ADR-018-buyer-checkout-query-model.md) | backend | 승인 |
-| 019 | [결제 시도 기록과 주문 예약의 정합성](ADR-019-payment-attempt-and-reservation-consistency.md) | backend | 승인 |
+| 019 | [결제 시도 기록과 주문 예약의 정합성](ADR-019-payment-attempt-and-reservation-consistency.md) | backend | 대체됨 |
 | 020 | [백엔드 Google OIDC 로그인과 JWT 쿠키 발급](ADR-020-backend-google-oidc-login-and-jwt-cookie.md) | backend | 승인 |
 | 021 | [기존 Spring Security 구성 요소로 쿠키 JWT 인증](ADR-021-cookie-jwt-authentication-with-spring-security-components.md) | backend | 승인 |
 | 022 | [보호 API의 쿠키 인증과 공통 클라이언트 CSRF 처리](ADR-022-frontend-protected-api-cookie-and-csrf.md) | frontend | 승인 |
@@ -57,3 +57,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 025 | [판매자 일일 정산과 사용자 플랫폼 지갑 원장](ADR-025-daily-seller-settlement-and-user-wallet-ledger.md) | backend | 승인 |
 | 026 | [짧은 수명의 동적 Redis 재고 선점 계층 도입](ADR-026-dynamic-redis-inventory-reservation.md) | backend | 대체됨 |
 | 027 | [Redis 분산 lock만으로 재고 초기화 Single-flight 구성](ADR-027-redis-only-inventory-initialization-single-flight.md) | backend | 승인 |
+| 028 | [DB 재고 카운터와 주문별 예약으로 재고 관리](ADR-028-database-inventory-counter-and-order-reservation.md) | backend | 승인 |

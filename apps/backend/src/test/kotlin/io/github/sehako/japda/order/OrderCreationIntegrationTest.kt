@@ -67,7 +67,9 @@ class OrderCreationIntegrationTest {
 
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
+		jdbcTemplate.update("DELETE FROM inventory_reservations")
 		jdbcTemplate.update("DELETE FROM orders")
+		jdbcTemplate.update("DELETE FROM sale_inventory_counters")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
@@ -101,6 +103,12 @@ class OrderCreationIntegrationTest {
 			SALE_DATE,
 			java.sql.Timestamp.from(NOW),
 		)!!
+		jdbcTemplate.update(
+			"INSERT INTO sale_inventory_counters (sale_id, committed_quantity, created_at, updated_at) VALUES (?, 0, ?, ?)",
+			saleId,
+			java.sql.Timestamp.from(NOW),
+			java.sql.Timestamp.from(NOW),
+		)
 	}
 
 	@Test
@@ -148,6 +156,8 @@ class OrderCreationIntegrationTest {
 		assertEquals(1, statuses.count { it == 201 })
 		assertEquals(1, statuses.count { it == 409 })
 		assertEquals(6, jdbcTemplate.queryForObject("SELECT sum(quantity) FROM orders", Int::class.java))
+		assertEquals(6, committedQuantity())
+		assertEquals(1, reservationCount())
 	}
 
 	@Test
@@ -164,6 +174,8 @@ class OrderCreationIntegrationTest {
 
 		assertEquals(responses[0], responses[1])
 		assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java))
+		assertEquals(2, committedQuantity())
+		assertEquals(1, reservationCount())
 	}
 
 	@Test
@@ -177,7 +189,18 @@ class OrderCreationIntegrationTest {
 			.andExpect(jsonPath("$.code").value("ORDER_IDEMPOTENCY_CONFLICT"))
 
 		assertEquals(1, jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java))
+		assertEquals(1, committedQuantity())
+		assertEquals(1, reservationCount())
 	}
+
+	private fun committedQuantity(): Int = jdbcTemplate.queryForObject(
+		"SELECT committed_quantity FROM sale_inventory_counters WHERE sale_id = ?",
+		Int::class.java,
+		saleId,
+	)!!
+
+	private fun reservationCount(): Int =
+		jdbcTemplate.queryForObject("SELECT count(*) FROM inventory_reservations", Int::class.java)!!
 
 	private fun request(key: UUID, quantity: Int) = post("/api/orders")
 		.cookie(jwtCookie, csrfCookie)

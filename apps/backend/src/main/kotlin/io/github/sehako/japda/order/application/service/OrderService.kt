@@ -12,6 +12,7 @@ import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
+import java.util.UUID
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
@@ -32,10 +33,11 @@ class OrderService(
 			InventoryReservationResult.Insufficient -> throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
 			InventoryReservationResult.Fallback -> null
 		}
+		val reservationId = reservationToken?.let { UUID.fromString(it.reservationId) } ?: UUID.randomUUID()
 
 		val creationResult = try {
 			try {
-				transactionService.create(request)
+				transactionService.create(request, reservationId)
 			} catch (_: OrderIdempotencyPersistenceException) {
 				transactionService.recoverIdempotentRequest(request)
 			}
