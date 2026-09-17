@@ -1,0 +1,12 @@
+INSERT INTO payments (
+    id, order_id, payment_key, toss_idempotency_key, status, requested_amount, created_at, approved_at
+)
+SELECT id,
+       id,
+       'performance-payment-' || :randomSeed || '-' || id,
+       CAST(CAST(md5(CAST(:randomSeed AS TEXT) || ':payment:' || id) AS UUID) AS TEXT),
+       'APPROVED',
+       :grossAmount,
+       :orderCreatedAt,
+       :approvedAt
+FROM generate_series(CAST(:startId AS BIGINT), CAST(:endId AS BIGINT)) AS generated(id)

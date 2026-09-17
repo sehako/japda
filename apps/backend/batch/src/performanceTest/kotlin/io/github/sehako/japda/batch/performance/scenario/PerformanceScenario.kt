@@ -14,6 +14,7 @@ data class PerformanceScenario(
 data class DatasetScenario(
 	val sellerCount: Int,
 	val orderCount: Int,
+	val generationBatchSize: Int,
 	val randomSeed: Long,
 	val grossAmount: Long,
 )

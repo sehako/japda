@@ -22,6 +22,7 @@ class PerformanceScenarioLoaderTest {
 
 		assertEquals(3, scenario.dataset.sellerCount)
 		assertEquals(7, scenario.dataset.orderCount)
+		assertEquals(2, scenario.dataset.generationBatchSize)
 		assertEquals(1L, scenario.dataset.randomSeed)
 		assertEquals(10_000L, scenario.dataset.grossAmount)
 		assertEquals(LocalDate.of(2026, 9, 15), scenario.job.settlementDate)
@@ -60,6 +61,31 @@ class PerformanceScenarioLoaderTest {
 		}
 
 		assertTrue(exception.message!!.contains("seller-count"))
+	}
+
+	@Test
+	@DisplayName("생성 구간 크기 누락은 명확한 설정 오류로 실패한다")
+	fun 생성_구간_크기_누락은_명확한_설정_오류로_실패한다() {
+		val exception = assertFailsWith<PerformanceScenarioConfigurationException> {
+			loader(validProperties() - "japda.performance.dataset.generation-batch-size").load()
+		}
+
+		assertTrue(exception.message!!.contains("generation-batch-size"))
+	}
+
+	@Test
+	@DisplayName("생성 구간 크기는 1 미만이면 설정 오류로 실패한다")
+	fun 생성_구간_크기는_1_미만이면_설정_오류로_실패한다() {
+		listOf("0", "-1").forEach { invalidBatchSize ->
+			val exception = assertFailsWith<PerformanceScenarioConfigurationException> {
+				loader(
+					validProperties() +
+						("japda.performance.dataset.generation-batch-size" to invalidBatchSize),
+				).load()
+			}
+
+			assertTrue(exception.message!!.contains("generation-batch-size"))
+		}
 	}
 
 	@Test
@@ -111,6 +137,7 @@ class PerformanceScenarioLoaderTest {
 	private fun validProperties() = mapOf(
 		"japda.performance.dataset.seller-count" to "3",
 		"japda.performance.dataset.order-count" to "7",
+		"japda.performance.dataset.generation-batch-size" to "2",
 		"japda.performance.dataset.gross-amount" to "10000",
 		"japda.performance.job.settlement-date" to "2026-09-15",
 		"japda.performance.job.platform-fee-rate-bps" to "1000",

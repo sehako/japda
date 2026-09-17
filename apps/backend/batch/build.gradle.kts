@@ -71,6 +71,11 @@ val forwardedDatasourceSystemProperties = setOf(
 	"spring.datasource.hikari.minimum-idle",
 	"spring.datasource.hikari.connection-timeout",
 )
+val forwardedBatchTuningSystemProperties = setOf(
+	"japda.batch.daily-seller-settlement.chunk-size",
+	"japda.batch.daily-seller-settlement.page-size",
+	"japda.batch.daily-seller-settlement.fetch-size",
+)
 val forbiddenDatasourceSystemProperties = setOf(
 	"spring.datasource.url",
 	"spring.datasource.username",
@@ -96,7 +101,9 @@ tasks.register<Test>("performanceTest") {
 	doFirst {
 		System.getProperties().stringPropertyNames()
 			.filter { propertyName ->
-				propertyName.startsWith("japda.performance.") || propertyName in forwardedDatasourceSystemProperties
+				propertyName.startsWith("japda.performance.") ||
+					propertyName in forwardedDatasourceSystemProperties ||
+					propertyName in forwardedBatchTuningSystemProperties
 			}
 			.forEach { propertyName -> systemProperty(propertyName, System.getProperty(propertyName)) }
 
@@ -137,7 +144,8 @@ tasks.register<Test>("performanceTest") {
 		)
 		logger.lifecycle(
 			"성능 테스트 데이터: sellers=${scenario.getProperty("japda.performance.dataset.seller-count")}, " +
-				"orders=${scenario.getProperty("japda.performance.dataset.order-count")}",
+				"orders=${scenario.getProperty("japda.performance.dataset.order-count")}, " +
+				"generation-batch-size=${scenario.getProperty("japda.performance.dataset.generation-batch-size")}",
 		)
 		logger.lifecycle(
 			"성능 테스트 설정: chunk=${scenario.getProperty("japda.batch.daily-seller-settlement.chunk-size")}, " +

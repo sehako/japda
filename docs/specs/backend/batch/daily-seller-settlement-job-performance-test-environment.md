@@ -9,7 +9,7 @@
 다음 조건을 모두 만족하면 완료된 것으로 본다.
 
 - `:batch`에 일반 테스트와 분리된 성능 테스트 source set과 명시적 Gradle task가 존재한다.
-- 외부 설정만으로 판매자 수, 주문 수, 데이터 seed, 정산일, 금액, 수수료율과 반복 횟수를 지정할 수 있다.
+- 외부 설정만으로 판매자 수, 주문 수, 데이터 생성 구간 크기, 데이터 seed, 정산일, 금액, 수수료율과 반복 횟수를 지정할 수 있다.
 - 테스트가 직접 소유한 PostgreSQL Testcontainer에 API root의 전체 Flyway migration을 적용한다.
 - 설정된 판매자 수와 주문 수에 맞는 유효한 정산 대상 데이터를 결정론적으로 생성한다.
 - 실제 `BatchApplication` context와 `JobOperator`를 사용해 `dailySellerSettlementJob`을 실행한다.
@@ -49,7 +49,7 @@ apps/backend/batch/src/performanceTest/resources
 
 - 실행자가 명시적으로 호출할 때만 실행한다.
 - `test`, `check`와 `build`의 기본 task dependency에 연결하지 않는다.
-- `japda.performance.`로 시작하는 system property만 fork된 테스트 JVM에 전달한다.
+- `japda.performance.`로 시작하는 system property와 명세에 열거한 batch tuning property만 fork된 테스트 JVM에 전달한다.
 - 표준 Spring datasource tuning property 중 명세에 열거한 값만 전달한다.
 - 성공한 실행과 실패한 실행 모두 결과 디렉터리를 식별할 수 있는 실행 ID를 출력한다.
 - JUnit의 병렬 실행을 사용하지 않고 시나리오를 한 프로세스 안에서 순차 실행한다.
@@ -62,6 +62,7 @@ apps/backend/batch/src/performanceTest/resources
 ./gradlew :batch:performanceTest \
   -Djapda.performance.dataset.seller-count=1000 \
   -Djapda.performance.dataset.order-count=100000 \
+  -Djapda.performance.dataset.generation-batch-size=10000 \
   -Djapda.performance.dataset.random-seed=42 \
   -Djapda.performance.dataset.gross-amount=10000 \
   -Djapda.performance.job.settlement-date=2026-09-15 \
@@ -79,7 +80,8 @@ Gradle daemon의 시작 시간, dependency resolution과 테스트 JVM 시작 �
 | --- | --- | --- | --- |
 | `japda.performance.dataset.seller-count` | 필수 | 없음 | 정산 대상 판매자와 지급 대상 사용자 수 |
 | `japda.performance.dataset.order-count` | 필수 | 없음 | 승인 결제까지 완료된 주문 수 |
-| `japda.performance.dataset.random-seed` | 선택 | `1` | 식별자와 입력 순서 재현에 사용하는 seed |
+| `japda.performance.dataset.generation-batch-size` | 필수 | 없음 | 한 transaction에서 생성할 판매자 또는 주문·결제 ID 구간 크기 |
+| `japda.performance.dataset.random-seed` | 선택 | `1` | UUID와 외부 식별 문자열 재현에 사용하는 seed |
 | `japda.performance.dataset.gross-amount` | 필수 | 없음 | 각 주문의 정산 대상 총액 |
 | `japda.performance.job.settlement-date` | 필수 | 없음 | `yyyy-MM-dd` 형식의 정산일 |
 | `japda.performance.job.platform-fee-rate-bps` | 필수 | 없음 | Job에 전달할 플랫폼 수수료율 |
@@ -92,6 +94,7 @@ Gradle daemon의 시작 시간, dependency resolution과 테스트 JVM 시작 �
 
 - `seller-count`는 `1` 이상이다.
 - `order-count`는 `seller-count` 이상이다.
+- `generation-batch-size`는 `1` 이상이며 자동 보정하거나 상한을 적용하지 않는다.
 - `gross-amount`는 양수이고 주문 수와 곱한 값 및 후속 집계가 PostgreSQL `BIGINT` 범위를 넘지 않는다.
 - `settlement-date`는 실행 시점의 한국 기준 오늘보다 과거다.
 - `platform-fee-rate-bps`는 기존 Job parameter 계약 범위 안이다.
@@ -112,6 +115,8 @@ Gradle daemon의 시작 시간, dependency resolution과 테스트 JVM 시작 �
 | `japda.batch.daily-seller-settlement.fetch-size` | `100` | 두 JDBC paging reader의 fetch size |
 
 세 값은 모두 양수여야 한다. 기본값을 기존 상수와 같은 `100`으로 두어 별도 설정이 없는 운영 및 테스트 동작을 보존한다. collection과 wallet credit에 서로 다른 값을 제공하는 단계별 tuning은 이번 범위에 포함하지 않는다.
+
+`performanceTest` task는 위 세 batch tuning system property를 테스트 JVM에 전달하고 실제 binding 결과를 보고서에 기록한다.
 
 connection pool은 Spring Boot 표준 property를 그대로 사용하며 별도의 중복 설정 모델을 만들지 않는다. 성능 task는 최소한 다음 값을 테스트 JVM에 전달하고 실제 binding 결과를 보고서에 기록한다.
 
@@ -152,13 +157,15 @@ iteration은 순차 실행하며 이전 application context와 datasource pool�
 - 배치 projection과 업무 제약이 요구하는 사용자, 상품, 판매, 주문과 결제 관계를 모두 만족한다.
 - 배치가 제외해야 하는 실패 결제, 누락 관계와 비정상 금액은 생성하지 않는다.
 
-`random-seed`는 생성 식별자와 insert 입력 순서를 결정하는 데 사용한다. 같은 schema 상태, 설정과 seed는 같은 논리 데이터 집합과 예상 검산값을 만들어야 한다. 판매자별 주문 건수는 seed와 관계없이 최대 한 건만 차이 나는 균등 분포를 유지한다.
+`random-seed`는 UUID와 결제·주문 외부 식별 문자열을 결정하는 데 사용한다. 전체 행을 무작위 정렬하거나 `ORDER BY random()`으로 insert 순서를 바꾸는 데 사용하지 않는다. 같은 schema 상태, 설정과 seed는 같은 논리 데이터 집합과 예상 검산값을 만들어야 한다. 판매자별 주문 건수는 seed와 관계없이 최대 한 건만 차이 나는 균등 분포를 유지한다.
 
 한 판매자에게 주문이 집중되는 skewed 또는 Zipf 분포, 여러 금액 구간과 오류 데이터는 이번 범위에 포함하지 않는다. 후속 분포가 추가되더라도 분포 이름과 parameter를 결과에 반드시 기록한다.
 
 ### 데이터 준비
 
-합성 데이터 생성기는 `JdbcTemplate`의 batch insert처럼 기존 dependency가 제공하는 일괄 쓰기 기능을 사용한다. 주문마다 application service나 HTTP endpoint를 호출하지 않는다. 준비 자체의 비용이 Job 처리량을 왜곡하지 않도록 다음 시간을 별도로 측정한다.
+합성 데이터 계산은 전체 주문·결제 행 객체를 JVM에 적재하지 않고 날짜, 건수, 금액과 예상 정산 집계만 만든다. 판매자별 주문 수는 전체 주문 수를 판매자 수로 나눈 몫과 나머지로 계산하고, 예상 수수료는 판매자 단위로 내림한 결과를 합산한다.
+
+실제 행은 `performanceTest/resources/dataset`의 PostgreSQL 전용 DML과 `generate_series(:startId, :endId)`로 생성한다. 판매자 관련 행은 사용자, 판매자 identity, 상품, 판매 순서로 생성하고, 주문과 해당 승인 결제는 동일 ID 구간 transaction에서 함께 생성한다. 범위 시작과 끝은 `Long`으로 계산하며 `generation-batch-size`마다 commit한다. 주문마다 application service나 HTTP endpoint를 호출하지 않는다. 따라서 JVM 메모리 사용량은 전체 주문 수에 비례하지 않으며, 실제 가능한 최대 건수는 실행 환경의 디스크·시간·PostgreSQL 용량에 따른다. 준비 자체의 비용이 Job 처리량을 왜곡하지 않도록 다음 시간을 별도로 측정한다.
 
 - schema 생성과 migration 시간
 - 합성 데이터 계산 시간
@@ -272,7 +279,7 @@ Job이 실패하거나 위 검산 중 하나라도 실패하면 해당 iteration
 
 - 시나리오 설정: 외부 property binding, 기본값과 사전 검증
 - container fixture: PostgreSQL lifecycle, iteration schema와 migration 적용
-- 데이터 생성: 결정론적 입력 계산, batch insert와 예상 결과 생성
+- 데이터 생성: 결정론적 집계 계산, PostgreSQL 구간 DML 실행과 예상 결과 생성
 - Job 실행: application context lifecycle, JobParameter 구성과 `JobOperator` 호출
 - 자원 측정: JVM과 PostgreSQL container 표본 수집
 - 결과 검산: Batch metadata와 업무 데이터 불변식 확인
@@ -284,10 +291,10 @@ Job이 실패하거나 위 검산 중 하나라도 실패하면 해당 iteration
 
 성능 환경 자체는 다음 검증을 가진다.
 
-1. 필수 설정이 없거나 판매자·주문 수 관계가 잘못되면 container 시작 전에 실패한다.
-2. 같은 seed와 설정이 같은 판매자별 주문 분포와 예상 금액을 만든다.
+1. 필수 설정이 없거나 판매자·주문 수 관계가 잘못되거나 생성 구간 크기가 `1` 미만이면 container 시작 전에 실패한다.
+2. 같은 seed와 설정이 같은 결정론적 식별자, 판매자별 주문 분포와 예상 금액을 만든다.
 3. 주문 수가 판매자 수로 나누어떨어지지 않아도 모든 판매자가 최소 한 건을 가지고 최대 한 건 차이의 균등 분포가 된다.
-4. 작은 데이터로 migration, seed, 전체 Job과 최종 검산이 한 번에 성공한다.
+4. 작은 데이터와 작은 생성 구간 크기로 여러 transaction을 거쳐 migration, seed, 전체 Job과 최종 검산이 한 번에 성공한다.
 5. 둘 이상의 measurement iteration이 독립 schema와 JobRepository를 사용한다.
 6. warm-up 결과가 percentile과 평균 계산에서 제외된다.
 7. Job 또는 검산을 의도적으로 실패시키면 Gradle task가 실패하고 성공 통계에서 제외된다.

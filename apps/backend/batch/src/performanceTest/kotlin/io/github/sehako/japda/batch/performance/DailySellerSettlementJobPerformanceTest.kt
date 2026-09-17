@@ -116,7 +116,11 @@ class DailySellerSettlementJobPerformanceTest {
 		val calculationMillis = elapsedMillis(calculationStartedAt)
 		val preparationJdbc = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
 		val insertStartedAt = System.nanoTime()
-		SyntheticDatasetInserter().insertAndVerify(preparationJdbc, dataset)
+		SyntheticDatasetInserter().insertAndVerify(
+			preparationJdbc,
+			dataset,
+			scenario.dataset.generationBatchSize,
+		)
 		val insertMillis = elapsedMillis(insertStartedAt)
 
 		val contextStartedAt = System.nanoTime()
@@ -307,6 +311,7 @@ class DailySellerSettlementJobPerformanceTest {
 		"dataset.distribution" to "uniform",
 		"japda.performance.dataset.seller-count" to scenario.dataset.sellerCount.toString(),
 		"japda.performance.dataset.order-count" to scenario.dataset.orderCount.toString(),
+		"japda.performance.dataset.generation-batch-size" to scenario.dataset.generationBatchSize.toString(),
 		"japda.performance.dataset.random-seed" to scenario.dataset.randomSeed.toString(),
 		"japda.performance.dataset.gross-amount" to scenario.dataset.grossAmount.toString(),
 		"japda.performance.job.settlement-date" to scenario.job.settlementDate.toString(),
@@ -373,7 +378,10 @@ class DailySellerSettlementJobPerformanceTest {
 		println("성능 테스트 실행 ID: $runId")
 		println("성능 테스트 결과 디렉터리: ${resultDirectory.toAbsolutePath()}")
 		println("반복: warm-up=${scenario.warmupIterations}, measurement=${scenario.measurementIterations}")
-		println("데이터: sellers=${scenario.dataset.sellerCount}, orders=${scenario.dataset.orderCount}")
+		println(
+			"데이터: sellers=${scenario.dataset.sellerCount}, orders=${scenario.dataset.orderCount}, " +
+				"generation-batch-size=${scenario.dataset.generationBatchSize}",
+		)
 		println(
 			"설정: chunk=${scenarioValues["japda.batch.daily-seller-settlement.chunk-size"] ?: "UNKNOWN"}, " +
 				"page=${scenarioValues["japda.batch.daily-seller-settlement.page-size"] ?: "UNKNOWN"}, " +

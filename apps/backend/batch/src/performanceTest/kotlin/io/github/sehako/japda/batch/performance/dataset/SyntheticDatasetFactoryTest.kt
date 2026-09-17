@@ -4,61 +4,46 @@ import io.github.sehako.japda.batch.performance.scenario.DatasetScenario
 import io.github.sehako.japda.batch.performance.scenario.PerformanceScenario
 import io.github.sehako.japda.batch.performance.scenario.SettlementJobScenario
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
-import kotlin.test.assertTrue
 import org.junit.jupiter.api.DisplayName
 
 @DisplayName("정산 성능 테스트 합성 데이터 계산")
 class SyntheticDatasetFactoryTest {
 	@Test
-	@DisplayName("같은 seed와 설정은 같은 데이터와 예상값을 만든다")
-	fun 같은_seed와_설정은_같은_데이터와_예상값을_만든다() {
-		val scenario = scenario(seed = 42)
+	@DisplayName("전체 행 목록 없이 SQL 생성에 필요한 값만 계산한다")
+	fun 전체_행_목록_없이_SQL_생성에_필요한_값만_계산한다() {
+		val dataset = SyntheticDatasetFactory.create(scenario(seed = 42))
 
-		val first = SyntheticDatasetFactory.create(scenario)
-		val second = SyntheticDatasetFactory.create(scenario)
-
-		assertEquals(first, second)
+		assertEquals(LocalDate.of(2026, 9, 15), dataset.saleDate)
+		assertEquals(3, dataset.sellerCount)
+		assertEquals(7, dataset.orderCount)
+		assertEquals(42L, dataset.randomSeed)
+		assertEquals(10_000L, dataset.grossAmount)
+		assertEquals(Instant.parse("2026-08-31T15:00:00Z"), dataset.entityCreatedAt)
+		assertEquals(Instant.parse("2026-09-14T15:00:00Z"), dataset.orderCreatedAt)
+		assertEquals(Instant.parse("2026-09-15T03:00:00Z"), dataset.approvedAt)
 	}
 
 	@Test
-	@DisplayName("seed가 다르면 식별자와 insert 순서가 달라진다")
-	fun seed가_다르면_식별자와_insert_순서가_달라진다() {
-		val first = SyntheticDatasetFactory.create(scenario(seed = 1))
-		val second = SyntheticDatasetFactory.create(scenario(seed = 2))
-
-		assertNotEquals(first.orders.map { it.idempotencyKey }, second.orders.map { it.idempotencyKey })
-		assertNotEquals(first.orders.map { it.id }, second.orders.map { it.id })
-	}
-
-	@Test
-	@DisplayName("나머지 주문도 모든 판매자에게 최대 한 건 차이로 배정한다")
-	fun 나머지_주문도_모든_판매자에게_최대_한_건_차이로_배정한다() {
-		val dataset = SyntheticDatasetFactory.create(scenario(sellerCount = 3, orderCount = 8))
-
-		val counts = dataset.orders.groupingBy { it.sellerId }.eachCount().values
-
-		assertEquals(3, counts.size)
-		assertEquals(8, counts.sum())
-		assertTrue(counts.max() - counts.min() <= 1)
-	}
-
-	@Test
-	@DisplayName("판매자 단위 수수료 내림 규칙으로 예상 정산값을 계산한다")
-	fun 판매자_단위_수수료_내림_규칙으로_예상_정산값을_계산한다() {
+	@DisplayName("나머지 주문을 균등 분배하고 판매자 단위로 수수료를 내림한다")
+	fun 나머지_주문을_균등_분배하고_판매자_단위로_수수료를_내림한다() {
 		val dataset = SyntheticDatasetFactory.create(
-			scenario(sellerCount = 2, orderCount = 3, grossAmount = 101, feeRateBps = 333),
+			scenario(sellerCount = 3, orderCount = 8, grossAmount = 1, feeRateBps = 5_000),
 		)
 
-		assertEquals(3, dataset.expectedSettlement.detailCount)
-		assertEquals(2, dataset.expectedSettlement.sellerSettlementCount)
-		assertEquals(303L, dataset.expectedSettlement.grossAmount)
-		assertEquals(9L, dataset.expectedSettlement.platformFeeAmount)
-		assertEquals(294L, dataset.expectedSettlement.netAmount)
-		assertEquals(listOf(2, 1), dataset.expectedSettlement.sellers.sortedBy { it.sellerId }.map { it.orderCount })
+		assertEquals(
+			ExpectedSettlement(
+				detailCount = 8,
+				sellerSettlementCount = 3,
+				grossAmount = 8,
+				platformFeeAmount = 3,
+				netAmount = 5,
+			),
+			dataset.expectedSettlement,
+		)
 	}
 
 	private fun scenario(
@@ -68,7 +53,7 @@ class SyntheticDatasetFactoryTest {
 		grossAmount: Long = 10_000,
 		feeRateBps: Int = 1_000,
 	) = PerformanceScenario(
-		dataset = DatasetScenario(sellerCount, orderCount, seed, grossAmount),
+		dataset = DatasetScenario(sellerCount, orderCount, 2, seed, grossAmount),
 		job = SettlementJobScenario(LocalDate.of(2026, 9, 15), feeRateBps, Duration.ofMinutes(30)),
 		warmupIterations = 0,
 		measurementIterations = 1,

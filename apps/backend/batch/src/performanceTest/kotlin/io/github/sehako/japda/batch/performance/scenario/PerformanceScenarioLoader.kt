@@ -18,6 +18,7 @@ class PerformanceScenarioLoader(
 		assertNoExternalDatasourceOverride()
 		val sellerCount = required<Int>("japda.performance.dataset.seller-count")
 		val orderCount = required<Int>("japda.performance.dataset.order-count")
+		val generationBatchSize = required<Int>("japda.performance.dataset.generation-batch-size")
 		val randomSeed = optional("japda.performance.dataset.random-seed", 1L)
 		val grossAmount = required<Long>("japda.performance.dataset.gross-amount")
 		val settlementDate = required<LocalDate>("japda.performance.job.settlement-date")
@@ -30,6 +31,7 @@ class PerformanceScenarioLoader(
 		validate(
 			sellerCount,
 			orderCount,
+			generationBatchSize,
 			grossAmount,
 			settlementDate,
 			feeRate,
@@ -40,7 +42,7 @@ class PerformanceScenarioLoader(
 		)
 
 		return PerformanceScenario(
-			dataset = DatasetScenario(sellerCount, orderCount, randomSeed, grossAmount),
+			dataset = DatasetScenario(sellerCount, orderCount, generationBatchSize, randomSeed, grossAmount),
 			job = SettlementJobScenario(settlementDate, feeRate, timeout),
 			warmupIterations = warmupIterations,
 			measurementIterations = measurementIterations,
@@ -77,6 +79,7 @@ class PerformanceScenarioLoader(
 	private fun validate(
 		sellerCount: Int,
 		orderCount: Int,
+		generationBatchSize: Int,
 		grossAmount: Long,
 		settlementDate: LocalDate,
 		feeRate: Int,
@@ -87,6 +90,7 @@ class PerformanceScenarioLoader(
 	) {
 		invalidIf(sellerCount < 1, "seller-count는 1 이상이어야 합니다.")
 		invalidIf(orderCount < sellerCount, "order-count는 seller-count 이상이어야 합니다.")
+		invalidIf(generationBatchSize < 1, "generation-batch-size는 1 이상이어야 합니다.")
 		invalidIf(grossAmount <= 0, "gross-amount는 양수여야 합니다.")
 		try {
 			Math.multiplyExact(grossAmount, orderCount.toLong())

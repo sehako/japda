@@ -1,134 +1,80 @@
 package io.github.sehako.japda.batch.performance.dataset
 
-import java.sql.PreparedStatement
+import java.nio.charset.StandardCharsets
 import java.time.ZoneOffset
-import org.springframework.jdbc.core.BatchPreparedStatementSetter
+import org.springframework.core.io.ClassPathResource
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate
+import org.springframework.jdbc.datasource.DataSourceTransactionManager
+import org.springframework.transaction.support.TransactionTemplate
 
-class SyntheticDatasetInserter(
-	private val insertBatchSize: Int = 1_000,
-) {
-	init {
-		require(insertBatchSize > 0) { "insertBatchSize는 양수여야 합니다." }
-	}
+class SyntheticDatasetInserter {
+	fun insertAndVerify(
+		jdbcTemplate: JdbcTemplate,
+		dataset: SyntheticDataset,
+		generationBatchSize: Int,
+	): DatasetPreparationResult {
+		require(generationBatchSize > 0) { "generationBatchSize는 양수여야 합니다." }
+		val namedJdbc = NamedParameterJdbcTemplate(jdbcTemplate)
+		val dataSource = requireNotNull(jdbcTemplate.dataSource) { "JdbcTemplate DataSource가 필요합니다." }
+		val transaction = TransactionTemplate(DataSourceTransactionManager(dataSource))
+		val commonParameters = commonParameters(dataset)
 
-	fun insertAndVerify(jdbcTemplate: JdbcTemplate, dataset: SyntheticDataset): DatasetPreparationResult {
-		jdbcTemplate.update(
-			"INSERT INTO sale_days (sale_date, capacity, registered_count) VALUES (?, ?, ?)",
-			dataset.saleDate,
-			dataset.saleDayCapacity,
-			dataset.sellers.size,
-		)
-		insertUsers(jdbcTemplate, dataset.sellers)
-		insertSellerIdentities(jdbcTemplate, dataset.sellers)
-		insertProducts(jdbcTemplate, dataset.sellers)
-		insertSales(jdbcTemplate, dataset)
-		insertOrders(jdbcTemplate, dataset.orders)
-		insertPayments(jdbcTemplate, dataset.payments)
+		transaction.executeWithoutResult {
+			namedJdbc.update(sql("insert-sale-day.sql"), commonParameters.addRange(1L, 1L))
+		}
+		forEachRange(dataset.sellerCount.toLong(), generationBatchSize) { startId, endId ->
+			transaction.executeWithoutResult {
+				val parameters = commonParameters.addRange(startId, endId)
+				namedJdbc.update(sql("insert-users.sql"), parameters)
+				namedJdbc.update(sql("insert-seller-identities.sql"), parameters)
+				namedJdbc.update(sql("insert-products.sql"), parameters)
+				namedJdbc.update(sql("insert-sales.sql"), parameters)
+			}
+		}
+		forEachRange(dataset.orderCount.toLong(), generationBatchSize) { startId, endId ->
+			transaction.executeWithoutResult {
+				val parameters = commonParameters.addRange(startId, endId)
+				namedJdbc.update(sql("insert-orders.sql"), parameters)
+				namedJdbc.update(sql("insert-payments.sql"), parameters)
+			}
+		}
+
 		return verify(jdbcTemplate, dataset)
 	}
 
-	private fun insertUsers(jdbc: JdbcTemplate, sellers: List<SyntheticSeller>) = sellers.chunked(insertBatchSize).forEach { rows ->
-		jdbc.batchUpdate(
-			"INSERT INTO users (id, provider, provider_subject, email, created_at) VALUES (?, 'GOOGLE', ?, ?, ?)",
-			setter(rows) { statement, row ->
-				statement.setLong(1, row.userId)
-				statement.setString(2, row.providerSubject)
-				statement.setString(3, row.email)
-				statement.setObject(4, row.createdAt.atOffset(ZoneOffset.UTC))
-			},
-		)
-	}
+	private fun commonParameters(dataset: SyntheticDataset) = MapSqlParameterSource()
+		.addValue("saleDate", dataset.saleDate)
+		.addValue("sellerCount", dataset.sellerCount)
+		.addValue("orderCount", dataset.orderCount)
+		.addValue("randomSeed", dataset.randomSeed)
+		.addValue("grossAmount", dataset.grossAmount)
+		.addValue("entityCreatedAt", dataset.entityCreatedAt.atOffset(ZoneOffset.UTC))
+		.addValue("orderCreatedAt", dataset.orderCreatedAt.atOffset(ZoneOffset.UTC))
+		.addValue("orderExpiresAt", dataset.orderCreatedAt.plusSeconds(600).atOffset(ZoneOffset.UTC))
+		.addValue("approvedAt", dataset.approvedAt.atOffset(ZoneOffset.UTC))
 
-	private fun insertSellerIdentities(jdbc: JdbcTemplate, sellers: List<SyntheticSeller>) = sellers.chunked(insertBatchSize).forEach { rows ->
-		jdbc.batchUpdate(
-			"INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, ?)",
-			setter(rows) { statement, row ->
-				statement.setLong(1, row.userId)
-				statement.setLong(2, row.sellerId)
-			},
-		)
-	}
+	private fun MapSqlParameterSource.addRange(startId: Long, endId: Long) =
+		addValue("startId", startId).addValue("endId", endId)
 
-	private fun insertProducts(jdbc: JdbcTemplate, sellers: List<SyntheticSeller>) = sellers.chunked(insertBatchSize).forEach { rows ->
-		jdbc.batchUpdate(
-			"INSERT INTO products (id, seller_id, name, status, created_at) VALUES (?, ?, ?, 'READY', ?)",
-			setter(rows) { statement, row ->
-				statement.setLong(1, row.productId)
-				statement.setLong(2, row.sellerId)
-				statement.setString(3, "성능 테스트 상품-${row.productId}")
-				statement.setObject(4, row.createdAt.atOffset(ZoneOffset.UTC))
-			},
-		)
-	}
-
-	private fun insertSales(jdbc: JdbcTemplate, dataset: SyntheticDataset) {
-		val quantities = dataset.orders.groupingBy { it.sellerId }.eachCount()
-		dataset.sellers.chunked(insertBatchSize).forEach { rows ->
-			jdbc.batchUpdate(
-				"INSERT INTO sales (id, product_id, seller_id, sale_date, price, quantity, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-				setter(rows) { statement, row ->
-					statement.setLong(1, row.saleId)
-					statement.setLong(2, row.productId)
-					statement.setLong(3, row.sellerId)
-					statement.setObject(4, dataset.saleDate)
-					statement.setLong(5, dataset.orders.first().grossAmount)
-					statement.setInt(6, quantities.getValue(row.sellerId))
-					statement.setObject(7, row.createdAt.atOffset(ZoneOffset.UTC))
-				},
-			)
+	private fun forEachRange(totalCount: Long, batchSize: Int, action: (Long, Long) -> Unit) {
+		var startId = 1L
+		while (startId <= totalCount) {
+			val endId = minOf(totalCount, Math.addExact(startId, batchSize.toLong() - 1L))
+			action(startId, endId)
+			startId = Math.addExact(endId, 1L)
 		}
-	}
-
-	private fun insertOrders(jdbc: JdbcTemplate, orders: List<SyntheticOrder>) = orders.chunked(insertBatchSize).forEach { rows ->
-		jdbc.batchUpdate(
-			"""
-			INSERT INTO orders (
-				id, sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price,
-				status, recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-			) VALUES (?, ?, ?, ?, ?, 1, '성능 테스트 상품', ?, ?, 'PAID', '수령인', '010-0000-0000', '00000', '주소', '상세', ?, ?)
-			""".trimIndent(),
-			setter(rows) { statement, row ->
-				statement.setLong(1, row.id)
-				statement.setLong(2, row.saleId)
-				statement.setLong(3, row.buyerId)
-				statement.setObject(4, row.idempotencyKey)
-				statement.setString(5, row.paymentOrderId)
-				statement.setLong(6, row.grossAmount)
-				statement.setLong(7, row.grossAmount)
-				statement.setObject(8, row.createdAt.atOffset(ZoneOffset.UTC))
-				statement.setObject(9, row.expiresAt.atOffset(ZoneOffset.UTC))
-			},
-		)
-	}
-
-	private fun insertPayments(jdbc: JdbcTemplate, payments: List<SyntheticPayment>) = payments.chunked(insertBatchSize).forEach { rows ->
-		jdbc.batchUpdate(
-			"""
-			INSERT INTO payments (
-				id, order_id, payment_key, toss_idempotency_key, status, requested_amount, created_at, approved_at
-			) VALUES (?, ?, ?, ?, 'APPROVED', ?, ?, ?)
-			""".trimIndent(),
-			setter(rows) { statement, row ->
-				statement.setLong(1, row.id)
-				statement.setLong(2, row.orderId)
-				statement.setString(3, row.paymentKey)
-				statement.setString(4, row.tossIdempotencyKey)
-				statement.setLong(5, row.grossAmount)
-				statement.setObject(6, row.createdAt.atOffset(ZoneOffset.UTC))
-				statement.setObject(7, row.approvedAt.atOffset(ZoneOffset.UTC))
-			},
-		)
 	}
 
 	private fun verify(jdbc: JdbcTemplate, dataset: SyntheticDataset): DatasetPreparationResult {
 		val expectedCounts = linkedMapOf(
-			"users" to dataset.sellers.size.toLong(),
-			"seller_principal_identities" to dataset.sellers.size.toLong(),
-			"products" to dataset.sellers.size.toLong(),
-			"sales" to dataset.sellers.size.toLong(),
-			"orders" to dataset.orders.size.toLong(),
-			"payments" to dataset.payments.size.toLong(),
+			"users" to dataset.sellerCount.toLong(),
+			"seller_principal_identities" to dataset.sellerCount.toLong(),
+			"products" to dataset.sellerCount.toLong(),
+			"sales" to dataset.sellerCount.toLong(),
+			"orders" to dataset.orderCount.toLong(),
+			"payments" to dataset.orderCount.toLong(),
 		)
 		val actualCounts = expectedCounts.mapValues { (table, _) ->
 			jdbc.queryForObject("SELECT COUNT(*) FROM $table", Long::class.java)!!
@@ -146,12 +92,21 @@ class SyntheticDatasetInserter(
 		return DatasetPreparationResult(actualCounts, paymentGrossAmount)
 	}
 
-	private fun <T> setter(rows: List<T>, bind: (PreparedStatement, T) -> Unit) =
-		object : BatchPreparedStatementSetter {
-			override fun getBatchSize(): Int = rows.size
+	private fun sql(name: String): String = SQL_RESOURCES.getValue(name)
 
-			override fun setValues(statement: PreparedStatement, index: Int) = bind(statement, rows[index])
+	private companion object {
+		val SQL_RESOURCES = listOf(
+			"insert-sale-day.sql",
+			"insert-users.sql",
+			"insert-seller-identities.sql",
+			"insert-products.sql",
+			"insert-sales.sql",
+			"insert-orders.sql",
+			"insert-payments.sql",
+		).associateWith { name ->
+			ClassPathResource("dataset/$name").getContentAsString(StandardCharsets.UTF_8)
 		}
+	}
 }
 
 data class DatasetPreparationResult(
