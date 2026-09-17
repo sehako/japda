@@ -57,7 +57,7 @@ class AuthSecurityConfig {
         fun protectedRoute(request: HttpServletRequest): Boolean {
             val path = request.requestURI.removePrefix(request.contextPath)
             return when (request.method) {
-                HttpMethod.GET.name() -> path in setOf("/api/auth/me", "/api/auth/csrf", "/api/products/ready", "/api/checkout")
+                HttpMethod.GET.name() -> path in setOf("/api/auth/me", "/api/auth/csrf", "/api/products/ready", "/api/checkout", "/api/orders")
                 HttpMethod.POST.name() -> path in setOf("/api/products", "/api/sales", "/api/shipping-addresses", "/api/orders", "/api/payments/confirm") ||
                     Regex("^/api/products/[^/]+/images$").matches(path)
                 else -> false
