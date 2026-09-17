@@ -16,6 +16,8 @@
 - 입금액이 `0`인 판매자별 정산은 지갑과 원장을 만들지 않고 입금 완료로 처리한다.
 - 모든 판매자별 입금 결과를 검산한 뒤 `SettlementRun`을 최종 완료한다.
 - chunk 중간 실패와 동일 JobInstance 재시작에서 완료된 입금을 반복하지 않는다.
+- 부모 `SettlementRun` 잠금 조회는 chunk마다 한 번만 수행하고 같은 chunk의 판매자별 정산 처리에서 재사용한다.
+- 양수 신규 정산은 공유 원장 application 결과로 기존 source 여부를 판정하여 동일 source의 선행 조회를 중복하지 않는다.
 - 대상이 없는 정산일도 지갑·원장 변경 없이 정상 완료한다.
 
 ## 기존 결정과 범위
@@ -194,9 +196,11 @@ Writer는 chunk의 각 `sellerSettlementId`를 순서대로 다음과 같이 처
 3. 부모 `SettlementRun`이 `CONFIRMED` 또는 멱등 재검산 대상인 `COMPLETED`인지 검증한다.
 4. 현재 판매자별 상태와 `net_amount`에 따라 신규 입금 또는 멱등 재검산을 수행한다.
 
+부모 `SettlementRun`은 각 chunk에서 첫 번째 유효한 `seller_settlements` 행의 존재와 `settlementRunId` 일치를 확인한 뒤 `FOR UPDATE`로 한 번 조회한다. 조회한 snapshot과 잠금은 해당 chunk transaction 안에서만 재사용하며, 각 판매자별 정산에 대한 부모 상태 검증에는 같은 snapshot을 사용한다. 다음 chunk는 새로운 transaction이므로 부모 행을 다시 잠금 조회한다. Writer 인스턴스 필드나 Step 전체 범위에는 snapshot을 보관하지 않는다.
+
 부모 실행이 `CONFIRMED`이면 `CONFIRMED`, `CREDITED` 판매자별 정산을 모두 처리할 수 있다. 부모 실행이 이미 `COMPLETED`이면 모든 판매자별 정산이 `CREDITED`여야 하며 기존 결과 재검산만 허용한다. `COMPLETED` 실행에 `CONFIRMED` 행이 남아 있으면 새로 입금하여 복구하지 않고 최종 완료 불변식이 깨진 데이터 오류로 실패한다.
 
-`CONFIRMED`이고 `net_amount > 0`이면 같은 정산 source의 원장 항목이 아직 없어야 한다. 공유 원장 application 기능으로 입금한 뒤 같은 transaction에서 판매자별 상태를 `CREDITED`로 바꾸고 `credited_at`을 기록한다.
+`CONFIRMED`이고 `net_amount > 0`이면 Writer가 같은 정산 source의 원장 항목을 별도로 선행 조회하지 않고 공유 원장 application 기능을 호출한다. 공유 기능이 반환한 `alreadyApplied`가 `false`일 때만 이번 호출에서 신규 입금된 것으로 인정하고, 같은 transaction에서 판매자별 상태를 `CREDITED`로 바꾸고 `credited_at`을 기록한다. `alreadyApplied`가 `true`이면 입금 전에 원장이 존재한 원자성 계약 위반으로 분류하여 `UNEXPECTED_LEDGER_ENTRY`로 실패한다. 기존 source의 사용자, 방향 또는 금액이 달라 공유 기능이 `LedgerSourceMismatchException`을 반환한 경우에도 같은 배치 오류로 변환한다. 공유 기능 내부의 지갑 잠금 전후 source 조회와 멱등성 계약은 변경하지 않는다.
 
 `CONFIRMED`이고 `net_amount = 0`이면 지갑을 생성하거나 0원 원장을 기록하지 않는다. 같은 정산 source의 원장 항목이 없음을 확인한 뒤 판매자별 상태와 시각만 갱신한다. 플랫폼 수수료율이 `10000` basis point인 정산에서도 양수만 허용하는 원장 계약을 깨지 않고 정상 완료할 수 있다.
 
@@ -333,6 +337,8 @@ API root project는 다음 책임을 가진다.
 22. API root의 전체 Flyway migration을 적용한 PostgreSQL에서 최종 Job이 실행된다.
 23. `:modules:ledger`가 plain jar를 유지하고 API와 배치가 공유 application 기능을 로드할 수 있다.
 24. 전체 backend와 batch test·build가 기존 주문·결제 및 정산 수집·확정 동작에 회귀를 만들지 않는다.
+25. 같은 chunk의 여러 판매자별 정산을 처리할 때 부모 `SettlementRun` 잠금 조회는 한 번만 수행하고 다음 chunk에서는 다시 수행한다.
+26. 양수 신규 정산은 공유 원장 기능이 `alreadyApplied = false`를 반환할 때만 입금 완료하며, `alreadyApplied = true` 또는 `LedgerSourceMismatchException`이면 `UNEXPECTED_LEDGER_ENTRY`로 실패한다.
 
 재시작 테스트는 지갑 잔액이나 원장을 임의로 미리 넣어 성공을 모사하는 것으로 끝내지 않는다. 실제 여러 chunk 처리 중 의도적으로 실패시켜 Spring Batch metadata와 업무 데이터의 commit 경계를 검증한 뒤 동일 JobInstance를 재시작한다.
 
