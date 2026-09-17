@@ -5,11 +5,12 @@ import { AuthSuccessPage } from '../pages/auth-success/AuthSuccessPage.tsx'
 import { BuyerMainPage } from '../pages/buyer-main/BuyerMainPage.tsx'
 import { BuyerCheckoutPage } from '../pages/buyer-checkout/BuyerCheckoutPage.tsx'
 import { BuyerSaleDetailPage } from '../pages/buyer-sale-detail/BuyerSaleDetailPage.tsx'
+import { BuyerOrderHistoryPage } from '../pages/buyer-order-history/BuyerOrderHistoryPage.tsx'
 import { NotFoundPage } from '../pages/not-found/NotFoundPage.tsx'
 import { SellerProductRegistrationPage } from '../pages/seller-product-registration/SellerProductRegistrationPage.tsx'
 import { SellerSaleSchedulingPage } from '../pages/seller-sale-scheduling/SellerSaleSchedulingPage.tsx'
 import { TossPaymentResultPage } from '../pages/toss-payment-result/TossPaymentResultPage.tsx'
 
 export function AppRouter() {
-  return <BrowserRouter><Routes><Route path="/" element={<BuyerMainPage />} /><Route path="/sales/:saleId" element={<BuyerSaleDetailPage />} /><Route path="/checkout/:saleId" element={<BuyerCheckoutPage />} /><Route path="/auth/success" element={<AuthSuccessPage />} /><Route path="/auth/failure" element={<AuthFailurePage />} /><Route path="/payments/toss/success" element={<TossPaymentResultPage result="success" />} /><Route path="/payments/toss/fail" element={<TossPaymentResultPage result="fail" />} /><Route path="/seller/products/new" element={<SellerProductRegistrationPage />} /><Route path="/seller/sales/new" element={<SellerSaleSchedulingPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></BrowserRouter>
+  return <BrowserRouter><Routes><Route path="/" element={<BuyerMainPage />} /><Route path="/orders" element={<BuyerOrderHistoryPage />} /><Route path="/sales/:saleId" element={<BuyerSaleDetailPage />} /><Route path="/checkout/:saleId" element={<BuyerCheckoutPage />} /><Route path="/auth/success" element={<AuthSuccessPage />} /><Route path="/auth/failure" element={<AuthFailurePage />} /><Route path="/payments/toss/success" element={<TossPaymentResultPage result="success" />} /><Route path="/payments/toss/fail" element={<TossPaymentResultPage result="fail" />} /><Route path="/seller/products/new" element={<SellerProductRegistrationPage />} /><Route path="/seller/sales/new" element={<SellerSaleSchedulingPage />} /><Route path="*" element={<NotFoundPage />} /></Routes></BrowserRouter>
 }

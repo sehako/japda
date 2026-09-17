@@ -17,6 +17,8 @@ test('/에서 구매자 메인과 로그인 상태를 표시한다', async () =>
   render(<App />)
   expect(await screen.findByRole('heading', { name: '판매 일정' })).toBeInTheDocument()
   expect(screen.getByText('JAPDA')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'SHOP' })).toHaveAttribute('aria-current', 'page')
+  expect(screen.getByRole('link', { name: 'ORDERS' })).toHaveAttribute('href', '/orders')
   expect(await screen.findByRole('button', { name: '로그인' })).toBeInTheDocument()
   await waitFor(() => expect(screen.getByText('선택한 날짜에 판매 상품이 없습니다.')).toBeInTheDocument())
 })

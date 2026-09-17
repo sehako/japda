@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+
 import { AuthenticationStatus } from '../../features/authentication/ui/AuthenticationStatus.tsx'
 import { useBuyerSales } from '../../features/buyer-sale/hook/useBuyerSales.ts'
 import { BuyerSaleCalendar } from '../../features/buyer-sale/ui/BuyerSaleCalendar.tsx'
@@ -15,9 +17,13 @@ export function BuyerMainPage() {
   const items = sales.data?.sales
   return <>
     <header className="h-16 border-b border-[var(--color-concrete-gray)] md:h-[72px]">
-      <div className="mx-auto flex size-full max-w-[1440px] items-center justify-between px-5 md:px-8">
-        <span className="text-xl font-semibold tracking-[-0.04em]" aria-label="JAPDA 홈">JAPDA</span>
-        <AuthenticationStatus />
+      <div className="mx-auto grid size-full max-w-[1440px] grid-cols-[1fr_auto_1fr] items-center px-5 md:px-8">
+        <Link className="w-fit text-xl font-semibold tracking-[-0.04em]" to="/" aria-label="JAPDA 홈">JAPDA</Link>
+        <nav className="flex items-center gap-4 min-[381px]:gap-5 md:gap-8" aria-label="주요 메뉴">
+          <Link className="relative inline-flex min-h-11 items-center text-xs font-semibold tracking-[0.08em] after:absolute after:right-0 after:bottom-[-10px] after:left-0 after:h-px after:bg-[var(--color-obsidian)] md:after:bottom-[-14px]" to="/" aria-current="page">SHOP</Link>
+          <Link className="inline-flex min-h-11 items-center text-xs font-semibold tracking-[0.08em] text-[var(--color-steel)] hover:text-[var(--color-obsidian)]" to="/orders">ORDERS</Link>
+        </nav>
+        <div className="min-w-0 justify-self-end"><AuthenticationStatus /></div>
       </div>
     </header>
     <main className="mx-auto w-full max-w-[1440px] px-5 pt-8 pb-16 md:px-8 md:pt-12 md:pb-24">

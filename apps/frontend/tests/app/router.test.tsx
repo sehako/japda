@@ -6,6 +6,19 @@ import { AppRouter } from '../../src/app/router.tsx'
 
 afterEach(() => vi.unstubAllGlobals())
 
+test('/orders 직접 접근을 주문 내역 페이지에 연결한다', async () => {
+  window.history.pushState({}, '', '/orders')
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) =>
+    String(input).endsWith('/api/auth/me')
+      ? Response.json({ id: 7, email: 'buyer@japda.kr', roles: ['BUYER'] })
+      : Response.json({ items: [], nextCursor: null })))
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+  render(<QueryClientProvider client={queryClient}><AppRouter /></QueryClientProvider>)
+
+  expect(await screen.findByRole('heading', { level: 1, name: 'Orders' })).toBeInTheDocument()
+})
+
 test('/sales/:saleId 직접 접근을 상품 상세 페이지에 연결한다', async () => {
   window.history.pushState({}, '', '/sales/11')
   vi.stubGlobal('fetch', vi.fn(async () => Response.json({
