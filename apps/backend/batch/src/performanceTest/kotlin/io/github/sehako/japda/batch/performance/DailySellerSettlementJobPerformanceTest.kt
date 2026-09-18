@@ -4,6 +4,8 @@ import com.zaxxer.hikari.HikariDataSource
 import io.github.sehako.japda.batch.BatchApplication
 import io.github.sehako.japda.batch.performance.database.IterationDatabase
 import io.github.sehako.japda.batch.performance.database.PerformancePostgresFixture
+import io.github.sehako.japda.batch.performance.diagnostic.QueryPlanDiagnostic
+import io.github.sehako.japda.batch.performance.diagnostic.QueryPlanDiagnosticRunner
 import io.github.sehako.japda.batch.performance.dataset.ExpectedSettlement
 import io.github.sehako.japda.batch.performance.dataset.SyntheticDatasetFactory
 import io.github.sehako.japda.batch.performance.dataset.SyntheticDatasetInserter
@@ -21,9 +23,11 @@ import io.github.sehako.japda.batch.performance.scenario.PerformanceScenario
 import io.github.sehako.japda.batch.performance.scenario.PerformanceScenarioLoader
 import io.github.sehako.japda.batch.performance.validation.BatchCounterValidator
 import io.github.sehako.japda.batch.performance.validation.ExpectedSettlementValues
+import io.github.sehako.japda.batch.performance.validation.PerformanceSlaEvaluator
 import io.github.sehako.japda.batch.performance.validation.SettlementResultValidator
 import io.github.sehako.japda.batch.performance.validation.ValidationReport
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.config.DailySellerSettlementBatchProperties
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.Executors
@@ -59,6 +63,7 @@ class DailySellerSettlementJobPerformanceTest {
 		val reportWriter = PerformanceReportWriter(resultDirectory)
 		val iterations = mutableListOf<IterationMeasurement>()
 		val resources = mutableListOf<ResourceSample>()
+		val queryPlans = mutableListOf<QueryPlanDiagnostic>()
 		var validation = ValidationReport(true, emptyMap(), emptyList())
 		val failures = mutableListOf<String>()
 		val scenarioValues = baseScenarioValues(runId, scenario)
@@ -76,7 +81,7 @@ class DailySellerSettlementJobPerformanceTest {
 						IterationKind.MEASUREMENT
 					}
 					val outcome = runCatching {
-						runIteration(index, kind, scenario, fixture, scenarioValues)
+						runIteration(index, kind, scenario, fixture, scenarioValues, queryPlans)
 					}.getOrElse { exception ->
 						failedOutcome(index, kind, exception)
 					}
@@ -93,7 +98,7 @@ class DailySellerSettlementJobPerformanceTest {
 				ValidationReport(false, emptyMap(), listOf(exception.failureMessage())),
 			)
 		} finally {
-			reportWriter.write(scenarioValues, iterations, resources, validation)
+			reportWriter.write(scenarioValues, iterations, resources, validation, queryPlans)
 			printSummary(runId, resultDirectory, scenario, scenarioValues, iterations, resources, validation)
 		}
 
@@ -103,12 +108,28 @@ class DailySellerSettlementJobPerformanceTest {
 		)
 	}
 
+	private fun diagnoseQueryPlans(
+		scenario: PerformanceScenario,
+		fixture: PerformancePostgresFixture,
+		pageSize: Int,
+	): List<QueryPlanDiagnostic> {
+		val database = fixture.createIteration()
+		val dataset = SyntheticDatasetFactory.create(scenario)
+		val jdbcTemplate = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+		SyntheticDatasetInserter().insertAndVerify(jdbcTemplate, dataset, scenario.dataset.generationBatchSize)
+		return QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
+			SettlementDateRange.from(scenario.job.settlementDate),
+			pageSize,
+		)
+	}
+
 	private fun runIteration(
 		index: Int,
 		kind: IterationKind,
 		scenario: PerformanceScenario,
 		fixture: PerformancePostgresFixture,
 		scenarioValues: MutableMap<String, String>,
+		queryPlans: MutableList<QueryPlanDiagnostic>,
 	): IterationOutcome {
 		val database = fixture.createIteration()
 		val calculationStartedAt = System.nanoTime()
@@ -129,9 +150,14 @@ class DailySellerSettlementJobPerformanceTest {
 		context.use {
 			val jdbcTemplate = context.getBean(JdbcTemplate::class.java)
 			captureEffectiveEnvironment(context, jdbcTemplate, scenarioValues)
+			if (queryPlans.isEmpty()) {
+				val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
+				queryPlans += diagnoseQueryPlans(scenario, fixture, tuning.pageSize)
+			}
 			val execution = executeJob(index, scenario, fixture, context)
 			val steps = execution.jobExecution?.stepMeasurements().orEmpty()
 			var iterationValidation = validateExecution(
+				scenario,
 				execution.jobExecution,
 				execution.wallDurationMillis,
 				steps,
@@ -223,6 +249,7 @@ class DailySellerSettlementJobPerformanceTest {
 	}
 
 	private fun validateExecution(
+		scenario: PerformanceScenario,
 		jobExecution: JobExecution?,
 		wallDurationMillis: Long,
 		steps: List<StepMeasurement>,
@@ -275,7 +302,7 @@ class DailySellerSettlementJobPerformanceTest {
 					netAmount = expected.netAmount,
 				),
 			),
-		)
+		).merge(PerformanceSlaEvaluator().evaluate(scenario, wallDurationMillis, steps))
 	}
 
 	private fun startContext(database: IterationDatabase): ConfigurableApplicationContext {
@@ -308,7 +335,7 @@ class DailySellerSettlementJobPerformanceTest {
 
 	private fun baseScenarioValues(runId: String, scenario: PerformanceScenario) = linkedMapOf(
 		"run.id" to runId,
-		"dataset.distribution" to "uniform",
+		"japda.performance.dataset.approval-time-distribution" to scenario.dataset.approvalTimeDistribution.name,
 		"japda.performance.dataset.seller-count" to scenario.dataset.sellerCount.toString(),
 		"japda.performance.dataset.order-count" to scenario.dataset.orderCount.toString(),
 		"japda.performance.dataset.generation-batch-size" to scenario.dataset.generationBatchSize.toString(),

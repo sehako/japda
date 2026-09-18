@@ -10,6 +10,8 @@ object SyntheticDatasetFactory {
 		val entityCreatedAt = settlementDate.minusDays(14).atStartOfDay(SEOUL_ZONE).toInstant()
 		val orderCreatedAt = settlementDate.atStartOfDay(SEOUL_ZONE).toInstant()
 		val approvedAt = settlementDate.atTime(12, 0).atZone(SEOUL_ZONE).toInstant()
+		val approvalTimeStart = orderCreatedAt
+		val approvalTimeEndExclusive = settlementDate.plusDays(1).atStartOfDay(SEOUL_ZONE).toInstant()
 
 		return SyntheticDataset(
 			saleDate = settlementDate,
@@ -20,6 +22,9 @@ object SyntheticDatasetFactory {
 			entityCreatedAt = entityCreatedAt,
 			orderCreatedAt = orderCreatedAt,
 			approvedAt = approvedAt,
+			approvalTimeDistribution = dataset.approvalTimeDistribution,
+			approvalTimeStart = approvalTimeStart,
+			approvalTimeEndExclusive = approvalTimeEndExclusive,
 			expectedSettlement = expectedSettlement(scenario),
 		)
 	}

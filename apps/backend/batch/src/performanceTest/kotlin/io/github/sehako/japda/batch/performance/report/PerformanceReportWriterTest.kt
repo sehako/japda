@@ -6,6 +6,7 @@ import io.github.sehako.japda.batch.performance.measurement.model.IterationMeasu
 import io.github.sehako.japda.batch.performance.measurement.model.ResourceAvailability
 import io.github.sehako.japda.batch.performance.measurement.model.ResourceSample
 import io.github.sehako.japda.batch.performance.measurement.model.StepMeasurement
+import io.github.sehako.japda.batch.performance.diagnostic.QueryPlanDiagnostic
 import io.github.sehako.japda.batch.performance.validation.ValidationReport
 import java.nio.file.Files
 import kotlin.io.path.readText
@@ -45,11 +46,12 @@ class PerformanceReportWriterTest {
 			iterations = listOf(warmup, measurement),
 			resources = listOf(resource),
 			validation = validation,
+			queryPlans = listOf(QueryPlanDiagnostic("middle", 12, "Index Cond: [REDACTED_CURSOR]")),
 		)
 
 		assertThat(directory.toFile().list()!!.toSet()).containsExactlyInAnyOrder(
 			"scenario.properties", "iterations.csv", "steps.csv", "resources.csv",
-			"validation.properties", "summary.properties",
+			"validation.properties", "summary.properties", "query-plans.txt",
 		)
 		val allText = directory.toFile().listFiles()!!.joinToString("\n") { it.readText() }
 		assertThat(allText).doesNotContain("secret", "절대 기록하면 안 됨", "password=")
@@ -63,6 +65,8 @@ class PerformanceReportWriterTest {
 			)
 			.doesNotContain("throughput.milli", "throughput.average.millis")
 			.doesNotContain("9999")
+		assertThat(directory.resolve("query-plans.txt").readText())
+			.contains("cursor=middle", "execution_millis=12", "[REDACTED_CURSOR]")
 	}
 
 	private fun iteration(index: Int, kind: IterationKind, durationMillis: Long) = IterationMeasurement(

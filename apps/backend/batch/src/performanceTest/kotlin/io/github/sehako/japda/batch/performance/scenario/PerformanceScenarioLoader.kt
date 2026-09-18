@@ -21,9 +21,13 @@ class PerformanceScenarioLoader(
 		val generationBatchSize = required<Int>("japda.performance.dataset.generation-batch-size")
 		val randomSeed = optional("japda.performance.dataset.random-seed", 1L)
 		val grossAmount = required<Long>("japda.performance.dataset.gross-amount")
+		val approvalTimeDistribution = optional(
+			"japda.performance.dataset.approval-time-distribution",
+			ApprovalTimeDistribution.FIXED,
+		)
 		val settlementDate = required<LocalDate>("japda.performance.job.settlement-date")
 		val feeRate = required<Int>("japda.performance.job.platform-fee-rate-bps")
-		val timeout = optional("japda.performance.job.timeout", Duration.ofMinutes(30))
+		val timeout = optional("japda.performance.job.timeout", Duration.ofMinutes(65))
 		val warmupIterations = optional("japda.performance.warmup-iterations", 0)
 		val measurementIterations = optional("japda.performance.measurement-iterations", 1)
 		val samplingIntervalMillis = optional("japda.performance.resource-sampling-interval-ms", 100L)
@@ -33,6 +37,7 @@ class PerformanceScenarioLoader(
 			orderCount,
 			generationBatchSize,
 			grossAmount,
+			approvalTimeDistribution,
 			settlementDate,
 			feeRate,
 			timeout,
@@ -42,7 +47,7 @@ class PerformanceScenarioLoader(
 		)
 
 		return PerformanceScenario(
-			dataset = DatasetScenario(sellerCount, orderCount, generationBatchSize, randomSeed, grossAmount),
+			dataset = DatasetScenario(sellerCount, orderCount, generationBatchSize, randomSeed, grossAmount, approvalTimeDistribution),
 			job = SettlementJobScenario(settlementDate, feeRate, timeout),
 			warmupIterations = warmupIterations,
 			measurementIterations = measurementIterations,
@@ -81,6 +86,7 @@ class PerformanceScenarioLoader(
 		orderCount: Int,
 		generationBatchSize: Int,
 		grossAmount: Long,
+		approvalTimeDistribution: ApprovalTimeDistribution,
 		settlementDate: LocalDate,
 		feeRate: Int,
 		timeout: Duration,

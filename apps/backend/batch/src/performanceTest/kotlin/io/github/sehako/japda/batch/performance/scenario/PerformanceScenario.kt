@@ -17,7 +17,13 @@ data class DatasetScenario(
 	val generationBatchSize: Int,
 	val randomSeed: Long,
 	val grossAmount: Long,
+	val approvalTimeDistribution: ApprovalTimeDistribution = ApprovalTimeDistribution.FIXED,
 )
+
+enum class ApprovalTimeDistribution {
+	FIXED,
+	UNIFORM,
+}
 
 data class SettlementJobScenario(
 	val settlementDate: LocalDate,

@@ -8,5 +8,9 @@ SELECT id,
        'APPROVED',
        :grossAmount,
        :orderCreatedAt,
-       :approvedAt
+       CASE :approvalTimeDistribution
+           WHEN 'FIXED' THEN :approvedAt
+           WHEN 'UNIFORM' THEN :approvalTimeStart +
+               ((id - 1) * 86400000 / :orderCount) * INTERVAL '1 millisecond'
+       END
 FROM generate_series(CAST(:startId AS BIGINT), CAST(:endId AS BIGINT)) AS generated(id)

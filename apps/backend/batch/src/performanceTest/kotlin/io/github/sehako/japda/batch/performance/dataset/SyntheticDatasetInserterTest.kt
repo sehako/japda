@@ -2,10 +2,12 @@ package io.github.sehako.japda.batch.performance.dataset
 
 import io.github.sehako.japda.batch.performance.database.PerformancePostgresFixture
 import io.github.sehako.japda.batch.performance.scenario.DatasetScenario
+import io.github.sehako.japda.batch.performance.scenario.ApprovalTimeDistribution
 import io.github.sehako.japda.batch.performance.scenario.PerformanceScenario
 import io.github.sehako.japda.batch.performance.scenario.SettlementJobScenario
 import java.nio.file.Path
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.test.Test
@@ -64,6 +66,25 @@ class SyntheticDatasetInserterTest {
 		}
 	}
 
+	@Test
+	@DisplayName("UNIFORM 분포는 정산일에 포함되고 결제 순번에 따라 증가하는 승인 시각을 적재한다")
+	fun UNIFORM_분포는_정산일에_포함되고_결제_순번에_따라_증가하는_승인_시각을_적재한다() {
+		PerformancePostgresFixture(Path.of(System.getProperty("rootMigrationDirectory"))).use { fixture ->
+			fixture.start()
+			val database = fixture.createIteration()
+			val jdbcTemplate = JdbcTemplate(DriverManagerDataSource(database.jdbcUrl, database.username, database.password))
+			val scenario = SCENARIO.copy(dataset = SCENARIO.dataset.copy(approvalTimeDistribution = ApprovalTimeDistribution.UNIFORM))
+			val dataset = SyntheticDatasetFactory.create(scenario)
+
+			SyntheticDatasetInserter().insertAndVerify(jdbcTemplate, dataset, scenario.dataset.generationBatchSize)
+
+			val approvedAt = jdbcTemplate.query("SELECT approved_at FROM payments ORDER BY id") { resultSet, _ -> resultSet.getTimestamp(1).toInstant() }
+			assertEquals(7, approvedAt.distinct().size)
+			assertEquals(Instant.parse("2026-09-14T15:00:00Z"), approvedAt.first())
+			assertEquals(Instant.parse("2026-09-15T11:34:17.142Z"), approvedAt.last())
+		}
+	}
+
 	private fun transactionIds(jdbcTemplate: JdbcTemplate, table: String): List<Long> = jdbcTemplate.query(
 		"SELECT xmin::text::bigint AS transaction_id FROM $table ORDER BY id",
 	) { resultSet, _ -> resultSet.getLong("transaction_id") }
@@ -75,7 +96,7 @@ class SyntheticDatasetInserterTest {
 
 	private companion object {
 		val SCENARIO = PerformanceScenario(
-			dataset = DatasetScenario(3, 7, 2, 42, 10_000),
+			dataset = DatasetScenario(3, 7, 2, 42, 10_000, ApprovalTimeDistribution.FIXED),
 			job = SettlementJobScenario(LocalDate.of(2026, 9, 15), 1_000, Duration.ofMinutes(30)),
 			warmupIterations = 0,
 			measurementIterations = 1,

@@ -1,6 +1,7 @@
 package io.github.sehako.japda.batch.performance.report
 
 import io.github.sehako.japda.batch.performance.measurement.model.ExecutionStatus
+import io.github.sehako.japda.batch.performance.diagnostic.QueryPlanDiagnostic
 import io.github.sehako.japda.batch.performance.measurement.model.IterationKind
 import io.github.sehako.japda.batch.performance.measurement.model.IterationMeasurement
 import io.github.sehako.japda.batch.performance.measurement.model.ResourceAvailability
@@ -48,6 +49,7 @@ class PerformanceReportWriter(
 		iterations: List<IterationMeasurement>,
 		resources: List<ResourceSample>,
 		validation: ValidationReport,
+		queryPlans: List<QueryPlanDiagnostic> = emptyList(),
 	) {
 		Files.createDirectories(resultDirectory)
 		writeProperties("scenario.properties", sanitizeScenario(scenario))
@@ -56,6 +58,14 @@ class PerformanceReportWriter(
 		writeResources(resources)
 		writeValidation(validation)
 		writeSummary(iterations, resources, validation)
+		writeQueryPlans(queryPlans)
+	}
+
+	private fun writeQueryPlans(queryPlans: List<QueryPlanDiagnostic>) {
+		val content = queryPlans.joinToString("\n\n") { diagnostic ->
+			"cursor=${diagnostic.cursorPosition}\nexecution_millis=${diagnostic.executionMillis}\nreturned_row_count=${diagnostic.returnedRowCount}\n${diagnostic.plan}"
+		}
+		write("query-plans.txt", if (content.isEmpty()) "" else "$content\n")
 	}
 
 	private fun writeIterations(iterations: List<IterationMeasurement>) {

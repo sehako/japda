@@ -10,6 +10,7 @@ import org.mockito.Mockito.mock
 import org.springframework.batch.core.repository.JobRepository
 import org.springframework.batch.core.step.item.ChunkOrientedStep
 import org.springframework.batch.infrastructure.item.ItemProcessor
+import org.springframework.batch.infrastructure.item.ItemStreamReader
 import org.springframework.batch.infrastructure.item.ItemWriter
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter
 import org.springframework.batch.infrastructure.item.database.JdbcPagingItemReader
@@ -29,15 +30,13 @@ class DailySellerSettlementJobConfigurationTest {
 	@DisplayName("결제와 판매자별 정산 reader에 page와 fetch 설정을 적용한다")
 	fun 결제와_판매자별_정산_reader_page_fetch_설정을_적용한다() {
 		val dataSource = mock(DataSource::class.java)
-		val readers = listOf(
-			configuration.settlementPaymentReader(dataSource, "2026-09-15"),
-			configuration.sellerSettlementIdReader(dataSource, 1L),
-		)
+		val paymentReader = configuration.settlementPaymentReader(dataSource, "2026-09-15")
+		val sellerSettlementReader = configuration.sellerSettlementIdReader(dataSource, 1L)
 
-		readers.forEach { reader ->
-			assertEquals(12, reader.pageSize)
-			assertEquals(13, DirectFieldAccessor(reader).getPropertyValue("fetchSize"))
-		}
+		assertEquals(12, paymentReader.pageSize)
+		assertEquals(13, paymentReader.fetchSize)
+		assertEquals(12, sellerSettlementReader.pageSize)
+		assertEquals(13, DirectFieldAccessor(sellerSettlementReader).getPropertyValue("fetchSize"))
 	}
 
 	@Test
@@ -46,7 +45,7 @@ class DailySellerSettlementJobConfigurationTest {
 	fun 수집과_지갑_입금_step_chunk_설정을_적용한다() {
 		val jobRepository = mock(JobRepository::class.java)
 		val transactionManager = mock(PlatformTransactionManager::class.java)
-		val paymentReader = mock(JdbcPagingItemReader::class.java) as JdbcPagingItemReader<SettlementPaymentProjection>
+		val paymentReader = mock(ItemStreamReader::class.java) as ItemStreamReader<SettlementPaymentProjection>
 		val processor = mock(ItemProcessor::class.java) as ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand>
 		val detailWriter = mock(JdbcBatchItemWriter::class.java) as JdbcBatchItemWriter<CreateSettlementDetailCommand>
 		val settlementReader = mock(JdbcPagingItemReader::class.java) as JdbcPagingItemReader<Long>

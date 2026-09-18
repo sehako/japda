@@ -27,10 +27,26 @@ class PerformanceScenarioLoaderTest {
 		assertEquals(10_000L, scenario.dataset.grossAmount)
 		assertEquals(LocalDate.of(2026, 9, 15), scenario.job.settlementDate)
 		assertEquals(1_000, scenario.job.platformFeeRateBps)
-		assertEquals(Duration.ofMinutes(30), scenario.job.timeout)
+		assertEquals(Duration.ofMinutes(65), scenario.job.timeout)
 		assertEquals(0, scenario.warmupIterations)
 		assertEquals(1, scenario.measurementIterations)
 		assertEquals(Duration.ofMillis(100), scenario.resourceSamplingInterval)
+		assertEquals(ApprovalTimeDistribution.FIXED, scenario.dataset.approvalTimeDistribution)
+	}
+
+	@Test
+	@DisplayName("승인 시각 분포는 FIXED와 UNIFORM만 허용한다")
+	fun 승인_시각_분포는_FIXED와_UNIFORM만_허용한다() {
+		assertEquals(
+			ApprovalTimeDistribution.UNIFORM,
+			loader(validProperties() + ("japda.performance.dataset.approval-time-distribution" to "UNIFORM")).load()
+				.dataset.approvalTimeDistribution,
+		)
+
+		val exception = assertFailsWith<PerformanceScenarioConfigurationException> {
+			loader(validProperties() + ("japda.performance.dataset.approval-time-distribution" to "SKEWED")).load()
+		}
+		assertTrue(exception.message!!.contains("approval-time-distribution"))
 	}
 
 	@Test

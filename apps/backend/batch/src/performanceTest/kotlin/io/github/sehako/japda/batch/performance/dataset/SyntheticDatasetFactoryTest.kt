@@ -1,6 +1,7 @@
 package io.github.sehako.japda.batch.performance.dataset
 
 import io.github.sehako.japda.batch.performance.scenario.DatasetScenario
+import io.github.sehako.japda.batch.performance.scenario.ApprovalTimeDistribution
 import io.github.sehako.japda.batch.performance.scenario.PerformanceScenario
 import io.github.sehako.japda.batch.performance.scenario.SettlementJobScenario
 import java.time.Duration
@@ -28,6 +29,16 @@ class SyntheticDatasetFactoryTest {
 	}
 
 	@Test
+	@DisplayName("UNIFORM 분포는 정산일 전체 범위의 결정론적 승인 시각을 사용한다")
+	fun UNIFORM_분포는_정산일_전체_범위의_결정론적_승인_시각을_사용한다() {
+		val dataset = SyntheticDatasetFactory.create(scenario(approvalTimeDistribution = ApprovalTimeDistribution.UNIFORM))
+
+		assertEquals(ApprovalTimeDistribution.UNIFORM, dataset.approvalTimeDistribution)
+		assertEquals(Instant.parse("2026-09-14T15:00:00Z"), dataset.approvalTimeStart)
+		assertEquals(Instant.parse("2026-09-15T15:00:00Z"), dataset.approvalTimeEndExclusive)
+	}
+
+	@Test
 	@DisplayName("나머지 주문을 균등 분배하고 판매자 단위로 수수료를 내림한다")
 	fun 나머지_주문을_균등_분배하고_판매자_단위로_수수료를_내림한다() {
 		val dataset = SyntheticDatasetFactory.create(
@@ -52,8 +63,9 @@ class SyntheticDatasetFactoryTest {
 		seed: Long = 1,
 		grossAmount: Long = 10_000,
 		feeRateBps: Int = 1_000,
+		approvalTimeDistribution: ApprovalTimeDistribution = ApprovalTimeDistribution.FIXED,
 	) = PerformanceScenario(
-		dataset = DatasetScenario(sellerCount, orderCount, 2, seed, grossAmount),
+		dataset = DatasetScenario(sellerCount, orderCount, 2, seed, grossAmount, approvalTimeDistribution),
 		job = SettlementJobScenario(LocalDate.of(2026, 9, 15), feeRateBps, Duration.ofMinutes(30)),
 		warmupIterations = 0,
 		measurementIterations = 1,

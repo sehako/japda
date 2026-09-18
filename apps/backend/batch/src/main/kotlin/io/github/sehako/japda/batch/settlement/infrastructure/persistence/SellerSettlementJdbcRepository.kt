@@ -4,7 +4,6 @@ import java.math.BigDecimal
 import java.time.Instant
 import java.time.ZoneOffset
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.jdbc.core.RowCallbackHandler
 import org.springframework.stereotype.Repository
 
 @Repository
@@ -72,28 +71,42 @@ class SellerSettlementJdbcRepository(
 			{ resultSet, _ -> resultSet.getLong("seller_id") },
 			settlementRunId,
 		).singleOrNull()
-	fun lockDetails(settlementRunId: Long) {
-		jdbcTemplate.query(
-			"SELECT id FROM settlement_details WHERE settlement_run_id = ? FOR UPDATE",
-			RowCallbackHandler { },
-			settlementRunId,
-		)
-	}
-
-	fun lockSavedResults(settlementRunId: Long) {
-		jdbcTemplate.query(
-			"SELECT id FROM seller_settlements WHERE settlement_run_id = ? FOR UPDATE",
-			RowCallbackHandler { },
-			settlementRunId,
-		)
-	}
-
-	fun aggregateDetails(settlementRunId: Long): SettlementAggregate =
-		jdbcTemplate.queryForObject(
+	fun createTemporarySellerAggregates(settlementRunId: Long) {
+		jdbcTemplate.execute(
 			"""
-			SELECT COUNT(*) AS item_count, COALESCE(SUM(gross_amount), 0) AS total_amount
+			CREATE TEMPORARY TABLE settlement_seller_aggregates (
+				seller_id BIGINT PRIMARY KEY,
+				min_recipient_user_id BIGINT NOT NULL,
+				max_recipient_user_id BIGINT NOT NULL,
+				detail_count BIGINT NOT NULL,
+				gross_amount NUMERIC NOT NULL
+			) ON COMMIT DROP
+			""".trimIndent(),
+		)
+		jdbcTemplate.update(
+			"""
+			INSERT INTO settlement_seller_aggregates (
+				seller_id, min_recipient_user_id, max_recipient_user_id, detail_count, gross_amount
+			)
+			SELECT seller_id,
+			       MIN(recipient_user_id),
+			       MAX(recipient_user_id),
+			       COUNT(*)::BIGINT,
+			       SUM(gross_amount)::NUMERIC
 			FROM settlement_details
 			WHERE settlement_run_id = ?
+			GROUP BY seller_id
+			""".trimIndent(),
+			settlementRunId,
+		)
+	}
+
+	fun aggregateTemporarySellerAggregates(): SettlementAggregate =
+		jdbcTemplate.queryForObject(
+			"""
+			SELECT COALESCE(SUM(detail_count), 0) AS item_count,
+			       COALESCE(SUM(gross_amount), 0) AS total_amount
+			FROM settlement_seller_aggregates
 			""".trimIndent(),
 			{ resultSet, _ ->
 				SettlementAggregate(
@@ -101,34 +114,27 @@ class SellerSettlementJdbcRepository(
 					totalAmount = resultSet.getBigDecimal("total_amount"),
 				)
 			},
-			settlementRunId,
 		)
 
-	fun findRecipientMismatchSellerId(settlementRunId: Long): Long? =
+	fun findTemporaryRecipientMismatchSellerId(): Long? =
 		jdbcTemplate.query(
 			"""
 			SELECT seller_id
-			FROM settlement_details
-			WHERE settlement_run_id = ?
-			GROUP BY seller_id
-			HAVING COUNT(DISTINCT recipient_user_id) <> 1
+			FROM settlement_seller_aggregates
+			WHERE min_recipient_user_id <> max_recipient_user_id
 			ORDER BY seller_id
 			LIMIT 1
 			""".trimIndent(),
 			{ resultSet, _ -> resultSet.getLong("seller_id") },
-			settlementRunId,
 		).singleOrNull()
 
-	fun findAmountOutOfRangeSellerId(settlementRunId: Long, platformFeeRateBps: Int): Long? =
+	fun findTemporaryAmountOutOfRangeSellerId(platformFeeRateBps: Int): Long? =
 		jdbcTemplate.query(
 			"""
 			WITH calculated AS (
-				SELECT seller_id,
-				       SUM(gross_amount)::NUMERIC AS gross_amount,
-				       FLOOR(SUM(gross_amount)::NUMERIC * ?::NUMERIC / 10000::NUMERIC) AS platform_fee_amount
-				FROM settlement_details
-				WHERE settlement_run_id = ?
-				GROUP BY seller_id
+				SELECT seller_id, gross_amount,
+				       FLOOR(gross_amount * ?::NUMERIC / 10000::NUMERIC) AS platform_fee_amount
+				FROM settlement_seller_aggregates
 			)
 			SELECT seller_id
 			FROM calculated
@@ -140,7 +146,6 @@ class SellerSettlementJdbcRepository(
 			""".trimIndent(),
 			{ resultSet, _ -> resultSet.getLong("seller_id") },
 			platformFeeRateBps,
-			settlementRunId,
 			Long.MAX_VALUE.toString(),
 			Long.MAX_VALUE.toString(),
 			Long.MAX_VALUE.toString(),
@@ -153,7 +158,7 @@ class SellerSettlementJdbcRepository(
 			settlementRunId,
 		)!!
 
-	fun insertAggregated(
+	fun insertTemporaryAggregates(
 		settlementRunId: Long,
 		platformFeeRateBps: Int,
 		confirmedAt: Instant,
@@ -164,78 +169,29 @@ class SellerSettlementJdbcRepository(
 				settlement_run_id, seller_id, recipient_user_id, detail_count, gross_amount,
 				platform_fee_amount, net_amount, status, confirmed_at, created_at
 			)
-			SELECT settlement_run_id,
-			       seller_id,
-			       MIN(recipient_user_id),
-			       COUNT(*)::BIGINT,
-			       SUM(gross_amount)::BIGINT,
-			       FLOOR(SUM(gross_amount)::NUMERIC * ?::NUMERIC / 10000::NUMERIC)::BIGINT,
-			       (SUM(gross_amount)::NUMERIC -
-			        FLOOR(SUM(gross_amount)::NUMERIC * ?::NUMERIC / 10000::NUMERIC))::BIGINT,
+			SELECT ?, seller_id, min_recipient_user_id, detail_count, gross_amount::BIGINT,
+			       FLOOR(gross_amount * ?::NUMERIC / 10000::NUMERIC)::BIGINT,
+			       (gross_amount - FLOOR(gross_amount * ?::NUMERIC / 10000::NUMERIC))::BIGINT,
 			       'CONFIRMED',
 			       ?,
 			       ?
-			FROM settlement_details
-			WHERE settlement_run_id = ?
-			GROUP BY settlement_run_id, seller_id
+			FROM settlement_seller_aggregates
 			""".trimIndent(),
-			platformFeeRateBps,
-			platformFeeRateBps,
-			confirmedAt.atOffset(ZoneOffset.UTC),
-			confirmedAt.atOffset(ZoneOffset.UTC),
 			settlementRunId,
+			platformFeeRateBps,
+			platformFeeRateBps,
+			confirmedAt.atOffset(ZoneOffset.UTC),
+			confirmedAt.atOffset(ZoneOffset.UTC),
 		)
 	}
 
-	fun aggregateSavedResults(settlementRunId: Long): SettlementAggregate =
-		jdbcTemplate.queryForObject(
-			"""
-			SELECT COALESCE(SUM(detail_count), 0) AS item_count,
-			       COALESCE(SUM(gross_amount), 0) AS total_amount
-			FROM seller_settlements
-			WHERE settlement_run_id = ?
-			""".trimIndent(),
-			{ resultSet, _ ->
-				SettlementAggregate(
-					itemCount = resultSet.getBigDecimal("item_count"),
-					totalAmount = resultSet.getBigDecimal("total_amount"),
-				)
-			},
-			settlementRunId,
-		)
-
-	fun findSavedFormulaMismatchSellerId(settlementRunId: Long, platformFeeRateBps: Int): Long? =
-		jdbcTemplate.query(
-			"""
-			SELECT seller_id
-			FROM seller_settlements
-			WHERE settlement_run_id = ?
-			  AND (
-				platform_fee_amount::NUMERIC <> FLOOR(gross_amount::NUMERIC * ?::NUMERIC / 10000::NUMERIC)
-				OR gross_amount::NUMERIC <> platform_fee_amount::NUMERIC + net_amount::NUMERIC
-				OR status NOT IN ('CONFIRMED', 'CREDITED')
-				OR confirmed_at IS NULL
-			  )
-			ORDER BY seller_id
-			LIMIT 1
-			""".trimIndent(),
-			{ resultSet, _ -> resultSet.getLong("seller_id") },
-			settlementRunId,
-			platformFeeRateBps,
-		).singleOrNull()
-
-	fun findConfirmedResultMismatchSellerId(settlementRunId: Long, platformFeeRateBps: Int): Long? =
+	fun findTemporarySavedResultMismatchSellerId(settlementRunId: Long, platformFeeRateBps: Int): Long? =
 		jdbcTemplate.query(
 			"""
 			WITH expected AS (
-				SELECT seller_id,
-				       MIN(recipient_user_id) AS recipient_user_id,
-				       COUNT(*)::BIGINT AS detail_count,
-				       SUM(gross_amount)::NUMERIC AS gross_amount,
-				       FLOOR(SUM(gross_amount)::NUMERIC * ?::NUMERIC / 10000::NUMERIC) AS platform_fee_amount
-				FROM settlement_details
-				WHERE settlement_run_id = ?
-				GROUP BY seller_id
+				SELECT seller_id, min_recipient_user_id AS recipient_user_id, detail_count, gross_amount,
+				       FLOOR(gross_amount * ?::NUMERIC / 10000::NUMERIC) AS platform_fee_amount
+				FROM settlement_seller_aggregates
 			), saved AS (
 				SELECT *
 				FROM seller_settlements
@@ -258,7 +214,6 @@ class SellerSettlementJdbcRepository(
 			""".trimIndent(),
 			{ resultSet, _ -> resultSet.getLong("seller_id") },
 			platformFeeRateBps,
-			settlementRunId,
 			settlementRunId,
 		).singleOrNull()
 }

@@ -11,6 +11,7 @@ import io.github.sehako.japda.batch.settlement.application.tasklet.PrepareSettle
 import io.github.sehako.japda.batch.settlement.application.writer.SellerWalletCreditWriter
 import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.validation.DailySellerSettlementJobParametersValidator
+import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SettlementPaymentKeysetReader
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import io.github.sehako.japda.ledger.application.service.CreditWalletService
@@ -28,6 +29,7 @@ import org.springframework.batch.core.repository.JobRepository
 import org.springframework.batch.core.step.Step
 import org.springframework.batch.core.step.builder.StepBuilder
 import org.springframework.batch.infrastructure.item.ItemProcessor
+import org.springframework.batch.infrastructure.item.ItemStreamReader
 import org.springframework.batch.infrastructure.item.ItemWriter
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter
 import org.springframework.batch.infrastructure.item.database.JdbcPagingItemReader
@@ -105,51 +107,9 @@ class DailySellerSettlementJobConfiguration(
 	fun settlementPaymentReader(
 		dataSource: DataSource,
 		@Value("#{jobParameters['settlementDate']}") settlementDateParameter: String,
-	): JdbcPagingItemReader<SettlementPaymentProjection> {
+	): SettlementPaymentKeysetReader {
 		val dateRange = SettlementDateRange.from(LocalDate.parse(settlementDateParameter))
-		val queryProvider = PostgresPagingQueryProvider().apply {
-			setSelectClause("*")
-			setFromClause(PAYMENT_PROJECTION_FROM_CLAUSE)
-			setWhereClause(
-				"payment_status = :approvedStatus AND payment_approved_at >= :startInclusive AND payment_approved_at < :endExclusive",
-			)
-			setSortKeys(
-				linkedMapOf(
-					"payment_approved_at" to Order.ASCENDING,
-					"payment_id" to Order.ASCENDING,
-				),
-			)
-		}
-		return JdbcPagingItemReaderBuilder<SettlementPaymentProjection>()
-			.name("settlementPaymentReader")
-			.dataSource(dataSource)
-			.queryProvider(queryProvider)
-			.parameterValues(
-				mapOf(
-					"approvedStatus" to APPROVED_PAYMENT_STATUS,
-					"startInclusive" to dateRange.startInclusive.atOffset(ZoneOffset.UTC),
-					"endExclusive" to dateRange.endExclusive.atOffset(ZoneOffset.UTC),
-				),
-			)
-			.pageSize(properties.pageSize)
-			.fetchSize(properties.fetchSize)
-			.saveState(true)
-			.rowMapper { resultSet, _ ->
-				SettlementPaymentProjection(
-					paymentId = resultSet.getLong("payment_id"),
-					requestedAmount = resultSet.getLong("requested_amount"),
-					paymentApprovedAt = resultSet.getTimestamp("payment_approved_at").toInstant(),
-					orderId = resultSet.getNullableLong("order_id"),
-					orderStatus = resultSet.getString("order_status"),
-					saleId = resultSet.getNullableLong("sale_id"),
-					sellerId = resultSet.getNullableLong("seller_id"),
-					recipientUserId = resultSet.getNullableLong("recipient_user_id"),
-					quantity = resultSet.getNullableInt("quantity"),
-					unitPrice = resultSet.getNullableLong("unit_price"),
-					totalPrice = resultSet.getNullableLong("total_price"),
-				)
-			}
-			.build()
+		return SettlementPaymentKeysetReader(dataSource, dateRange, properties.pageSize, properties.fetchSize)
 	}
 
 	@Bean
@@ -181,7 +141,7 @@ class DailySellerSettlementJobConfiguration(
 	fun collectSettlementDetailsStep(
 		jobRepository: JobRepository,
 		transactionManager: PlatformTransactionManager,
-		settlementPaymentReader: JdbcPagingItemReader<SettlementPaymentProjection>,
+		settlementPaymentReader: ItemStreamReader<SettlementPaymentProjection>,
 		settlementPaymentProcessor: ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand>,
 		settlementDetailWriter: JdbcBatchItemWriter<CreateSettlementDetailCommand>,
 	): Step = StepBuilder(COLLECT_STEP_NAME, jobRepository)
@@ -312,28 +272,5 @@ class DailySellerSettlementJobConfiguration(
 		const val CONFIRM_STEP_NAME = "confirmSellerSettlementsStep"
 		const val CREDIT_STEP_NAME = "creditSellerWalletsStep"
 		const val COMPLETE_RUN_STEP_NAME = "completeSettlementRunStep"
-		const val APPROVED_PAYMENT_STATUS = "APPROVED"
-
-		val PAYMENT_PROJECTION_FROM_CLAUSE =
-			"""
-			(
-				SELECT p.id AS payment_id,
-				       p.requested_amount AS requested_amount,
-				       p.approved_at AS payment_approved_at,
-				       p.status AS payment_status,
-				       o.id AS order_id,
-				       o.status AS order_status,
-				       s.id AS sale_id,
-				       s.seller_id AS seller_id,
-				       spi.user_id AS recipient_user_id,
-				       o.quantity AS quantity,
-				       o.unit_price AS unit_price,
-				       o.total_price AS total_price
-				FROM payments p
-				LEFT JOIN orders o ON o.id = p.order_id
-				LEFT JOIN sales s ON s.id = o.sale_id
-				LEFT JOIN seller_principal_identities spi ON spi.seller_id = s.seller_id
-			) settlement_payment
-			""".trimIndent()
 	}
 }

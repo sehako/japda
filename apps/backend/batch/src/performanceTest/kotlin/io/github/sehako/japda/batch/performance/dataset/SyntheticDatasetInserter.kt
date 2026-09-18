@@ -54,6 +54,9 @@ class SyntheticDatasetInserter {
 		.addValue("orderCreatedAt", dataset.orderCreatedAt.atOffset(ZoneOffset.UTC))
 		.addValue("orderExpiresAt", dataset.orderCreatedAt.plusSeconds(600).atOffset(ZoneOffset.UTC))
 		.addValue("approvedAt", dataset.approvedAt.atOffset(ZoneOffset.UTC))
+		.addValue("approvalTimeDistribution", dataset.approvalTimeDistribution.name)
+		.addValue("approvalTimeStart", dataset.approvalTimeStart.atOffset(ZoneOffset.UTC))
+		.addValue("approvalTimeEndExclusive", dataset.approvalTimeEndExclusive.atOffset(ZoneOffset.UTC))
 
 	private fun MapSqlParameterSource.addRange(startId: Long, endId: Long) =
 		addValue("startId", startId).addValue("endId", endId)

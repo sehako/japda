@@ -114,7 +114,7 @@ apps/backend/src/main/resources/db/migration/V12__create_settlement_collection_t
 
 ### Reader
 
-Step-scoped JDBC paging reader가 `payments`를 기준 테이블로 사용한다. 조회 범위는 `settlementDate`의 한국 시간 시작 이상, 다음 날 한국 시간 시작 미만으로 계산한 두 `Instant`다.
+Step-scoped 명시적 PostgreSQL tuple keyset reader가 `payments`를 기준 테이블로 사용한다. 조회 범위는 `settlementDate`의 한국 시간 시작 이상, 다음 날 한국 시간 시작 미만으로 계산한 두 `Instant`다.
 
 ```text
 settlementDate=2026-09-15
@@ -128,7 +128,11 @@ settlementDate=2026-09-15
 - `payments.approved_at >= 시작 Instant`
 - `payments.approved_at < 종료 Instant`
 
-Reader는 `payments → orders → sales → seller_principal_identities`를 JDBC projection으로 조회한다. 대상 결제가 join 누락으로 조용히 제외되지 않도록 검증 대상 관계는 `LEFT JOIN`하고 nullable projection으로 읽는다. 정렬 키는 `payments.approved_at ASC, payments.id ASC`로 고정한다. 두 값을 함께 사용해 동일한 승인 시각에도 순서를 유일하게 만들고 Spring Batch execution context에 reader 상태를 저장한다.
+Reader는 `payments → orders → sales → seller_principal_identities`를 JDBC projection으로 조회한다. 대상 결제가 join 누락으로 조용히 제외되지 않도록 검증 대상 관계는 `LEFT JOIN`하고 nullable projection으로 읽는다. 정렬 키는 `payments.approved_at ASC, payments.id ASC`로 고정한다. 두 값을 함께 사용해 동일한 승인 시각에도 순서를 유일하게 만든다.
+
+첫 페이지는 정산일과 승인 상태 조건 및 정렬을 적용해 `LIMIT :pageSize`로 조회한다. 후속 페이지는 같은 조건에 PostgreSQL row constructor 비교인 `(p.approved_at, p.id) > (:lastApprovedAt, :lastPaymentId)`를 추가한다. `OFFSET`, `payment_id` 하나만의 cursor, `p.approved_at > ... OR (...)` 형태의 분리된 `OR` 조건은 사용하지 않는다.
+
+Reader는 반환한 마지막 항목의 `payment_approved_at`을 ISO-8601 `String`으로, `payment_id`를 `Long`으로 자신의 Spring Batch execution context에 함께 저장한다. Spring Batch가 chunk transaction과 checkpoint를 함께 commit하므로 실패한 chunk에서 읽은 항목의 cursor는 재시작 기준으로 영속화되지 않는다. 재시작 시 두 cursor 중 하나만 존재하거나 승인 시각을 `Instant`로 복원할 수 없으면 값을 보정하거나 처음부터 조회하지 않고 Step을 실패시킨다. Reader는 현재 page 이외의 대상 ID, page 목록 또는 처리한 cursor 목록을 JVM 메모리에 보관하지 않는다.
 
 과거 정산일만 실행할 수 있고 승인 시각은 승인 완료 후 변경되지 않으므로 실행 중 paging 대상이 새로 추가되거나 정렬 순서가 바뀌지 않는 것을 전제로 한다.
 
@@ -181,7 +185,7 @@ API root project는 업무 테이블 migration만 소유한다. 정산 수집을
 - Job과 Step 구성
 - JobParameter 검증 및 한국 시간 조회 범위 계산
 - 정산 실행 준비·완료 tasklet
-- 결제 수집 JDBC projection과 paging reader
+- 결제 수집 JDBC projection과 PostgreSQL tuple keyset reader
 - 수집 항목 검증 processor
 - 정산 상세 JDBC writer
 - `SettlementRun` JDBC repository

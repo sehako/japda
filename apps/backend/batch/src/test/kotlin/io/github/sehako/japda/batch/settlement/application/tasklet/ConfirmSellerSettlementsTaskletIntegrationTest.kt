@@ -5,7 +5,6 @@ import io.github.sehako.japda.batch.settlement.exception.SettlementConfirmationE
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
 import java.sql.DriverManager
-import java.sql.SQLException
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
@@ -16,6 +15,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.AfterAll
@@ -137,8 +137,8 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("확정 transaction은 완료될 때까지 정산 상세 변경을 잠근다")
-	fun 확정_transaction은_완료될_때까지_정산_상세_변경을_잠근다() {
+	@DisplayName("확정 transaction은 실행 행만 잠그고 정산 상세 변경을 막지 않는다")
+	fun 확정_transaction은_실행_행만_잠그고_정산_상세_변경을_막지_않는다() {
 		val runId = insertRun(feeRateBps = 500, collectedCount = 1, collectedAmount = 100)
 		insertDetail(runId, sellerId = 35, recipientUserId = insertUser(), grossAmount = 100)
 		val otherRecipientId = insertUser()
@@ -155,16 +155,14 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 
 		try {
 			check(confirmationFinished.await(5, TimeUnit.SECONDS))
-			assertFailsWith<SQLException> {
-				DriverManager.getConnection(postgres.jdbcUrl.withCurrentSchema(SCHEMA), postgres.username, postgres.password).use { connection ->
-					connection.createStatement().use { it.execute("SET lock_timeout = '250ms'") }
-					connection.prepareStatement(
-						"UPDATE settlement_details SET recipient_user_id = ? WHERE settlement_run_id = ?",
-					).use { statement ->
-						statement.setLong(1, otherRecipientId)
-						statement.setLong(2, runId)
-						statement.executeUpdate()
-					}
+			DriverManager.getConnection(postgres.jdbcUrl.withCurrentSchema(SCHEMA), postgres.username, postgres.password).use { connection ->
+				connection.createStatement().use { it.execute("SET lock_timeout = '250ms'") }
+				connection.prepareStatement(
+					"UPDATE settlement_details SET recipient_user_id = ? WHERE settlement_run_id = ?",
+				).use { statement ->
+					statement.setLong(1, otherRecipientId)
+					statement.setLong(2, runId)
+					assertEquals(1, statement.executeUpdate())
 				}
 			}
 		} finally {
@@ -175,8 +173,8 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("확정 재검산 transaction은 완료될 때까지 판매자별 결과 변경을 잠근다")
-	fun 확정_재검산_transaction은_완료될_때까지_판매자별_결과_변경을_잠근다() {
+	@DisplayName("확정 재검산 transaction은 실행 행만 잠그고 판매자별 결과 변경을 막지 않는다")
+	fun 확정_재검산_transaction은_실행_행만_잠그고_판매자별_결과_변경을_막지_않는다() {
 		val runId = insertRun(feeRateBps = 500, collectedCount = 1, collectedAmount = 100)
 		insertDetail(runId, sellerId = 36, recipientUserId = insertUser(), grossAmount = 100)
 		executeInTransaction(runId)
@@ -194,16 +192,14 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 
 		try {
 			check(validationFinished.await(5, TimeUnit.SECONDS))
-			assertFailsWith<SQLException> {
-				DriverManager.getConnection(postgres.jdbcUrl.withCurrentSchema(SCHEMA), postgres.username, postgres.password).use { connection ->
-					connection.createStatement().use { it.execute("SET lock_timeout = '250ms'") }
-					connection.prepareStatement(
-						"UPDATE seller_settlements SET recipient_user_id = ? WHERE settlement_run_id = ?",
-					).use { statement ->
-						statement.setLong(1, otherRecipientId)
-						statement.setLong(2, runId)
-						statement.executeUpdate()
-					}
+			DriverManager.getConnection(postgres.jdbcUrl.withCurrentSchema(SCHEMA), postgres.username, postgres.password).use { connection ->
+				connection.createStatement().use { it.execute("SET lock_timeout = '250ms'") }
+				connection.prepareStatement(
+					"UPDATE seller_settlements SET recipient_user_id = ? WHERE settlement_run_id = ?",
+				).use { statement ->
+					statement.setLong(1, otherRecipientId)
+					statement.setLong(2, runId)
+					assertEquals(1, statement.executeUpdate())
 				}
 			}
 		} finally {
@@ -211,6 +207,45 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 			validation.get(5, TimeUnit.SECONDS)
 			executor.shutdownNow()
 		}
+	}
+
+	@Test
+	@DisplayName("같은 실행을 동시에 확정해도 판매자별 결과를 한 번만 생성한다")
+	fun 같은_실행을_동시에_확정해도_판매자별_결과를_한_번만_생성한다() {
+		val runId = insertRun(feeRateBps = 500, collectedCount = 1, collectedAmount = 100)
+		insertDetail(runId, sellerId = 37, recipientUserId = insertUser(), grossAmount = 100)
+		val firstConfirmationFinished = CountDownLatch(1)
+		val allowFirstCommit = CountDownLatch(1)
+		val secondConfirmationStarted = CountDownLatch(1)
+		val executor = Executors.newFixedThreadPool(2)
+		val first = executor.submit {
+			transactionTemplate.executeWithoutResult {
+				executeTasklet(runId)
+				firstConfirmationFinished.countDown()
+				check(allowFirstCommit.await(5, TimeUnit.SECONDS))
+			}
+		}
+		val second = executor.submit {
+			check(firstConfirmationFinished.await(5, TimeUnit.SECONDS))
+			secondConfirmationStarted.countDown()
+			transactionTemplate.executeWithoutResult {
+				executeTasklet(runId)
+			}
+		}
+
+		try {
+			check(firstConfirmationFinished.await(5, TimeUnit.SECONDS))
+			check(secondConfirmationStarted.await(5, TimeUnit.SECONDS))
+			assertFalse(second.isDone)
+		} finally {
+			allowFirstCommit.countDown()
+			first.get(5, TimeUnit.SECONDS)
+			second.get(5, TimeUnit.SECONDS)
+			executor.shutdownNow()
+		}
+
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements WHERE settlement_run_id = ?", Long::class.java, runId))
+		assertEquals("CONFIRMED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs WHERE id = ?", String::class.java, runId))
 	}
 
 	@Test
@@ -303,8 +338,8 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("없는 실행과 확정할 수 없는 상태는 실패한다")
-	fun 없는_실행과_확정할_수_없는_상태는_실패한다() {
+	@DisplayName("없는 실행과 COLLECTED 또는 CONFIRMED가 아닌 상태는 실패한다")
+	fun 없는_실행과_COLLECTED_또는_CONFIRMED가_아닌_상태는_실패한다() {
 		val missing = assertFailsWith<SettlementConfirmationException> { executeInTransaction(999_999) }
 		assertEquals(SettlementConfirmationErrorType.RUN_NOT_FOUND, missing.errorType)
 		val collectingRunId = insertRun(feeRateBps = 500, collectedCount = 0, collectedAmount = 0, status = "COLLECTING")
@@ -312,6 +347,18 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 		val invalidState = assertFailsWith<SettlementConfirmationException> { executeInTransaction(collectingRunId) }
 
 		assertEquals(SettlementConfirmationErrorType.INVALID_RUN_STATUS, invalidState.errorType)
+		val completedRunId = insertRun(feeRateBps = 500, collectedCount = 1, collectedAmount = 100)
+		insertDetail(completedRunId, sellerId = 71, recipientUserId = insertUser(), grossAmount = 100)
+		executeInTransaction(completedRunId)
+		jdbcTemplate.update(
+			"UPDATE settlement_runs SET status = 'COMPLETED', completed_at = ? WHERE id = ?",
+			CONFIRMED_AT.atOffset(ZoneOffset.UTC),
+			completedRunId,
+		)
+
+		val completed = assertFailsWith<SettlementConfirmationException> { executeInTransaction(completedRunId) }
+
+		assertEquals(SettlementConfirmationErrorType.INVALID_RUN_STATUS, completed.errorType)
 	}
 
 	private fun executeInTransaction(settlementRunId: Long) {

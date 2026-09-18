@@ -47,18 +47,13 @@ class ConfirmSellerSettlementsTasklet(
 	private fun executeConfirmation(settlementRunId: Long): RepeatStatus {
 		val settlementRun = settlementRunRepository.findByIdForUpdate(settlementRunId)
 			?: fail(SettlementConfirmationErrorType.RUN_NOT_FOUND, "SettlementRun을 찾을 수 없습니다: settlementRunId=$settlementRunId")
-		sellerSettlementRepository.lockDetails(settlementRunId)
-		sellerSettlementRepository.lockSavedResults(settlementRunId)
-		val detailAggregate = sellerSettlementRepository.aggregateDetails(settlementRunId)
-		validateDetailAggregate(settlementRun, detailAggregate)
-		validateRecipientsAndRanges(settlementRun)
-
 		when (settlementRun.status) {
-			SettlementRunStatus.COLLECTED -> confirm(settlementRun)
+			SettlementRunStatus.COLLECTED,
 			SettlementRunStatus.CONFIRMED,
+			-> confirmOrValidate(settlementRun)
+			SettlementRunStatus.COLLECTING,
 			SettlementRunStatus.COMPLETED,
-			-> validateConfirmed(settlementRun)
-			SettlementRunStatus.COLLECTING -> fail(
+			-> fail(
 				SettlementConfirmationErrorType.INVALID_RUN_STATUS,
 				"확정할 수 없는 SettlementRun 상태입니다: settlementRunId=$settlementRunId, status=${settlementRun.status}",
 			)
@@ -66,15 +61,20 @@ class ConfirmSellerSettlementsTasklet(
 		return RepeatStatus.FINISHED
 	}
 
-	private fun confirm(settlementRun: SettlementRunSnapshot) {
+	private fun confirmOrValidate(settlementRun: SettlementRunSnapshot) {
+		sellerSettlementRepository.createTemporarySellerAggregates(settlementRun.id)
+		validateDetailAggregate(settlementRun, sellerSettlementRepository.aggregateTemporarySellerAggregates())
+		validateRecipientsAndRanges(settlementRun)
+		if (settlementRun.status == SettlementRunStatus.CONFIRMED) {
+			validateConfirmed(settlementRun)
+			return
+		}
 		if (sellerSettlementRepository.countBySettlementRunId(settlementRun.id) != 0L) {
 			fail(SettlementConfirmationErrorType.EXISTING_RESULT, "COLLECTED 실행에 기존 판매자별 정산 결과가 있습니다: settlementRunId=${settlementRun.id}")
 		}
 		val confirmedAt = Instant.now(clock)
-		sellerSettlementRepository.insertAggregated(settlementRun.id, settlementRun.platformFeeRateBps, confirmedAt)
-		validateSavedDetails(settlementRun)
-		validateSavedAggregate(settlementRun)
-		validateSavedFormula(settlementRun)
+		sellerSettlementRepository.insertTemporaryAggregates(settlementRun.id, settlementRun.platformFeeRateBps, confirmedAt)
+		validateSavedResults(settlementRun)
 		try {
 			settlementRunRepository.markConfirmed(settlementRun.id, confirmedAt)
 		} catch (exception: RuntimeException) {
@@ -90,16 +90,14 @@ class ConfirmSellerSettlementsTasklet(
 		if (settlementRun.confirmationCompletedAt == null) {
 			fail(SettlementConfirmationErrorType.CONFIRMED_RESULT_MISMATCH, "확정 완료 시각이 없습니다: settlementRunId=${settlementRun.id}")
 		}
-		validateSavedDetails(settlementRun, SettlementConfirmationErrorType.CONFIRMED_RESULT_MISMATCH)
-		validateSavedAggregate(settlementRun, SettlementConfirmationErrorType.CONFIRMED_RESULT_MISMATCH)
-		validateSavedFormula(settlementRun, SettlementConfirmationErrorType.CONFIRMED_RESULT_MISMATCH)
+		validateSavedResults(settlementRun, SettlementConfirmationErrorType.CONFIRMED_RESULT_MISMATCH)
 	}
 
-	private fun validateSavedDetails(
+	private fun validateSavedResults(
 		settlementRun: SettlementRunSnapshot,
 		errorType: SettlementConfirmationErrorType = SettlementConfirmationErrorType.SAVED_RESULT_DETAIL_MISMATCH,
 	) {
-		val sellerId = sellerSettlementRepository.findConfirmedResultMismatchSellerId(
+		val sellerId = sellerSettlementRepository.findTemporarySavedResultMismatchSellerId(
 			settlementRun.id,
 			settlementRun.platformFeeRateBps,
 		)
@@ -122,7 +120,7 @@ class ConfirmSellerSettlementsTasklet(
 	}
 
 	private fun validateRecipientsAndRanges(settlementRun: SettlementRunSnapshot) {
-		val recipientMismatchSellerId = sellerSettlementRepository.findRecipientMismatchSellerId(settlementRun.id)
+		val recipientMismatchSellerId = sellerSettlementRepository.findTemporaryRecipientMismatchSellerId()
 		if (recipientMismatchSellerId != null) {
 			fail(
 				SettlementConfirmationErrorType.RECIPIENT_MISMATCH,
@@ -130,42 +128,13 @@ class ConfirmSellerSettlementsTasklet(
 				recipientMismatchSellerId,
 			)
 		}
-		val outOfRangeSellerId = sellerSettlementRepository.findAmountOutOfRangeSellerId(
-			settlementRun.id,
-			settlementRun.platformFeeRateBps,
-		)
+		val outOfRangeSellerId = sellerSettlementRepository.findTemporaryAmountOutOfRangeSellerId(settlementRun.platformFeeRateBps)
 		if (outOfRangeSellerId != null) {
 			fail(
 				SettlementConfirmationErrorType.AMOUNT_OUT_OF_RANGE,
 				"판매자별 계산 금액이 BIGINT 범위를 벗어납니다: settlementRunId=${settlementRun.id}, sellerId=$outOfRangeSellerId",
 				outOfRangeSellerId,
 			)
-		}
-	}
-
-	private fun validateSavedAggregate(
-		settlementRun: SettlementRunSnapshot,
-		errorType: SettlementConfirmationErrorType = SettlementConfirmationErrorType.SAVED_RESULT_AGGREGATE_MISMATCH,
-	) {
-		val aggregate = sellerSettlementRepository.aggregateSavedResults(settlementRun.id)
-		if (
-			aggregate.itemCount.compareTo(BigDecimal.valueOf(settlementRun.collectedCount)) != 0 ||
-			aggregate.totalAmount.compareTo(BigDecimal.valueOf(settlementRun.collectedAmount)) != 0
-		) {
-			fail(errorType, "판매자별 저장 결과의 전체 집계가 수집 집계와 다릅니다: settlementRunId=${settlementRun.id}")
-		}
-	}
-
-	private fun validateSavedFormula(
-		settlementRun: SettlementRunSnapshot,
-		errorType: SettlementConfirmationErrorType = SettlementConfirmationErrorType.SAVED_RESULT_FORMULA_MISMATCH,
-	) {
-		val sellerId = sellerSettlementRepository.findSavedFormulaMismatchSellerId(
-			settlementRun.id,
-			settlementRun.platformFeeRateBps,
-		)
-		if (sellerId != null) {
-			fail(errorType, "판매자별 저장 결과의 계산식이 다릅니다: settlementRunId=${settlementRun.id}, sellerId=$sellerId", sellerId)
 		}
 	}
 

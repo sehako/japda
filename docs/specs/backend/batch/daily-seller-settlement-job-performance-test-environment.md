@@ -83,9 +83,10 @@ Gradle daemon의 시작 시간, dependency resolution과 테스트 JVM 시작 �
 | `japda.performance.dataset.generation-batch-size` | 필수 | 없음 | 한 transaction에서 생성할 판매자 또는 주문·결제 ID 구간 크기 |
 | `japda.performance.dataset.random-seed` | 선택 | `1` | UUID와 외부 식별 문자열 재현에 사용하는 seed |
 | `japda.performance.dataset.gross-amount` | 필수 | 없음 | 각 주문의 정산 대상 총액 |
+| `japda.performance.dataset.approval-time-distribution` | 선택 | `FIXED` | 승인 시각 분포. `FIXED` 또는 `UNIFORM`만 허용 |
 | `japda.performance.job.settlement-date` | 필수 | 없음 | `yyyy-MM-dd` 형식의 정산일 |
 | `japda.performance.job.platform-fee-rate-bps` | 필수 | 없음 | Job에 전달할 플랫폼 수수료율 |
-| `japda.performance.job.timeout` | 선택 | `30m` | 한 iteration의 Job 완료를 기다리는 최대 시간 |
+| `japda.performance.job.timeout` | 선택 | `65m` | 한 iteration의 Job 완료를 기다리는 최대 시간 |
 | `japda.performance.warmup-iterations` | 선택 | `0` | 결과 집계에서 제외할 전체 Job 실행 횟수 |
 | `japda.performance.measurement-iterations` | 선택 | `1` | 결과 집계에 포함할 전체 Job 실행 횟수 |
 | `japda.performance.resource-sampling-interval-ms` | 선택 | `100` | JVM과 PostgreSQL 자원 표본 수집 간격 |
@@ -96,6 +97,7 @@ Gradle daemon의 시작 시간, dependency resolution과 테스트 JVM 시작 �
 - `order-count`는 `seller-count` 이상이다.
 - `generation-batch-size`는 `1` 이상이며 자동 보정하거나 상한을 적용하지 않는다.
 - `gross-amount`는 양수이고 주문 수와 곱한 값 및 후속 집계가 PostgreSQL `BIGINT` 범위를 넘지 않는다.
+- `approval-time-distribution`은 `FIXED` 또는 `UNIFORM`이다. 지원하지 않는 분포는 데이터 생성 전에 실패한다.
 - `settlement-date`는 실행 시점의 한국 기준 오늘보다 과거다.
 - `platform-fee-rate-bps`는 기존 Job parameter 계약 범위 안이다.
 - Job timeout은 양수인 Spring `Duration` 형식이다.
@@ -146,7 +148,10 @@ iteration은 순차 실행하며 이전 application context와 datasource pool�
 
 ### 데이터 형태
 
-첫 버전은 비교 기준이 명확한 균등 분포만 지원한다.
+판매자별 주문 수는 비교 기준이 명확한 균등 분포를 유지하며, 승인 시각 분포는 다음 두 가지를 지원한다.
+
+- `FIXED`는 모든 결제를 정산일 12시(서울 시간)에 승인한다. 기본값이며 1,000만 건 공식 SLA의 기준 분포다.
+- `UNIFORM`은 0부터 시작하는 결제 순번을 정산일의 86,400,000밀리초에 균등하게 대응시킨다. 각 승인 시각은 정산일 시작 이상 다음 날 시작 미만이고, 같은 설정에서는 결정론적으로 재현된다.
 
 - 판매자마다 별도의 사용자와 `seller_principal_identities`를 하나씩 생성한다.
 - 판매자마다 정산 대상 상품과 판매 일정을 하나씩 생성한다.
@@ -159,7 +164,7 @@ iteration은 순차 실행하며 이전 application context와 datasource pool�
 
 `random-seed`는 UUID와 결제·주문 외부 식별 문자열을 결정하는 데 사용한다. 전체 행을 무작위 정렬하거나 `ORDER BY random()`으로 insert 순서를 바꾸는 데 사용하지 않는다. 같은 schema 상태, 설정과 seed는 같은 논리 데이터 집합과 예상 검산값을 만들어야 한다. 판매자별 주문 건수는 seed와 관계없이 최대 한 건만 차이 나는 균등 분포를 유지한다.
 
-한 판매자에게 주문이 집중되는 skewed 또는 Zipf 분포, 여러 금액 구간과 오류 데이터는 이번 범위에 포함하지 않는다. 후속 분포가 추가되더라도 분포 이름과 parameter를 결과에 반드시 기록한다.
+한 판매자에게 주문이 집중되는 skewed 또는 Zipf 분포, 여러 금액 구간과 오류 데이터는 이번 범위에 포함하지 않는다. 승인 시각 분포 이름은 `scenario.properties`에 반드시 기록한다.
 
 ### 데이터 준비
 
@@ -211,12 +216,15 @@ apps/backend/batch/build/reports/performance/daily-seller-settlement/{run-id}/
 | `resources.csv` | 측정 시각별 JVM heap·process CPU와 PostgreSQL container CPU·memory 표본 |
 | `validation.properties` | 예상·실제 건수와 금액, 지갑·원장 검산 및 최종 성공 여부 |
 | `summary.properties` | 측정 iteration의 최소·최대·평균, p50·p95·p99와 전체 판정 |
+| `query-plans.txt` | 독립 진단 schema에서 수집 keyset query의 초기·중간·마지막 cursor에 실행한 `EXPLAIN (ANALYZE, BUFFERS)`와 실행 시간 |
 
 percentile은 측정 iteration의 Job duration과 같은 Step 이름의 duration 집합에서 계산한다. 측정 iteration이 percentile을 안정적으로 해석하기에 부족한 경우에도 계산값과 표본 수를 함께 기록하며 과도한 정밀도를 주장하지 않는다.
 
 자원 sampler는 Job 실행 구간에만 동작한다. JVM 값은 표준 management API를 사용하고 PostgreSQL 값은 Testcontainers가 사용하는 Docker client의 container stats에서 얻는다. 자원 표본 수집이 지원되지 않는 실행 환경에서는 해당 필드를 비워 성공처럼 숨기지 않고 `UNAVAILABLE`과 원인을 기록한다. 자원 측정 불가만으로 업무 검산에 성공한 Job을 실패시키지는 않지만, 결과 요약은 자원 지표가 없는 불완전한 측정임을 표시한다.
 
 로그와 결과에는 datasource password, 전체 JDBC credential, 개인정보나 개별 원장 내용을 기록하지 않는다. JDBC URL을 기록할 때도 credential parameter를 제거한다.
+
+실행계획 진단은 공식 SLA를 측정하는 schema와 다른 독립 schema에서 동일한 합성 데이터를 적재한 뒤 한 번 실행한다. 따라서 선행 조회나 cache warming이 공식 Job 실행 시간에 영향을 주지 않는다. 각 cursor의 실제 결제 ID와 승인 시각은 결과에서 제거하며 credential도 기록하지 않는다.
 
 ### 콘솔 출력
 
@@ -249,6 +257,16 @@ task 종료 시 다음 항목만 간결하게 출력한다.
 12. Spring Batch의 read/write/commit count가 생성된 입력과 설정된 chunk 계약에 부합한다.
 
 Job이 실패하거나 위 검산 중 하나라도 실패하면 해당 iteration과 전체 task를 실패로 기록한다. 실패한 실행의 timing은 진단 자료로 남길 수 있지만 성공한 성능 표본이나 percentile에 포함하지 않는다. 일부 측정 iteration만 성공한 결과도 전체 성공으로 간주하지 않는다.
+
+## 대용량 SLA 판정
+
+성능 harness는 업무 검산과 별도로 다음 공식 기준 시나리오의 SLA를 `validation.properties`에 기록하고, 하나라도 넘으면 전체 task를 실패시킨다. timeout 안에 완료됐다는 사실만으로 SLA를 충족한 것으로 보지 않는다.
+
+- 주문 100만 건 기준 시나리오는 Job 실행 시간이 4분 이하여야 한다.
+- 주문 1,000만 건·판매자 10만 명·`FIXED` 승인 시각 분포 기준 시나리오는 `japda.performance.job.timeout`이 65분 이상이고, Job 실행 시간 60분 이하, `collectSettlementDetailsStep` 50분 이하, `confirmSellerSettlementsStep` 5분 이하, `creditSellerWalletsStep`과 `completeSettlementRunStep`의 합 5분 이하여야 한다.
+- `UNIFORM`은 동일한 업무 검산을 통과해야 하지만 위 1시간 공식 SLA 판정 대상은 아니다.
+
+데이터 준비, migration, application context 시작 시간은 Job SLA 시간에 포함하지 않는다. 보고서는 적용된 SLA profile과 상한을 `validation.properties`에 남기고, 입력 timeout과 승인 시각 분포는 `scenario.properties`에 남긴다.
 
 ## 오류 처리와 안전장치
 

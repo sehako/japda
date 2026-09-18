@@ -119,16 +119,15 @@ netAmount = grossAmount - platformFeeAmount
 
 ## 검산·확정 transaction
 
-`confirmSellerSettlementsStep`은 Job execution context의 `settlementRunId`로 다음 순서를 하나의 transaction에서 처리한다.
+`confirmSellerSettlementsStep`은 Job execution context의 `settlementRunId`로 하나의 transaction을 시작하고, 같은 PostgreSQL connection에서 `ON COMMIT DROP` 임시 판매자 집계를 만든다. 임시 테이블은 `seller_id` primary key, `min_recipient_user_id`, `max_recipient_user_id`, `detail_count`, `gross_amount`를 가지며 `INSERT ... SELECT ... GROUP BY seller_id`로 한 번만 채운다.
 
-1. `settlement_runs` 행을 잠금 조회한다.
-2. 상태가 `COLLECTED`인지 확인한다.
-3. 저장된 `collected_count`, `collected_amount`와 `settlement_details`의 실제 `COUNT(*)`, `SUM(gross_amount)`가 일치하는지 다시 검증한다.
-4. 판매자별로 `recipient_user_id`가 정확히 하나인지 검증한다.
-5. `INSERT ... SELECT ... GROUP BY` 방식으로 판매자별 건수·금액·수수료·입금 예정 금액을 계산하여 `seller_settlements`에 저장한다.
-6. 저장한 판매자별 `detail_count`와 `gross_amount`의 합이 각각 `SettlementRun`의 수집 집계와 일치하는지 검증한다.
-7. 모든 행에서 수수료 계산식과 `gross_amount = platform_fee_amount + net_amount`가 성립하는지 검증한다.
-8. `settlement_runs.status`를 `CONFIRMED`로 변경하고 `confirmation_completed_at`을 기록한다.
+1. `settlement_runs` 행 하나만 잠금 조회하고 상태가 `COLLECTED` 또는 `CONFIRMED`인지 확인한다.
+2. 임시 집계의 전체 건수·금액을 `collected_count`, `collected_amount`와 비교하고, 최소·최대 지급 대상이 같은지와 금액 범위를 검증한다.
+3. 상태가 `COLLECTED`이면 기존 결과가 없는지 확인한 뒤 임시 집계에서 `seller_settlements`를 집합 삽입한다.
+4. 임시 집계와 저장 결과의 판매자 집합, 지급 대상, 상세 건수, 총액, 수수료, 순액, 상태와 확정 시각을 비교한다.
+5. 상태가 `COLLECTED`이면 모든 검증 뒤 `settlement_runs.status`를 `CONFIRMED`로 변경하고 `confirmation_completed_at`을 기록한다. `CONFIRMED`이면 삽입과 상태 전환 없이 같은 비교만 수행한다.
+
+`settlement_details`와 `seller_settlements`의 전체 ID를 조회하거나 `FOR UPDATE`로 잠그지 않는다. 수집 완료 뒤 정산 상세를 변경하는 지원 경로가 없고, 실행 행 잠금·JobInstance 식별·`(settlement_run_id, seller_id)` unique 제약이 확정 작업을 직렬화한다. 임시 테이블은 transaction에 결합된 connection에서만 사용하며 다른 connection에서 조회하지 않는다.
 
 대상이 없으면 상세와 판매자별 결과의 건수·합계를 모두 `0`으로 해석하고 `seller_settlements`를 비워 둔 채 `CONFIRMED`로 전환한다. `SUM`의 `NULL` 결과는 검산 시 `0`으로 정규화한다.
 

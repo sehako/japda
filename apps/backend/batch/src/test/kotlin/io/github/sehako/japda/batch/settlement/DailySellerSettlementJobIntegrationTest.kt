@@ -2,15 +2,19 @@ package io.github.sehako.japda.batch.settlement
 
 import io.github.sehako.japda.batch.BatchApplication
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementCollectionTasklet
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
+import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SettlementPaymentKeysetReader
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStateException
 import java.sql.DriverManager
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
 import java.util.UUID
+import javax.sql.DataSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.AfterAll
@@ -98,6 +102,54 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
+	@DisplayName("동일한 승인 시각의 결제를 tuple keyset 여러 페이지로 빠짐없이 읽는다")
+	fun 동일한_승인_시각의_결제를_tuple_keyset_여러_페이지로_빠짐없이_읽는다() {
+		val approvedAt = Instant.parse("2026-09-14T15:00:00Z")
+		val paymentIds = List(5) { insertPayment(approvedAt = approvedAt) }
+
+		val projections = readSettlementPayments(pageSize = 2)
+
+		assertEquals(paymentIds, projections.map { it.paymentId })
+		assertEquals(List(5) { approvedAt }, projections.map { it.paymentApprovedAt })
+	}
+
+	@Test
+	@DisplayName("분산된 승인 시각의 결제를 승인 시각과 ID 순서로 읽는다")
+	fun 분산된_승인_시각의_결제를_승인_시각과_ID_순서로_읽는다() {
+		val latestId = insertPayment(approvedAt = Instant.parse("2026-09-14T18:00:00Z"))
+		val earliestId = insertPayment(approvedAt = Instant.parse("2026-09-14T15:00:00Z"))
+		val middleId = insertPayment(approvedAt = Instant.parse("2026-09-14T16:00:00Z"))
+
+		val projections = readSettlementPayments(pageSize = 1)
+
+		assertEquals(listOf(earliestId, middleId, latestId), projections.map { it.paymentId })
+	}
+
+	@Test
+	@DisplayName("정산일 시작은 포함하고 다음 날 시작과 미승인 결제는 제외한다")
+	fun 정산일_시작은_포함하고_다음_날_시작과_미승인_결제는_제외한다() {
+		val includedId = insertPayment(approvedAt = Instant.parse("2026-09-14T15:00:00Z"))
+		insertPayment(approvedAt = Instant.parse("2026-09-15T15:00:00Z"))
+		insertPayment(approvedAt = Instant.parse("2026-09-14T18:00:00Z"), status = "FAILED")
+
+		val projections = readSettlementPayments(pageSize = 2)
+
+		assertEquals(listOf(includedId), projections.map { it.paymentId })
+	}
+
+	@Test
+	@DisplayName("판매자 사용자 매핑이 없는 결제도 projection으로 반환한다")
+	fun 판매자_사용자_매핑이_없는_결제도_projection으로_반환한다() {
+		val saleId = insertSale(sellerId = 900L, mapRecipient = false)
+		val paymentId = insertPayment(Instant.parse("2026-09-14T15:00:00Z"), saleId = saleId)
+
+		val projection = readSettlementPayments(pageSize = 2).single()
+
+		assertEquals(paymentId, projection.paymentId)
+		assertNull(projection.recipientUserId)
+	}
+
+	@Test
 	@DisplayName("대상이 없으면 판매자별 결과 없이 확정을 완료한다")
 	fun 대상이_없으면_판매자별_결과_없이_확정을_완료한다() {
 		val execution = launch(EMPTY_SETTLEMENT_DATE, 250L)
@@ -165,9 +217,9 @@ class DailySellerSettlementJobIntegrationTest {
 	@DisplayName("chunk 실패 후 같은 JobInstance를 재시작하면 checkpoint 다음 항목부터 수집한다")
 	fun chunk_실패_후_같은_JobInstance를_재시작하면_checkpoint_다음_항목부터_수집한다() {
 		val validSaleId = insertSale(sellerId = 1L, mapRecipient = true)
-		repeat(100) { index ->
+		repeat(100) {
 			insertPayment(
-				approvedAt = Instant.parse("2026-09-13T15:00:00Z").plusMillis(index.toLong()),
+				approvedAt = Instant.parse("2026-09-13T15:00:00Z"),
 				saleId = validSaleId,
 			)
 		}
@@ -185,7 +237,11 @@ class DailySellerSettlementJobIntegrationTest {
 		val firstCollect = failed.stepExecutions.single { it.stepName == "collectSettlementDetailsStep" }
 		assertEquals(100L, firstCollect.writeCount)
 		assertTrue(firstCollect.commitCount >= 1)
-		assertTrue(firstCollect.executionContext.containsKey("settlementPaymentReader.start.after"))
+		assertEquals(
+			Instant.parse("2026-09-13T15:00:00Z").toString(),
+			firstCollect.executionContext.getString("settlementPaymentKeysetReader.lastApprovedAt"),
+		)
+		assertEquals(100L, firstCollect.executionContext.getLong("settlementPaymentKeysetReader.lastPaymentId"))
 
 		insertSellerIdentity(sellerId = 2L)
 		val restarted = launch(RESTART_SETTLEMENT_DATE, 350L)
@@ -257,6 +313,10 @@ class DailySellerSettlementJobIntegrationTest {
 		val firstExecution = launch(CONFIRMATION_RESTART_SETTLEMENT_DATE, 500L)
 		assertEquals(BatchStatus.COMPLETED, firstExecution.status)
 		val firstResult = jdbcTemplate.queryForMap("SELECT id, confirmed_at, created_at FROM seller_settlements")
+		jdbcTemplate.update("DELETE FROM ledger_entries")
+		jdbcTemplate.update("DELETE FROM wallets")
+		jdbcTemplate.update("UPDATE seller_settlements SET status = 'CONFIRMED', credited_at = NULL")
+		jdbcTemplate.update("UPDATE settlement_runs SET status = 'CONFIRMED', completed_at = NULL")
 
 		assertEquals(
 			1,
@@ -409,13 +469,12 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("완료된 실행의 원장이 변조되면 재검산에 실패한다")
-	fun 완료된_실행의_원장이_변조되면_재검산에_실패한다() {
+	@DisplayName("완료된 실행은 확정 Step 재실행을 거부한다")
+	fun 완료된_실행은_확정_Step_재실행을_거부한다() {
 		insertPayment(approvedAt = Instant.parse("2026-09-03T15:00:00Z"))
 		val firstExecution = launch(COMPLETED_REVALIDATION_SETTLEMENT_DATE, 500L)
 		assertEquals(BatchStatus.COMPLETED, firstExecution.status)
 		val originalBalance = jdbcTemplate.queryForObject("SELECT balance FROM wallets", Long::class.java)
-		jdbcTemplate.update("UPDATE ledger_entries SET amount = amount + 1")
 		markStepAndJobFailed(firstExecution, "confirmSellerSettlementsStep")
 
 		val restarted = launch(COMPLETED_REVALIDATION_SETTLEMENT_DATE, 500L)
@@ -424,7 +483,7 @@ class DailySellerSettlementJobIntegrationTest {
 		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
 		assertEquals(originalBalance, jdbcTemplate.queryForObject("SELECT balance FROM wallets", Long::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM ledger_entries", Long::class.java))
-		assertEquals(BatchStatus.FAILED, restarted.stepExecutions.single { it.stepName == "creditSellerWalletsStep" }.status)
+		assertEquals(BatchStatus.FAILED, restarted.stepExecutions.single { it.stepName == "confirmSellerSettlementsStep" }.status)
 	}
 
 	@Test
@@ -472,6 +531,21 @@ class DailySellerSettlementJobIntegrationTest {
 				.addLong("platformFeeRateBps", platformFeeRateBps, false)
 				.toJobParameters(),
 		)
+
+	private fun readSettlementPayments(pageSize: Int) = buildList {
+		val reader = SettlementPaymentKeysetReader(
+			context.getBean(DataSource::class.java),
+			SettlementDateRange.from(SETTLEMENT_DATE),
+			pageSize,
+			fetchSize = pageSize,
+		)
+		reader.open(org.springframework.batch.infrastructure.item.ExecutionContext())
+		try {
+			while (true) add(reader.read() ?: break)
+		} finally {
+			reader.close()
+		}
+	}
 
 	private fun markStepAndJobFailed(execution: org.springframework.batch.core.job.JobExecution, stepName: String) {
 		jdbcTemplate.update(
