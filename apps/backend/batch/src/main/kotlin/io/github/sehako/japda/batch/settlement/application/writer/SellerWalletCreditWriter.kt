@@ -1,12 +1,12 @@
 package io.github.sehako.japda.batch.settlement.application.writer
 
+import io.github.sehako.japda.batch.settlement.application.validation.SettlementRunCreditValidator
 import io.github.sehako.japda.batch.settlement.exception.SettlementCreditErrorType
 import io.github.sehako.japda.batch.settlement.exception.SettlementCreditException
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementStatus
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
-import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStatus
 import io.github.sehako.japda.ledger.application.dto.CreditWalletCommand
 import io.github.sehako.japda.ledger.application.service.CreditWalletService
@@ -22,18 +22,32 @@ import org.springframework.batch.infrastructure.item.ItemWriter
 
 class SellerWalletCreditWriter(
 	private val settlementRunId: Long,
-	private val settlementRunRepository: SettlementRunJdbcRepository,
+	private val settlementRunStatus: SettlementRunStatus,
 	private val sellerSettlementRepository: SellerSettlementJdbcRepository,
 	private val creditWalletService: CreditWalletService,
 	private val ledgerEntryRepository: LedgerEntryRepository,
 	private val clock: Clock,
 ) : ItemWriter<Long> {
+	constructor(
+		settlementRunId: Long,
+		settlementRunRepository: SettlementRunJdbcRepository,
+		sellerSettlementRepository: SellerSettlementJdbcRepository,
+		creditWalletService: CreditWalletService,
+		ledgerEntryRepository: LedgerEntryRepository,
+		clock: Clock,
+	) : this(
+		settlementRunId,
+		SettlementRunCreditValidator(settlementRunRepository).validate(settlementRunId),
+		sellerSettlementRepository,
+		creditWalletService,
+		ledgerEntryRepository,
+		clock,
+	)
+
 	override fun write(chunk: Chunk<out Long>) {
-		var run: SettlementRunSnapshot? = null
 		chunk.forEach { sellerSettlementId ->
 			val settlement = findSettlement(sellerSettlementId)
-			val currentRun = run ?: findRun().also { run = it }
-			credit(settlement, currentRun)
+			credit(settlement)
 		}
 	}
 
@@ -46,15 +60,8 @@ class SellerWalletCreditWriter(
 		return settlement
 	}
 
-	private fun findRun(): SettlementRunSnapshot =
-		settlementRunRepository.findByIdForUpdate(settlementRunId)
-			?: fail(SettlementCreditErrorType.RUN_NOT_FOUND, "SettlementRun을 찾을 수 없습니다: settlementRunId=$settlementRunId")
-
-	private fun credit(settlement: SellerSettlementSnapshot, run: SettlementRunSnapshot) {
-		if (run.status !in setOf(SettlementRunStatus.CONFIRMED, SettlementRunStatus.COMPLETED)) {
-			fail(SettlementCreditErrorType.INVALID_RUN_STATUS, "입금할 수 없는 SettlementRun 상태입니다: settlementRunId=$settlementRunId, status=${run.status}", settlement.id, settlement.sellerId)
-		}
-		if (run.status == SettlementRunStatus.COMPLETED && settlement.status != SellerSettlementStatus.CREDITED) {
+	private fun credit(settlement: SellerSettlementSnapshot) {
+		if (settlementRunStatus == SettlementRunStatus.COMPLETED && settlement.status != SellerSettlementStatus.CREDITED) {
 			fail(SettlementCreditErrorType.CREDIT_RESULT_MISMATCH, "완료된 실행에 입금되지 않은 판매자별 정산이 있습니다: sellerSettlementId=${settlement.id}", settlement.id, settlement.sellerId)
 		}
 		when (settlement.status) {

@@ -22,6 +22,50 @@ class DailySellerSettlementBatchPropertiesTest {
 			assertEquals(100, properties.chunkSize)
 			assertEquals(100, properties.pageSize)
 			assertEquals(100, properties.fetchSize)
+			assertEquals(8, properties.workerCount)
+			assertEquals(64, properties.collectionPartitionCount)
+			assertEquals(64, properties.creditPartitionCount)
+		}
+	}
+
+	@Test
+	@DisplayName("외부 설정을 worker와 collection 및 credit 파티션 수에 바인딩한다")
+	fun 외부_설정_worker와_collection_credit_파티션_수에_바인딩한다() {
+		contextRunner
+			.withPropertyValues(
+				"japda.batch.daily-seller-settlement.worker-count=3",
+				"japda.batch.daily-seller-settlement.collection-partition-count=7",
+				"japda.batch.daily-seller-settlement.credit-partition-count=9",
+			)
+			.run { context ->
+				val properties = context.getBean(DailySellerSettlementBatchProperties::class.java)
+
+				assertEquals(3, properties.workerCount)
+				assertEquals(7, properties.collectionPartitionCount)
+				assertEquals(9, properties.creditPartitionCount)
+			}
+	}
+
+	@Test
+	@DisplayName("worker와 파티션 수가 0 이하이면 애플리케이션 컨텍스트 시작을 실패한다")
+	fun worker와_파티션_수_0_이하_애플리케이션_컨텍스트_시작을_실패한다() {
+		listOf("worker-count", "collection-partition-count", "credit-partition-count").forEach { propertyName ->
+			contextRunner
+				.withPropertyValues("japda.batch.daily-seller-settlement.$propertyName=0")
+				.run { context -> assertNotNull(context.startupFailure) }
+		}
+	}
+
+	@Test
+	@DisplayName("파티션 수가 worker 수보다 작으면 애플리케이션 컨텍스트 시작을 실패한다")
+	fun 파티션_수_worker_수보다_작음_애플리케이션_컨텍스트_시작을_실패한다() {
+		listOf("collection-partition-count", "credit-partition-count").forEach { propertyName ->
+			contextRunner
+				.withPropertyValues(
+					"japda.batch.daily-seller-settlement.worker-count=4",
+					"japda.batch.daily-seller-settlement.$propertyName=3",
+				)
+				.run { context -> assertNotNull(context.startupFailure) }
 		}
 	}
 

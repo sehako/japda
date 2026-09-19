@@ -5,8 +5,6 @@ import io.github.sehako.japda.batch.settlement.exception.SettlementCreditExcepti
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementStatus
-import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
-import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunSnapshot
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStatus
 import io.github.sehako.japda.ledger.application.dto.CreditWalletCommand
 import io.github.sehako.japda.ledger.application.dto.CreditWalletResult
@@ -18,14 +16,12 @@ import io.github.sehako.japda.ledger.domain.model.LedgerSourceType
 import io.github.sehako.japda.ledger.domain.repository.LedgerEntryRepository
 import java.time.Clock
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
-import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -34,7 +30,6 @@ import org.springframework.batch.infrastructure.item.Chunk
 
 @DisplayName("판매자 지갑 입금 Writer")
 class SellerWalletCreditWriterTest {
-	private lateinit var settlementRunRepository: SettlementRunJdbcRepository
 	private lateinit var sellerSettlementRepository: SellerSettlementJdbcRepository
 	private lateinit var creditWalletService: CreditWalletService
 	private lateinit var ledgerEntryRepository: LedgerEntryRepository
@@ -42,37 +37,37 @@ class SellerWalletCreditWriterTest {
 
 	@BeforeEach
 	fun setUp() {
-		settlementRunRepository = mock(SettlementRunJdbcRepository::class.java)
 		sellerSettlementRepository = mock(SellerSettlementJdbcRepository::class.java)
 		creditWalletService = mock(CreditWalletService::class.java)
 		ledgerEntryRepository = mock(LedgerEntryRepository::class.java)
 		writer = SellerWalletCreditWriter(
 			settlementRunId = 10L,
-			settlementRunRepository = settlementRunRepository,
+			settlementRunStatus = SettlementRunStatus.CONFIRMED,
 			sellerSettlementRepository = sellerSettlementRepository,
 			creditWalletService = creditWalletService,
 			ledgerEntryRepository = ledgerEntryRepository,
 			clock = Clock.fixed(NOW, ZoneOffset.UTC),
 		)
-		`when`(settlementRunRepository.findByIdForUpdate(10L)).thenReturn(confirmedRun())
 	}
 
 	@Test
-	@DisplayName("부모 실행은 write 호출마다 한 번만 잠금 조회한다")
-	fun 부모_실행은_write_호출마다_한_번만_잠금_조회한다() {
+	@DisplayName("완료된 실행의 미입금 정산은 결과 불일치로 실패한다")
+	fun 완료된_실행의_미입금_정산은_결과_불일치로_실패한다() {
+		writer = SellerWalletCreditWriter(
+			settlementRunId = 10L,
+			settlementRunStatus = SettlementRunStatus.COMPLETED,
+			sellerSettlementRepository = sellerSettlementRepository,
+			creditWalletService = creditWalletService,
+			ledgerEntryRepository = ledgerEntryRepository,
+			clock = Clock.fixed(NOW, ZoneOffset.UTC),
+		)
 		stubConfirmedSettlement(id = 1L)
-		stubConfirmedSettlement(id = 2L)
-		stubNewCredit(id = 1L)
-		stubNewCredit(id = 2L)
 
-		writer.write(Chunk(listOf(1L, 2L)))
+		val exception = assertFailsWith<SettlementCreditException> {
+			writer.write(Chunk(listOf(1L)))
+		}
 
-		verify(settlementRunRepository).findByIdForUpdate(10L)
-		clearInvocations(settlementRunRepository)
-
-		writer.write(Chunk(listOf(1L)))
-
-		verify(settlementRunRepository).findByIdForUpdate(10L)
+		assertEquals(SettlementCreditErrorType.CREDIT_RESULT_MISMATCH, exception.errorType)
 	}
 
 	@Test
@@ -189,18 +184,6 @@ class SellerWalletCreditWriterTest {
 			),
 		)
 	}
-
-	private fun confirmedRun() = SettlementRunSnapshot(
-		id = 10L,
-		settlementDate = LocalDate.of(2026, 9, 16),
-		platformFeeRateBps = 1_000,
-		status = SettlementRunStatus.CONFIRMED,
-		collectedCount = 2L,
-		collectedAmount = 2_000L,
-		collectionCompletedAt = NOW,
-		confirmationCompletedAt = NOW,
-		completedAt = null,
-	)
 
 	private fun newCreditResult() = CreditWalletResult(
 		walletId = 20L,

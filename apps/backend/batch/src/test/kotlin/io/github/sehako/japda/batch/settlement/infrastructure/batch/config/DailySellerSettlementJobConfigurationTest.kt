@@ -2,6 +2,7 @@ package io.github.sehako.japda.batch.settlement.infrastructure.batch.config
 
 import io.github.sehako.japda.batch.settlement.application.dto.CreateSettlementDetailCommand
 import io.github.sehako.japda.batch.settlement.application.dto.SettlementPaymentProjection
+import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SellerSettlementIdKeysetReader
 import javax.sql.DataSource
 import kotlin.test.assertEquals
 import org.junit.jupiter.api.DisplayName
@@ -13,7 +14,6 @@ import org.springframework.batch.infrastructure.item.ItemProcessor
 import org.springframework.batch.infrastructure.item.ItemStreamReader
 import org.springframework.batch.infrastructure.item.ItemWriter
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter
-import org.springframework.batch.infrastructure.item.database.JdbcPagingItemReader
 import org.springframework.beans.DirectFieldAccessor
 import org.springframework.transaction.PlatformTransactionManager
 
@@ -23,6 +23,9 @@ class DailySellerSettlementJobConfigurationTest {
 		chunkSize = 11,
 		pageSize = 12,
 		fetchSize = 13,
+		workerCount = 3,
+		collectionPartitionCount = 7,
+		creditPartitionCount = 9,
 	)
 	private val configuration = DailySellerSettlementJobConfiguration(properties)
 
@@ -30,13 +33,27 @@ class DailySellerSettlementJobConfigurationTest {
 	@DisplayName("결제와 판매자별 정산 reader에 page와 fetch 설정을 적용한다")
 	fun 결제와_판매자별_정산_reader_page_fetch_설정을_적용한다() {
 		val dataSource = mock(DataSource::class.java)
-		val paymentReader = configuration.settlementPaymentReader(dataSource, "2026-09-15")
-		val sellerSettlementReader = configuration.sellerSettlementIdReader(dataSource, 1L)
+		val paymentReader = configuration.settlementPaymentReader(dataSource, "2026-09-15", 1L, 10L, false)
+		val sellerSettlementReader = configuration.sellerSettlementIdReader(dataSource, 1L, 1L, 10L, false)
 
 		assertEquals(12, paymentReader.pageSize)
 		assertEquals(13, paymentReader.fetchSize)
 		assertEquals(12, sellerSettlementReader.pageSize)
-		assertEquals(13, DirectFieldAccessor(sellerSettlementReader).getPropertyValue("fetchSize"))
+		assertEquals(13, sellerSettlementReader.fetchSize)
+	}
+
+	@Test
+	@DisplayName("collection과 credit manager가 공유할 bounded worker executor를 구성한다")
+	fun collection과_credit_manager_공유_bounded_worker_executor를_구성한다() {
+		val executor = configuration.settlementPartitionTaskExecutor()
+		executor.initialize()
+		try {
+			assertEquals(3, executor.corePoolSize)
+			assertEquals(3, executor.maxPoolSize)
+			assertEquals(9, executor.queueCapacity)
+		} finally {
+			executor.destroy()
+		}
 	}
 
 	@Test
@@ -48,18 +65,18 @@ class DailySellerSettlementJobConfigurationTest {
 		val paymentReader = mock(ItemStreamReader::class.java) as ItemStreamReader<SettlementPaymentProjection>
 		val processor = mock(ItemProcessor::class.java) as ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand>
 		val detailWriter = mock(JdbcBatchItemWriter::class.java) as JdbcBatchItemWriter<CreateSettlementDetailCommand>
-		val settlementReader = mock(JdbcPagingItemReader::class.java) as JdbcPagingItemReader<Long>
+		val settlementReader = mock(SellerSettlementIdKeysetReader::class.java)
 		val walletWriter = mock(ItemWriter::class.java) as ItemWriter<Long>
 
 		val steps = listOf(
-			configuration.collectSettlementDetailsStep(
+			configuration.collectSettlementDetailsWorkerStep(
 				jobRepository,
 				transactionManager,
 				paymentReader,
 				processor,
 				detailWriter,
 			),
-			configuration.creditSellerWalletsStep(
+			configuration.creditSellerWalletsWorkerStep(
 				jobRepository,
 				transactionManager,
 				settlementReader,

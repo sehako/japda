@@ -5,6 +5,8 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/japda}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:1234}
+    hikari:
+      maximum-pool-size: ${DB_MAXIMUM_POOL_SIZE:12}
   flyway:
     enabled: false
   batch:
@@ -12,3 +14,10 @@ spring:
       enabled: false
     jdbc:
       initialize-schema: never
+
+japda:
+  batch:
+    daily-seller-settlement:
+      worker-count: ${DAILY_SELLER_SETTLEMENT_WORKER_COUNT:8}
+      collection-partition-count: ${DAILY_SELLER_SETTLEMENT_COLLECTION_PARTITION_COUNT:64}
+      credit-partition-count: ${DAILY_SELLER_SETTLEMENT_CREDIT_PARTITION_COUNT:64}
