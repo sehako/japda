@@ -59,3 +59,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 027 | [Redis 분산 lock만으로 재고 초기화 Single-flight 구성](ADR-027-redis-only-inventory-initialization-single-flight.md) | backend | 대체됨 |
 | 028 | [DB 재고 카운터와 주문별 예약으로 재고 관리](ADR-028-database-inventory-counter-and-order-reservation.md) | backend | 승인 |
 | 029 | [Redis 재고 선점을 짧은 수명의 품절 마커로 대체](ADR-029-redis-sold-out-marker.md) | backend | 승인 |
+| 030 | [판매자 일일 정산에 로컬 파티셔닝 적용](ADR-030-daily-seller-settlement-local-partitioning.md) | backend | 승인 |

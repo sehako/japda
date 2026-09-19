@@ -25,11 +25,12 @@
 
 - [ADR-024](../../../architecture/decisions/ADR-024-backend-api-batch-ledger-multi-project.md)의 API·배치·원장 모듈 경계와 migration 소유권
 - [ADR-025](../../../architecture/decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md)의 정산 근거 보존, 사용자 귀속 지갑, 원장 멱등성과 금액 불변식
+- [ADR-030](../../../architecture/decisions/ADR-030-daily-seller-settlement-local-partitioning.md)의 local partitioning, 결정론적 파티션 계획, worker별 checkpoint와 지갑 입금 잠금·검산 계약
 - [백엔드 아키텍처 지침](../../../architecture/backend.md)의 동일 PostgreSQL·transaction manager, checkpoint와 성능 결과 기록 원칙
 - [기존 대용량 최적화 명세](daily-seller-settlement-job-large-scale-performance-optimization.md)의 명시적 keyset paging, 전체 상세 ID 비적재, PostgreSQL 집합 집계 원칙
 - [성능 테스트 환경 명세](daily-seller-settlement-job-performance-test-environment.md)의 격리된 PostgreSQL Testcontainer, 결과 검산과 보고서 계약
 
-이 설계는 ADR-025와 백엔드 아키텍처 지침에 명시된 단일 partition·단일 thread 실행 모델을 대체한다. 구현 전에 local partitioning, 파티션별 checkpoint와 공통 실행 행 잠금 제거 결정을 신규 ADR로 기록하고 ADR 목록과 백엔드 아키텍처 지침을 갱신해야 한다.
+이 설계는 ADR-025와 백엔드 아키텍처 지침에 명시됐던 단일 partition·단일 thread 실행 모델을 대체한다. local partitioning, 파티션별 checkpoint와 공통 실행 행 잠금 제거 결정은 ADR-030에 기록하고 ADR 목록과 백엔드 아키텍처 지침에 반영했다.
 
 ## 현재 병목과 제약
 
@@ -100,7 +101,7 @@ collection과 credit은 Job 흐름에서 동시에 실행되지 않으므로 하
 - 파티션 이름은 종류와 0부터 시작하는 고정 폭 순번으로 만든다. 같은 JobInstance를 재시작해도 이름이 바뀌지 않아야 한다.
 - 준비 Step이 최소·최대 ID와 partition count를 사용해 모든 범위를 한 번 계산하고 Job `ExecutionContext`에 저장한다.
 - 재시작 시 이미 저장된 계획을 재사용한다. 데이터베이스를 다시 조회해 범위를 확대·축소하거나 partition count 설정 변경을 반영하지 않는다.
-- 저장된 계획에 범위 누락, 중첩, 역전, 일부 값 누락 또는 설정과의 불일치가 있으면 Job을 실패시킨다.
+- 저장된 계획에 범위 누락, 중첩, 역전, 일부 값 누락 또는 저장된 실제 파티션 수와 경계 key의 불일치가 있으면 Job을 실패시킨다. 재시작 시 현재 partition count 설정이 달라진 것은 오류로 보지 않고 저장된 계획을 우선한다.
 - 대상이 없으면 빈 계획을 저장하고 manager Step은 worker를 만들지 않은 채 정상 완료한다.
 - 마지막 범위의 `endExclusive`는 조회된 최대 ID에 1을 더한 값이다. 최대 ID가 `Long.MAX_VALUE`이면 마지막 파티션만 상한 포함 조건을 사용해 overflow를 피한다.
 - 범위 폭은 `(maxId - minId + 1)`을 partition count로 나눈 몫과 나머지로 계산한다. 경계 산술에는 JDK의 `BigInteger` 또는 동등한 overflow 안전 연산을 사용하고, JDBC에 전달할 실제 경계만 `Long`으로 변환한다. ID 공간이 partition count보다 작으면 빈 범위를 만들지 않고 실제 ID 공간만큼만 파티션을 생성한다.
