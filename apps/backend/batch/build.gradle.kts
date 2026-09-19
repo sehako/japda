@@ -72,6 +72,9 @@ val forwardedDatasourceSystemProperties = setOf(
 	"spring.datasource.hikari.connection-timeout",
 )
 val forwardedBatchTuningSystemProperties = setOf(
+	"japda.batch.daily-seller-settlement.worker-count",
+	"japda.batch.daily-seller-settlement.collection-partition-count",
+	"japda.batch.daily-seller-settlement.credit-partition-count",
 	"japda.batch.daily-seller-settlement.chunk-size",
 	"japda.batch.daily-seller-settlement.page-size",
 	"japda.batch.daily-seller-settlement.fetch-size",
@@ -148,7 +151,10 @@ tasks.register<Test>("performanceTest") {
 				"generation-batch-size=${scenario.getProperty("japda.performance.dataset.generation-batch-size")}",
 		)
 		logger.lifecycle(
-			"성능 테스트 설정: chunk=${scenario.getProperty("japda.batch.daily-seller-settlement.chunk-size")}, " +
+			"성능 테스트 설정: worker=${scenario.getProperty("japda.batch.daily-seller-settlement.worker-count")}, " +
+				"collection-partitions=${scenario.getProperty("japda.batch.daily-seller-settlement.collection-partition-count")}, " +
+				"credit-partitions=${scenario.getProperty("japda.batch.daily-seller-settlement.credit-partition-count")}, " +
+				"chunk=${scenario.getProperty("japda.batch.daily-seller-settlement.chunk-size")}, " +
 				"page=${scenario.getProperty("japda.batch.daily-seller-settlement.page-size")}, " +
 				"fetch=${scenario.getProperty("japda.batch.daily-seller-settlement.fetch-size")}, " +
 				"pool=${scenario.getProperty("spring.datasource.hikari.maximum-pool-size")}",

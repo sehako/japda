@@ -63,7 +63,12 @@ class PerformanceReportWriter(
 
 	private fun writeQueryPlans(queryPlans: List<QueryPlanDiagnostic>) {
 		val content = queryPlans.joinToString("\n\n") { diagnostic ->
-			"cursor=${diagnostic.cursorPosition}\nexecution_millis=${diagnostic.executionMillis}\nreturned_row_count=${diagnostic.returnedRowCount}\n${diagnostic.plan}"
+			"partition=${diagnostic.partitionLabel}\n" +
+				"partition_start_inclusive=${diagnostic.partitionStartInclusive}\n" +
+				"partition_end_exclusive=${diagnostic.partitionEndExclusive}\n" +
+				"partition_end_inclusive=${diagnostic.partitionEndInclusive}\n" +
+				"cursor=${diagnostic.cursorPosition}\nexecution_millis=${diagnostic.executionMillis}\n" +
+				"returned_row_count=${diagnostic.returnedRowCount}\n${diagnostic.plan}"
 		}
 		write("query-plans.txt", if (content.isEmpty()) "" else "$content\n")
 	}
@@ -153,6 +158,11 @@ class PerformanceReportWriter(
 		}
 		values["resource.measurement.complete"] = resourceAvailable.toString()
 		values["measurement.success.count"] = successfulMeasurements.size.toString()
+		val partitionValues = validation.values.filterKeys { it.startsWith("partition.") || it.contains(".partition.") }
+		values.putAll(partitionValues)
+		val partitionRatios = partitionValues.filterKeys { it.endsWith(".longest.ratio") }
+			.values.mapNotNull(String::toDoubleOrNull)
+		values["partition.skew.success"] = partitionRatios.all { it <= 0.25 }.toString()
 		values["overall.success"] = (
 			validation.success && iterations.all { it.status == ExecutionStatus.COMPLETED && it.validationSuccess }
 		).toString()

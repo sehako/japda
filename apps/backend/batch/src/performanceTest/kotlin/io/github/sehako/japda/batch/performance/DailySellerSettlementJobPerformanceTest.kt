@@ -24,6 +24,8 @@ import io.github.sehako.japda.batch.performance.scenario.PerformanceScenarioLoad
 import io.github.sehako.japda.batch.performance.validation.BatchCounterValidator
 import io.github.sehako.japda.batch.performance.validation.ExpectedSettlementValues
 import io.github.sehako.japda.batch.performance.validation.PerformanceSlaEvaluator
+import io.github.sehako.japda.batch.performance.validation.PartitionSkewValidator
+import io.github.sehako.japda.batch.performance.validation.PerformanceHarnessConfigurationValidator
 import io.github.sehako.japda.batch.performance.validation.SettlementResultValidator
 import io.github.sehako.japda.batch.performance.validation.ValidationReport
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.config.DailySellerSettlementBatchProperties
@@ -112,6 +114,7 @@ class DailySellerSettlementJobPerformanceTest {
 		scenario: PerformanceScenario,
 		fixture: PerformancePostgresFixture,
 		pageSize: Int,
+		partitionCount: Int,
 	): List<QueryPlanDiagnostic> {
 		val database = fixture.createIteration()
 		val dataset = SyntheticDatasetFactory.create(scenario)
@@ -120,6 +123,7 @@ class DailySellerSettlementJobPerformanceTest {
 		return QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
 			SettlementDateRange.from(scenario.job.settlementDate),
 			pageSize,
+			partitionCount,
 		)
 	}
 
@@ -149,10 +153,11 @@ class DailySellerSettlementJobPerformanceTest {
 		val contextStartMillis = elapsedMillis(contextStartedAt)
 		context.use {
 			val jdbcTemplate = context.getBean(JdbcTemplate::class.java)
+			validateHarnessConfiguration(context)
 			captureEffectiveEnvironment(context, jdbcTemplate, scenarioValues)
 			if (queryPlans.isEmpty()) {
 				val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
-				queryPlans += diagnoseQueryPlans(scenario, fixture, tuning.pageSize)
+				queryPlans += diagnoseQueryPlans(scenario, fixture, tuning.pageSize, tuning.collectionPartitionCount)
 			}
 			val execution = executeJob(index, scenario, fixture, context)
 			val steps = execution.jobExecution?.stepMeasurements().orEmpty()
@@ -284,6 +289,7 @@ class DailySellerSettlementJobPerformanceTest {
 				expected.sellerSettlementCount,
 			),
 		)
+		report = report.merge(PartitionSkewValidator().validate(steps))
 		val settlementRunId = jdbcTemplate.query(
 			"SELECT id FROM settlement_runs ORDER BY id",
 			{ resultSet, _ -> resultSet.getLong("id") },
@@ -323,6 +329,9 @@ class DailySellerSettlementJobPerformanceTest {
 	) {
 		val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
 		val dataSource = context.getBean(javax.sql.DataSource::class.java) as HikariDataSource
+		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.worker-count", tuning.workerCount.toString())
+		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.collection-partition-count", tuning.collectionPartitionCount.toString())
+		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.credit-partition-count", tuning.creditPartitionCount.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.chunk-size", tuning.chunkSize.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.page-size", tuning.pageSize.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.fetch-size", tuning.fetchSize.toString())
@@ -331,6 +340,12 @@ class DailySellerSettlementJobPerformanceTest {
 		scenarioValues.putIfAbsent("spring.datasource.hikari.connection-timeout", dataSource.connectionTimeout.toString())
 		scenarioValues.putIfAbsent("spring.datasource.url", dataSource.jdbcUrl)
 		scenarioValues.putIfAbsent("postgres.version", jdbcTemplate.queryForObject("SHOW server_version", String::class.java)!!)
+	}
+
+	private fun validateHarnessConfiguration(context: ConfigurableApplicationContext) {
+		val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
+		val dataSource = context.getBean(javax.sql.DataSource::class.java) as HikariDataSource
+		PerformanceHarnessConfigurationValidator.validate(tuning.workerCount, dataSource.maximumPoolSize)
 	}
 
 	private fun baseScenarioValues(runId: String, scenario: PerformanceScenario) = linkedMapOf(
@@ -410,7 +425,10 @@ class DailySellerSettlementJobPerformanceTest {
 				"generation-batch-size=${scenario.dataset.generationBatchSize}",
 		)
 		println(
-			"설정: chunk=${scenarioValues["japda.batch.daily-seller-settlement.chunk-size"] ?: "UNKNOWN"}, " +
+			"설정: worker=${scenarioValues["japda.batch.daily-seller-settlement.worker-count"] ?: "UNKNOWN"}, " +
+				"collection-partitions=${scenarioValues["japda.batch.daily-seller-settlement.collection-partition-count"] ?: "UNKNOWN"}, " +
+				"credit-partitions=${scenarioValues["japda.batch.daily-seller-settlement.credit-partition-count"] ?: "UNKNOWN"}, " +
+				"chunk=${scenarioValues["japda.batch.daily-seller-settlement.chunk-size"] ?: "UNKNOWN"}, " +
 				"page=${scenarioValues["japda.batch.daily-seller-settlement.page-size"] ?: "UNKNOWN"}, " +
 				"fetch=${scenarioValues["japda.batch.daily-seller-settlement.fetch-size"] ?: "UNKNOWN"}, " +
 				"pool=${scenarioValues["spring.datasource.hikari.maximum-pool-size"] ?: "UNKNOWN"}",

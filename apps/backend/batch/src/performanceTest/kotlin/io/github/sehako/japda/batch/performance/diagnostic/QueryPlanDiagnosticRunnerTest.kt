@@ -22,8 +22,8 @@ import org.testcontainers.junit.jupiter.Testcontainers
 @DisplayName("정산 수집 query plan 진단")
 class QueryPlanDiagnosticRunnerTest {
 	@Test
-	@DisplayName("초기·중간·마지막 cursor의 실행계획에서 실제 cursor 식별값을 제거한다")
-	fun 초기_중간_마지막_cursor의_실행계획에서_실제_cursor_식별값을_제거한다() {
+	@DisplayName("실제 ID 범위를 나눈 초기·중간·마지막 파티션의 cursor별 실행계획을 기록한다")
+	fun 실제_ID_범위를_나눈_대표_파티션의_cursor별_실행계획을_기록한다() {
 		PerformancePostgresFixture(Path.of(System.getProperty("rootMigrationDirectory"))).use { fixture ->
 			fixture.start()
 			val database = fixture.createIteration()
@@ -40,11 +40,30 @@ class QueryPlanDiagnosticRunnerTest {
 			val diagnostics = QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
 				SettlementDateRange.from(scenario.job.settlementDate),
 				pageSize = 2,
+				partitionCount = 3,
 			)
 
-		assertEquals(listOf("initial", "middle", "last"), diagnostics.map { it.cursorPosition })
-		assertEquals(2, diagnostics.single { it.cursorPosition == "last" }.returnedRowCount)
-		assertFalse(diagnostics.any { it.plan.contains("payment_id") || it.plan.contains("2026-09-15 03:00:00") })
+			assertEquals(
+				listOf(
+					"collectionPartition000" to "initial",
+					"collectionPartition000" to "middle",
+					"collectionPartition000" to "last",
+					"collectionPartition001" to "initial",
+					"collectionPartition001" to "middle",
+					"collectionPartition001" to "last",
+					"collectionPartition002" to "initial",
+					"collectionPartition002" to "middle",
+					"collectionPartition002" to "last",
+				),
+				diagnostics.map { it.partitionLabel to it.cursorPosition },
+			)
+			assertEquals(1L, diagnostics.first().partitionStartInclusive)
+			assertEquals(4L, diagnostics.first().partitionEndExclusive)
+			assertFalse(diagnostics.first().partitionEndInclusive)
+			assertEquals(6L, diagnostics.last().partitionStartInclusive)
+			assertEquals(8L, diagnostics.last().partitionEndExclusive)
+			assertFalse(diagnostics.last().partitionEndInclusive)
+			assertFalse(diagnostics.any { it.plan.contains("payment_id") || it.plan.contains("2026-09-15 03:00:00") })
 			assertFalse(diagnostics.any { it.executionMillis < 0 })
 		}
 	}

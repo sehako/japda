@@ -9,14 +9,20 @@ import org.junit.jupiter.api.Test
 @DisplayName("Spring Batch counter 검산기")
 class BatchCounterValidatorTest {
 	@Test
-	fun chunk_step의_입출력과_commit_count가_계약과_일치하면_성공한다() {
+	fun partition_worker별_counter를_합산한_값이_계약과_일치하면_성공한다() {
 		val report = BatchCounterValidator(chunkSize = 100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				step("collectSettlementDetailsStep", read = 201, write = 201, commit = 3),
+				tasklet("prepareCollectionPartitionPlanStep"),
+				tasklet("collectSettlementDetailsManagerStep"),
+				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 100, write = 100, commit = 1),
+				step("collectSettlementDetailsWorkerStep:collectionPartition001", read = 101, write = 101, commit = 2),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
-				step("creditSellerWalletsStep", read = 2, write = 2, commit = 1),
+				tasklet("prepareCreditPartitionPlanStep"),
+				tasklet("creditSellerWalletsManagerStep"),
+				step("creditSellerWalletsWorkerStep:creditPartition000", read = 1, write = 1, commit = 1),
+				step("creditSellerWalletsWorkerStep:creditPartition001", read = 1, write = 1, commit = 1),
 				tasklet("completeSettlementRunStep"),
 			),
 			expectedOrderCount = 201,
@@ -25,6 +31,12 @@ class BatchCounterValidatorTest {
 
 		assertThat(report.success).isTrue()
 		assertThat(report.failures).isEmpty()
+		assertThat(report.values).containsEntry("batch.collection.worker.read.count", "201")
+		assertThat(report.values).containsEntry("batch.collection.worker.write.count", "201")
+		assertThat(report.values).containsEntry("batch.collection.worker.commit.count", "3")
+		assertThat(report.values).containsEntry("batch.credit.worker.read.count", "2")
+		assertThat(report.values).containsEntry("batch.credit.worker.write.count", "2")
+		assertThat(report.values).containsEntry("batch.credit.worker.commit.count", "2")
 	}
 
 	@Test
@@ -32,10 +44,14 @@ class BatchCounterValidatorTest {
 		val report = BatchCounterValidator(100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				step("collectSettlementDetailsStep", read = 2, write = 1, commit = 1, skip = 1, rollback = 1),
+				tasklet("prepareCollectionPartitionPlanStep"),
+				tasklet("collectSettlementDetailsManagerStep"),
+				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 2, write = 1, commit = 1, skip = 1, rollback = 1),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
-				step("creditSellerWalletsStep", read = 1, write = 1, commit = 1),
+				tasklet("prepareCreditPartitionPlanStep"),
+				tasklet("creditSellerWalletsManagerStep"),
+				step("creditSellerWalletsWorkerStep:creditPartition000", read = 1, write = 1, commit = 1),
 				tasklet("completeSettlementRunStep"),
 			),
 			expectedOrderCount = 2,
@@ -52,10 +68,14 @@ class BatchCounterValidatorTest {
 		val report = BatchCounterValidator(100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				step("collectSettlementDetailsStep", read = 1, write = 1, commit = 1),
+				tasklet("prepareCollectionPartitionPlanStep"),
+				tasklet("collectSettlementDetailsManagerStep"),
+				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 1, write = 1, commit = 1),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
-				step("creditSellerWalletsStep", read = 1, write = 1, commit = 1),
+				tasklet("prepareCreditPartitionPlanStep"),
+				tasklet("creditSellerWalletsManagerStep"),
+				step("creditSellerWalletsWorkerStep:creditPartition000", read = 1, write = 1, commit = 1),
 			),
 			expectedOrderCount = 1,
 			expectedSellerCount = 1,

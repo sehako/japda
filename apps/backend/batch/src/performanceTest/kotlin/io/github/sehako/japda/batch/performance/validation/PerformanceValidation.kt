@@ -2,6 +2,7 @@ package io.github.sehako.japda.batch.performance.validation
 
 import io.github.sehako.japda.batch.performance.measurement.model.ExecutionStatus
 import io.github.sehako.japda.batch.performance.measurement.model.StepMeasurement
+import java.util.Locale
 import org.springframework.jdbc.core.JdbcTemplate
 
 data class ValidationReport(
@@ -39,50 +40,120 @@ class BatchCounterValidator(
 		steps.filter { it.rollbackCount != 0L }
 			.forEach { failures += "Step rollback count가 0이 아닙니다: ${it.name}=${it.rollbackCount}" }
 
-		validateChunkStep(steps, COLLECT_STEP, expectedOrderCount, failures)
-		validateChunkStep(steps, CREDIT_STEP, expectedSellerCount, failures)
+		val values = linkedMapOf(
+			"batch.chunk.size" to chunkSize.toString(),
+			"batch.expected.order.count" to expectedOrderCount.toString(),
+			"batch.expected.seller.count" to expectedSellerCount.toString(),
+		)
+		validateWorkerSteps(steps, COLLECTION_WORKER_PREFIX, "collection", expectedOrderCount, failures, values)
+		validateWorkerSteps(steps, CREDIT_WORKER_PREFIX, "credit", expectedSellerCount, failures, values)
 		return ValidationReport(
 			success = failures.isEmpty(),
-			values = linkedMapOf(
-				"batch.chunk.size" to chunkSize.toString(),
-				"batch.expected.order.count" to expectedOrderCount.toString(),
-				"batch.expected.seller.count" to expectedSellerCount.toString(),
-			),
+			values = values,
 			failures = failures,
 		)
 	}
 
-	private fun validateChunkStep(
+	private fun validateWorkerSteps(
 		steps: List<StepMeasurement>,
-		name: String,
+		prefix: String,
+		phase: String,
 		expectedCount: Long,
 		failures: MutableList<String>,
+		values: MutableMap<String, String>,
 	) {
-		val step = steps.singleOrNull { it.name == name }
-		if (step == null) {
-			return
+		val workers = steps.filter { it.name.startsWith("$prefix:") }
+		if (expectedCount > 0 && workers.isEmpty()) {
+			failures += "partition worker Step 실행 결과가 없습니다: $prefix"
 		}
-		if (step.readCount != expectedCount) failures += "$name read count 불일치: expected=$expectedCount, actual=${step.readCount}"
-		if (step.writeCount != expectedCount) failures += "$name write count 불일치: expected=$expectedCount, actual=${step.writeCount}"
-		if (step.filterCount != 0L) failures += "$name filter count가 0이 아닙니다: ${step.filterCount}"
-		val expectedCommitCount = (expectedCount + chunkSize - 1L) / chunkSize
-		if (step.commitCount != expectedCommitCount) {
-			failures += "$name commit count 불일치: expected=$expectedCommitCount, actual=${step.commitCount}"
+		val readCount = workers.sumOf { it.readCount }
+		val writeCount = workers.sumOf { it.writeCount }
+		val commitCount = workers.sumOf { it.commitCount }
+		values["batch.$phase.worker.read.count"] = readCount.toString()
+		values["batch.$phase.worker.write.count"] = writeCount.toString()
+		values["batch.$phase.worker.commit.count"] = commitCount.toString()
+		if (readCount != expectedCount) failures += "$prefix read count 불일치: expected=$expectedCount, actual=$readCount"
+		if (writeCount != expectedCount) failures += "$prefix write count 불일치: expected=$expectedCount, actual=$writeCount"
+		workers.filter { it.filterCount != 0L }
+			.forEach { failures += "${it.name} filter count가 0이 아닙니다: ${it.filterCount}" }
+		val expectedCommitCount = workers.sumOf { (it.readCount + chunkSize - 1L) / chunkSize }
+		if (commitCount != expectedCommitCount) {
+			failures += "$prefix commit count 불일치: expected=$expectedCommitCount, actual=$commitCount"
 		}
 	}
 
 	private companion object {
-		const val COLLECT_STEP = "collectSettlementDetailsStep"
-		const val CREDIT_STEP = "creditSellerWalletsStep"
+		const val COLLECTION_WORKER_PREFIX = "collectSettlementDetailsWorkerStep"
+		const val CREDIT_WORKER_PREFIX = "creditSellerWalletsWorkerStep"
 		val REQUIRED_STEPS = setOf(
 			"prepareSettlementRunStep",
-			COLLECT_STEP,
+			"prepareCollectionPartitionPlanStep",
+			"collectSettlementDetailsManagerStep",
 			"completeSettlementCollectionStep",
 			"confirmSellerSettlementsStep",
-			CREDIT_STEP,
+			"prepareCreditPartitionPlanStep",
+			"creditSellerWalletsManagerStep",
 			"completeSettlementRunStep",
 		)
 	}
+}
+
+class PartitionSkewValidator {
+	fun validate(steps: List<StepMeasurement>): ValidationReport {
+		val values = linkedMapOf<String, String>()
+		val failures = mutableListOf<String>()
+		validatePhase(steps, COLLECTION_PHASE, values, failures)
+		validatePhase(steps, CREDIT_PHASE, values, failures)
+		return ValidationReport(failures.isEmpty(), values, failures)
+	}
+
+	private fun validatePhase(
+		steps: List<StepMeasurement>,
+		phase: Phase,
+		values: MutableMap<String, String>,
+		failures: MutableList<String>,
+	) {
+		val manager = steps.singleOrNull { it.name == phase.managerStep } ?: return
+		val longestWorker = steps.filter { it.name.startsWith("${phase.workerPrefix}:") }
+			.maxByOrNull { it.durationMillis } ?: return
+		val ratio = if (manager.durationMillis > 0) {
+			longestWorker.durationMillis.toDouble() / manager.durationMillis
+		} else {
+			Double.POSITIVE_INFINITY
+		}
+		val partition = longestWorker.name.substringAfter(':')
+		values["partition.${phase.name}.longest.name"] = partition
+		values["partition.${phase.name}.longest.duration.millis"] = longestWorker.durationMillis.toString()
+		values["partition.${phase.name}.phase.duration.millis"] = manager.durationMillis.toString()
+		values["partition.${phase.name}.longest.ratio"] = formatRatio(ratio)
+		if (ratio > MAX_LONGEST_PARTITION_RATIO) {
+			failures += "${phase.name} 파티션 처리 편향이 25.0%를 초과했습니다: partition=$partition, ratio=${formatPercent(ratio)}%"
+		}
+	}
+
+	private fun formatRatio(value: Double) = String.format(Locale.ROOT, "%.3f", value)
+
+	private fun formatPercent(value: Double) = String.format(Locale.ROOT, "%.1f", value * 100)
+
+	private data class Phase(val name: String, val managerStep: String, val workerPrefix: String)
+
+	private companion object {
+		const val MAX_LONGEST_PARTITION_RATIO = 0.25
+		val COLLECTION_PHASE = Phase("collection", "collectSettlementDetailsManagerStep", "collectSettlementDetailsWorkerStep")
+		val CREDIT_PHASE = Phase("credit", "creditSellerWalletsManagerStep", "creditSellerWalletsWorkerStep")
+	}
+}
+
+object PerformanceHarnessConfigurationValidator {
+	fun validate(workerCount: Int, maximumPoolSize: Int) {
+		val requiredPoolSize = workerCount + CONNECTION_POOL_HEADROOM
+		check(maximumPoolSize >= requiredPoolSize) {
+			"Hikari maximumPoolSize는 workerCount + 4 이상이어야 합니다: " +
+				"workerCount=$workerCount, required=$requiredPoolSize, actual=$maximumPoolSize"
+		}
+	}
+
+	private const val CONNECTION_POOL_HEADROOM = 4
 }
 
 data class ExpectedSettlementValues(
