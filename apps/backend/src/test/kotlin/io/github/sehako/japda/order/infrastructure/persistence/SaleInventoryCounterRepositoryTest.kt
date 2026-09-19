@@ -8,6 +8,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -83,21 +84,44 @@ class SaleInventoryCounterRepositoryTest {
 	fun 남은_수량_이내_재고만_확보하고_경계_수량_허용한다() {
 		repository.create(saleId, NOW)
 
-		assertEquals(SaleInventoryReserveResult.ACQUIRED, repository.reserve(saleId, 4, NOW.plusSeconds(1)))
-		assertEquals(SaleInventoryReserveResult.ACQUIRED, repository.reserve(saleId, 6, NOW.plusSeconds(2)))
-		assertEquals(SaleInventoryReserveResult.INSUFFICIENT, repository.reserve(saleId, 1, NOW.plusSeconds(3)))
+		assertEquals(SaleInventoryReserveResult.Acquired, repository.reserve(saleId, 4, NOW.plusSeconds(1)))
+		assertEquals(SaleInventoryReserveResult.Acquired, repository.reserve(saleId, 6, NOW.plusSeconds(2)))
+		assertEquals(SaleInventoryReserveResult.Insufficient(0), repository.reserve(saleId, 1, NOW.plusSeconds(3)))
 		assertEquals(10, repository.findCommittedQuantity(saleId))
+	}
+
+	@Test
+	@DisplayName("요청 수량만 부족하면 실제 양수 잔여 수량을 반환한다")
+	fun 요청_수량만_부족하면_실제_양수_잔여_수량을_반환한다() {
+		repository.create(saleId, NOW)
+		assertEquals(SaleInventoryReserveResult.Acquired, repository.reserve(saleId, 7, NOW.plusSeconds(1)))
+
+		assertEquals(SaleInventoryReserveResult.Insufficient(3), repository.reserve(saleId, 4, NOW.plusSeconds(2)))
+		assertEquals(7, repository.findCommittedQuantity(saleId))
 	}
 
 	@Test
 	@DisplayName("카운터 누락과 재고 부족을 서로 다른 결과로 반환한다")
 	fun 카운터_누락과_재고_부족_서로_다른_결과() {
-		assertEquals(SaleInventoryReserveResult.MISSING_COUNTER, repository.reserve(saleId, 1, NOW))
+		assertEquals(SaleInventoryReserveResult.MissingCounter, repository.reserve(saleId, 1, NOW))
 		repository.create(saleId, NOW)
 
-		assertEquals(SaleInventoryReserveResult.INSUFFICIENT, repository.reserve(saleId, 0, NOW))
-		assertEquals(SaleInventoryReserveResult.INSUFFICIENT, repository.reserve(saleId, Int.MAX_VALUE, NOW))
+		assertEquals(SaleInventoryReserveResult.Insufficient(10), repository.reserve(saleId, 0, NOW))
+		assertEquals(SaleInventoryReserveResult.Insufficient(10), repository.reserve(saleId, Int.MAX_VALUE, NOW))
 		assertEquals(0, repository.findCommittedQuantity(saleId))
+	}
+
+	@Test
+	@DisplayName("점유 수량이 판매 수량을 초과하면 데이터 불변식 오류로 중단한다")
+	fun 점유_수량이_판매_수량을_초과하면_데이터_불변식_오류로_중단한다() {
+		repository.create(saleId, NOW)
+		jdbcTemplate.update("UPDATE sale_inventory_counters SET committed_quantity = 11 WHERE sale_id = ?", saleId)
+
+		val exception = assertFailsWith<IllegalStateException> {
+			repository.reserve(saleId, 1, NOW.plusSeconds(1))
+		}
+
+		assertEquals("판매 일정의 잔여 재고가 유효 범위를 벗어났습니다.", exception.message)
 	}
 
 	@Test
@@ -124,8 +148,8 @@ class SaleInventoryCounterRepositoryTest {
 			}.map { it.get(10, TimeUnit.SECONDS) }
 		}
 
-		assertEquals(10, results.count { it == SaleInventoryReserveResult.ACQUIRED })
-		assertEquals(10, results.count { it == SaleInventoryReserveResult.INSUFFICIENT })
+		assertEquals(10, results.count { it == SaleInventoryReserveResult.Acquired })
+		assertEquals(10, results.count { it == SaleInventoryReserveResult.Insufficient(0) })
 		assertEquals(10, repository.findCommittedQuantity(saleId))
 	}
 

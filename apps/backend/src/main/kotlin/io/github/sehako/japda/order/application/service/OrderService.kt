@@ -1,9 +1,7 @@
 package io.github.sehako.japda.order.application.service
 
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
-import io.github.sehako.japda.order.application.inventory.InventoryReservation
-import io.github.sehako.japda.order.application.inventory.InventoryReservationResult
-import io.github.sehako.japda.order.application.inventory.InventoryReservationToken
+import io.github.sehako.japda.order.application.inventory.SoldOutInventoryMarker
 import io.github.sehako.japda.order.application.response.OrderResponse
 import io.github.sehako.japda.order.application.response.toResponse
 import io.github.sehako.japda.order.domain.model.Order
@@ -20,7 +18,7 @@ import org.springframework.stereotype.Service
 class OrderService(
 	private val orderRepository: OrderRepository,
 	private val transactionService: OrderCreationTransactionService,
-	private val inventoryReservation: InventoryReservation,
+	private val soldOutInventoryMarker: SoldOutInventoryMarker,
 ) {
 	fun create(dto: CreateOrderDto): OrderResponse {
 		val request = dto.toDomainRequest()
@@ -28,67 +26,34 @@ class OrderService(
 			return resolveExisting(it, request)
 		}
 
-		val reservationToken = when (val result = reserve(request.saleId, request.quantity)) {
-			is InventoryReservationResult.Reserved -> result.token
-			InventoryReservationResult.Insufficient -> throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
-			InventoryReservationResult.Fallback -> null
-		}
-		val reservationId = reservationToken?.let { UUID.fromString(it.reservationId) } ?: UUID.randomUUID()
+		if (isSoldOut(request.saleId)) throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
 
-		val creationResult = try {
+		return try {
 			try {
-				transactionService.create(request, reservationId)
+				transactionService.create(request, UUID.randomUUID())
 			} catch (_: OrderIdempotencyPersistenceException) {
 				transactionService.recoverIdempotentRequest(request)
-			}
-		} catch (exception: Exception) {
-			reservationToken?.let { compensateFailure(it, exception) }
-			throw exception
+			}.response
+		} catch (exception: OrderInventoryInsufficientException) {
+			if (exception.remainingQuantity == 0) markSoldOut(request.saleId)
+			throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
 		}
-
-		if (!creationResult.created) reservationToken?.let(::restore)
-		return creationResult.response
 	}
 
-	private fun reserve(saleId: Long, quantity: Int): InventoryReservationResult = try {
-		inventoryReservation.reserve(saleId, quantity)
+	private fun isSoldOut(saleId: Long): Boolean = try {
+		soldOutInventoryMarker.isSoldOut(saleId)
 	} catch (exception: Exception) {
 		if (exception is InterruptedException) Thread.currentThread().interrupt()
-		logger.error("Redis 재고 선점 실패로 DB 경로로 우회합니다. saleId={}", saleId, exception)
-		InventoryReservationResult.Fallback
+		logger.error("Redis 품절 마커 조회 실패로 DB 경로로 우회합니다. saleId={}", saleId, exception)
+		false
 	}
 
-	private fun compensateFailure(token: InventoryReservationToken, exception: Exception) {
-		if (exception is OrderException && exception.errorCode == OrderErrorCode.QUANTITY_UNAVAILABLE) {
-			invalidate(token)
-		} else {
-			restore(token)
-		}
-	}
-
-	private fun restore(token: InventoryReservationToken) {
+	private fun markSoldOut(saleId: Long) {
 		try {
-			inventoryReservation.restore(token)
+			soldOutInventoryMarker.markSoldOut(saleId)
 		} catch (exception: Exception) {
-			logger.error(
-				"Redis 재고 예약 복원에 실패했습니다. saleId={}, reservationId={}",
-				token.saleId,
-				token.reservationId,
-				exception,
-			)
-		}
-	}
-
-	private fun invalidate(token: InventoryReservationToken) {
-		try {
-			inventoryReservation.invalidate(token)
-		} catch (exception: Exception) {
-			logger.error(
-				"Redis 재고 세대 폐기에 실패했습니다. saleId={}, reservationId={}",
-				token.saleId,
-				token.reservationId,
-				exception,
-			)
+			if (exception is InterruptedException) Thread.currentThread().interrupt()
+			logger.error("Redis 품절 마커 기록에 실패했습니다. saleId={}", saleId, exception)
 		}
 	}
 

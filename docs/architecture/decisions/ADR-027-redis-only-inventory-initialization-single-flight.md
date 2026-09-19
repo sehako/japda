@@ -1,6 +1,6 @@
 # ADR-027: Redis 분산 lock만으로 재고 초기화 Single-flight 구성
 
-- 상태: 승인
+- 상태: 대체됨 ([ADR-029](ADR-029-redis-sold-out-marker.md))
 - 적용 영역: backend
 - 결정일: 2026-09-16
 

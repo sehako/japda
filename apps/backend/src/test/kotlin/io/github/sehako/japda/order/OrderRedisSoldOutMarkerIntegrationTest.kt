@@ -1,12 +1,12 @@
 package io.github.sehako.japda.order
 
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
+import io.github.sehako.japda.order.application.inventory.SoldOutInventoryMarker
 import io.github.sehako.japda.order.application.service.OrderService
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import io.github.sehako.japda.order.infrastructure.inventory.key.RedisInventoryKeyFactory
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -15,7 +15,6 @@ import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.sql.DataSource
-import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -25,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.DisplayName
 import org.junit.jupiter.api.MethodOrderer
 import org.junit.jupiter.api.Order
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestMethodOrder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -48,18 +48,22 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 		"order.inventory.redis.namespace=order-integration-test",
 		"order.inventory.redis.connect-timeout=200ms",
 		"order.inventory.redis.command-timeout=200ms",
+		"order.inventory.redis.sold-out-ttl=200ms",
 		"product.image.s3.region=ap-northeast-2",
 		"product.image.s3.bucket=test-product-images",
 		"sale.daily-capacity=20",
 	],
 )
-@Import(OrderRedisInventoryReservationIntegrationTest.FixedClockConfiguration::class)
+@Import(OrderRedisSoldOutMarkerIntegrationTest.FixedClockConfiguration::class)
 @Testcontainers(disabledWithoutDocker = true)
 @TestMethodOrder(MethodOrderer.OrderAnnotation::class)
-@DisplayName("PostgreSQL과 Redis 주문 재고 선점 통합")
-class OrderRedisInventoryReservationIntegrationTest {
+@DisplayName("PostgreSQL과 Redis 품절 마커 통합")
+class OrderRedisSoldOutMarkerIntegrationTest {
 	@Autowired
 	private lateinit var orderService: OrderService
+
+	@Autowired
+	private lateinit var soldOutInventoryMarker: SoldOutInventoryMarker
 
 	@Autowired
 	private lateinit var jdbcTemplate: JdbcTemplate
@@ -118,9 +122,8 @@ class OrderRedisInventoryReservationIntegrationTest {
 
 	@Test
 	@Order(1)
-	@DisplayName("Redis가 품절이면 판매 행 잠금을 기다리지 않고 DB transaction 전에 거절한다")
-	fun Redis_품절_DB_transaction_전에_거절한다() {
-		initializeStock(saleId, available = 0)
+	fun `품절_마커_hit은_DB_transaction_시작_전에_주문을_거절한다`() {
+		soldOutInventoryMarker.markSoldOut(saleId)
 
 		dataSource.connection.use { connection ->
 			connection.autoCommit = false
@@ -128,12 +131,10 @@ class OrderRedisInventoryReservationIntegrationTest {
 				statement.setLong(1, saleId)
 				statement.executeQuery().use { assertTrue(it.next()) }
 			}
-
 			val executor = Executors.newSingleThreadExecutor()
 			try {
 				val failure = assertFailsWith<ExecutionException> {
-					executor.submit { orderService.create(createOrderDto(saleId, quantity = 1)) }
-						.get(1, TimeUnit.SECONDS)
+					executor.submit { orderService.create(createOrderDto(quantity = 1)) }.get(1, TimeUnit.SECONDS)
 				}.cause
 				assertTrue(failure is OrderException)
 				assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, failure.errorCode)
@@ -142,154 +143,65 @@ class OrderRedisInventoryReservationIntegrationTest {
 				executor.shutdownNow()
 			}
 		}
-
 		assertEquals(0, orderCount())
 	}
 
 	@Test
 	@Order(2)
-	@DisplayName("Redis 선점 뒤 DB가 주문을 거절하면 차감과 예약 토큰을 복원한다")
-	fun Redis_선점_후_DB_거절_차감과_예약_토큰을_복원한다() {
-		val missingSaleId = saleId + 10_000
-		initializeStock(missingSaleId, available = 3)
+	fun `DB가_완전_품절을_확인하면_transaction_종료_후_마커를_기록한다`() {
+		setCommittedQuantity(10)
 
-		val exception = assertFailsWith<OrderException> {
-			orderService.create(createOrderDto(missingSaleId, quantity = 2))
-		}
+		val exception = assertFailsWith<OrderException> { orderService.create(createOrderDto(quantity = 1)) }
 
-		assertEquals(OrderErrorCode.SALE_NOT_FOUND, exception.errorCode)
-		assertEquals("3", available(missingSaleId))
-		assertTrue(reservationKeys(missingSaleId).isEmpty())
+		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
+		assertTrue(redisTemplate.hasKey(keyFactory.soldOut(saleId)))
 		assertEquals(0, orderCount())
 	}
 
 	@Test
 	@Order(3)
-	@DisplayName("Redis 선점 뒤 DB가 실제 품절을 확인하면 현재 generation을 폐기한다")
-	fun DB_실제_품절_확인_현재_generation을_폐기한다() {
-		insertCommittedOrder(saleId, quantity = 10)
-		initializeStock(saleId, available = 5, generation = "stale-generation")
+	fun `DB에_잔여_재고가_있으면_요청_수량이_부족해도_마커를_기록하지_않는다`() {
+		setCommittedQuantity(8)
 
-		val exception = assertFailsWith<OrderException> {
-			orderService.create(createOrderDto(saleId, quantity = 1))
-		}
+		val exception = assertFailsWith<OrderException> { orderService.create(createOrderDto(quantity = 3)) }
 
 		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
-		assertFalse(redisTemplate.hasKey(keyFactory.stock(saleId)))
-		assertTrue(reservationKeys(saleId).isEmpty())
-		assertEquals(1, orderCount())
+		assertFalse(redisTemplate.hasKey(keyFactory.soldOut(saleId)))
 	}
 
 	@Test
 	@Order(4)
-	@DisplayName("같은 멱등 요청은 Redis 재고를 추가 차감하지 않는다")
-	fun 같은_멱등_요청_Redis_재고를_추가_차감하지_않는다() {
-		initializeStock(saleId, available = 10)
-		val idempotencyKey = UUID.randomUUID()
-		val request = createOrderDto(saleId, quantity = 2, idempotencyKey = idempotencyKey)
+	fun `마커가_만료된_뒤_DB_재고가_반환되면_주문이_성공한다`() {
+		setCommittedQuantity(10)
+		assertFailsWith<OrderException> { orderService.create(createOrderDto(quantity = 1)) }
+		setCommittedQuantity(8)
 
-		val first = orderService.create(request)
-		assertEquals("8", available(saleId))
-		val second = orderService.create(request)
+		Thread.sleep(300)
+		val response = orderService.create(createOrderDto(quantity = 1))
 
-		assertEquals(first, second)
-		assertEquals("8", available(saleId))
+		assertEquals(1, response.quantity)
 		assertEquals(1, orderCount())
 	}
 
 	@Test
 	@Order(5)
-	@DisplayName("Redis가 실제 DB 재고보다 많이 허용해도 동시 주문은 DB 최종 검증으로 초과 판매하지 않는다")
-	fun Redis_과대_재고_동시_주문_DB_최종_검증으로_초과_판매를_방지한다() {
-		initializeStock(saleId, available = 12)
-		val executor = Executors.newFixedThreadPool(2)
-		try {
-			val created = listOf(1L, 2L).map { buyerId ->
-				executor.submit<Boolean> {
-					try {
-						orderService.create(createOrderDto(saleId, quantity = 6, buyerId = buyerId))
-						true
-					} catch (exception: OrderException) {
-						if (exception.errorCode != OrderErrorCode.QUANTITY_UNAVAILABLE) throw exception
-						false
-					}
-				}
-			}.map { it.get(10, TimeUnit.SECONDS) }
-
-			assertEquals(1, created.count { it })
-			assertEquals(1, created.count { !it })
-		} finally {
-			executor.shutdownNow()
-		}
-		assertEquals(6, jdbcTemplate.queryForObject("SELECT COALESCE(sum(quantity), 0) FROM orders", Int::class.java))
-	}
-
-	@Test
-	@Order(6)
-	@DisplayName("Redis 장애가 발생하면 PostgreSQL 경로로 우회해 주문을 생성한다")
-	fun Redis_장애_PostgreSQL_경로로_우회해_주문을_생성한다() {
+	fun `Redis_장애는_PostgreSQL_경로로_우회해_주문을_생성한다`() {
 		redis.dockerClient.pauseContainerCmd(redis.containerId).exec()
 
-		val response = orderService.create(createOrderDto(saleId, quantity = 2))
+		val response = orderService.create(createOrderDto(quantity = 2))
 
 		assertEquals(2, response.quantity)
 		assertEquals(1, orderCount())
 	}
 
-	private fun initializeStock(saleId: Long, available: Int, generation: String = UUID.randomUUID().toString()) {
-		redisTemplate.opsForHash<String, String>().putAll(
-			keyFactory.stock(saleId),
-			mapOf("generation" to generation, "available" to available.toString()),
-		)
-		redisTemplate.expire(keyFactory.stock(saleId), Duration.ofSeconds(30))
+	private fun setCommittedQuantity(quantity: Int) {
+		jdbcTemplate.update("UPDATE sale_inventory_counters SET committed_quantity = ? WHERE sale_id = ?", quantity, saleId)
 	}
-
-	private fun available(saleId: Long): String? =
-		redisTemplate.opsForHash<String, String>().get(keyFactory.stock(saleId), "available")
-
-	private fun reservationKeys(saleId: Long): Set<String> =
-		redisTemplate.keys("order-integration-test:inventory:{$saleId}:reservation:*")
 
 	private fun orderCount(): Int =
 		jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java)!!
 
-	private fun insertCommittedOrder(saleId: Long, quantity: Int) {
-		val orderId = jdbcTemplate.queryForObject(
-			"""INSERT INTO orders (
-				sale_id, buyer_id, idempotency_key, payment_order_id, quantity, product_name, unit_price, total_price, status,
-				recipient_name, phone_number, postal_code, address, detail_address, created_at, expires_at
-			) VALUES (?, 999, ?, ?, ?, '기존 상품', 35000, ?, 'PENDING_PAYMENT', '홍길동', '010-1234-5678',
-				'06236', '서울시 강남구', '101호', ?, ?) RETURNING id""",
-			Long::class.java,
-			saleId,
-			UUID.randomUUID(),
-			UUID.randomUUID().toString(),
-			quantity,
-			35_000L * quantity,
-			java.sql.Timestamp.from(NOW.minusSeconds(60)),
-			java.sql.Timestamp.from(NOW.plusSeconds(120)),
-		)!!
-		jdbcTemplate.update(
-			"""INSERT INTO inventory_reservations
-				(id, sale_id, order_id, quantity, status, expires_at, created_at, updated_at)
-				VALUES (?, ?, ?, ?, 'RESERVED', ?, ?, ?)""",
-			UUID.randomUUID(),
-			saleId,
-			orderId,
-			quantity,
-			java.sql.Timestamp.from(NOW.plusSeconds(120)),
-			java.sql.Timestamp.from(NOW.minusSeconds(60)),
-			java.sql.Timestamp.from(NOW.minusSeconds(60)),
-		)
-		jdbcTemplate.update(
-			"UPDATE sale_inventory_counters SET committed_quantity = ? WHERE sale_id = ?",
-			quantity,
-			saleId,
-		)
-	}
-
 	private fun createOrderDto(
-		saleId: Long,
 		quantity: Int,
 		buyerId: Long = 123,
 		idempotencyKey: UUID = UUID.randomUUID(),

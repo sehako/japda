@@ -9,8 +9,6 @@ import io.github.sehako.japda.order.domain.repository.InventoryReservationReposi
 import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
 import io.github.sehako.japda.order.domain.repository.SaleInventoryReserveResult
-import io.github.sehako.japda.order.exception.OrderErrorCode
-import io.github.sehako.japda.order.exception.OrderException
 import io.github.sehako.japda.product.domain.model.Product
 import io.github.sehako.japda.product.domain.repository.ProductRepository
 import io.github.sehako.japda.product.domain.repository.ReadyProductQuery
@@ -34,7 +32,7 @@ class OrderCreationTransactionServiceTest {
 	@DisplayName("주문 저장 뒤 카운터를 확보하고 같은 식별자의 RESERVED 예약을 저장한다")
 	fun 주문_저장_후_카운터_확보_같은_식별자의_RESERVED_예약을_저장한다() {
 		val reservationRepository = RecordingReservationRepository()
-		val counterRepository = RecordingCounterRepository(SaleInventoryReserveResult.ACQUIRED)
+		val counterRepository = RecordingCounterRepository(SaleInventoryReserveResult.Acquired)
 
 		val result = service(reservationRepository, counterRepository).create(request(), RESERVATION_ID)
 
@@ -48,16 +46,16 @@ class OrderCreationTransactionServiceTest {
 	}
 
 	@Test
-	@DisplayName("조건부 카운터 확보가 재고 부족이면 기존 주문 오류로 거절한다")
-	fun 조건부_카운터_확보_재고_부족_기존_주문_오류로_거절한다() {
-		val exception = assertFailsWith<OrderException> {
+	@DisplayName("조건부 카운터 확보가 재고 부족이면 실제 잔여 수량을 내부 실패로 전달한다")
+	fun 조건부_카운터_확보_재고_부족_실제_잔여_수량을_내부_실패로_전달한다() {
+		val exception = assertFailsWith<OrderInventoryInsufficientException> {
 			service(
 				RecordingReservationRepository(),
-				RecordingCounterRepository(SaleInventoryReserveResult.INSUFFICIENT),
+				RecordingCounterRepository(SaleInventoryReserveResult.Insufficient(3)),
 			).create(request(), RESERVATION_ID)
 		}
 
-		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
+		assertEquals(3, exception.remainingQuantity)
 	}
 
 	@Test
@@ -66,7 +64,7 @@ class OrderCreationTransactionServiceTest {
 		val exception = assertFailsWith<IllegalStateException> {
 			service(
 				RecordingReservationRepository(),
-				RecordingCounterRepository(SaleInventoryReserveResult.MISSING_COUNTER),
+				RecordingCounterRepository(SaleInventoryReserveResult.MissingCounter),
 			).create(request(), RESERVATION_ID)
 		}
 

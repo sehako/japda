@@ -77,7 +77,7 @@ class ExpiredInventoryReservationReleaseServiceTest {
 	) : SaleInventoryCounterRepository {
 		val releasedQuantities = mutableListOf<Int>()
 		override fun create(saleId: Long, now: Instant) = Unit
-		override fun reserve(saleId: Long, quantity: Int, now: Instant) = SaleInventoryReserveResult.ACQUIRED
+		override fun reserve(saleId: Long, quantity: Int, now: Instant) = SaleInventoryReserveResult.Acquired
 		override fun release(saleId: Long, quantity: Int, now: Instant): Boolean {
 			releasedQuantities += quantity
 			return releaseResult
