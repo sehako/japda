@@ -1,11 +1,9 @@
 package io.github.sehako.japda.order.infrastructure.inventory.config
 
-import io.github.sehako.japda.order.application.inventory.InventoryReservation
-import io.github.sehako.japda.order.application.inventory.snapshot.InventorySnapshotService
+import io.github.sehako.japda.order.application.inventory.SoldOutInventoryMarker
 import io.github.sehako.japda.order.infrastructure.inventory.key.RedisInventoryKeyFactory
-import io.github.sehako.japda.order.infrastructure.inventory.redis.DisabledInventoryReservation
-import io.github.sehako.japda.order.infrastructure.inventory.redis.RedisInventoryReservation
-import io.github.sehako.japda.order.infrastructure.inventory.redis.RedisInventoryScripts
+import io.github.sehako.japda.order.infrastructure.inventory.redis.DisabledSoldOutInventoryMarker
+import io.github.sehako.japda.order.infrastructure.inventory.redis.RedisSoldOutInventoryMarker
 import io.lettuce.core.ClientOptions
 import io.lettuce.core.SocketOptions
 import io.micrometer.core.instrument.MeterRegistry
@@ -25,8 +23,8 @@ import org.springframework.data.redis.core.StringRedisTemplate
 class RedisInventoryConfiguration {
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = ["enabled"], havingValue = "false", matchIfMissing = true)
-    @ConditionalOnMissingBean(InventoryReservation::class)
-    fun disabledInventoryReservation(): InventoryReservation = DisabledInventoryReservation()
+    @ConditionalOnMissingBean(SoldOutInventoryMarker::class)
+    fun disabledSoldOutInventoryMarker(): SoldOutInventoryMarker = DisabledSoldOutInventoryMarker()
 
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = ["enabled"], havingValue = "true")
@@ -59,21 +57,13 @@ class RedisInventoryConfiguration {
 
     @Bean
     @ConditionalOnProperty(prefix = PREFIX, name = ["enabled"], havingValue = "true")
-    fun redisInventoryScripts(
+    @ConditionalOnMissingBean(SoldOutInventoryMarker::class)
+    fun redisSoldOutInventoryMarker(
         inventoryRedisTemplate: StringRedisTemplate,
         keyFactory: RedisInventoryKeyFactory,
         properties: RedisInventoryProperties,
-    ): RedisInventoryScripts = RedisInventoryScripts(inventoryRedisTemplate, keyFactory, properties.stockTtl)
-
-    @Bean
-    @ConditionalOnProperty(prefix = PREFIX, name = ["enabled"], havingValue = "true")
-    @ConditionalOnMissingBean(InventoryReservation::class)
-    fun redisInventoryReservation(
-        scripts: RedisInventoryScripts,
-        snapshotService: InventorySnapshotService,
-        properties: RedisInventoryProperties,
         meterRegistry: MeterRegistry,
-    ): InventoryReservation = RedisInventoryReservation(scripts, snapshotService, properties, meterRegistry)
+    ): SoldOutInventoryMarker = RedisSoldOutInventoryMarker(inventoryRedisTemplate, keyFactory, properties, meterRegistry)
 
     private companion object {
         const val PREFIX = "order.inventory.redis"

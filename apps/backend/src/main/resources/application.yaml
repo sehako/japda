@@ -58,10 +58,7 @@ order:
       port: ${ORDER_INVENTORY_REDIS_PORT:6379}
       connect-timeout: ${ORDER_INVENTORY_REDIS_CONNECT_TIMEOUT:PT0.5S}
       command-timeout: ${ORDER_INVENTORY_REDIS_COMMAND_TIMEOUT:PT0.2S}
-      stock-ttl: ${ORDER_INVENTORY_REDIS_STOCK_TTL:PT30S}
-      lock-ttl: ${ORDER_INVENTORY_REDIS_LOCK_TTL:PT3S}
-      polling-timeout: ${ORDER_INVENTORY_REDIS_POLLING_TIMEOUT:PT0.5S}
-      polling-interval: ${ORDER_INVENTORY_REDIS_POLLING_INTERVAL:PT0.025S}
+      sold-out-ttl: ${ORDER_INVENTORY_REDIS_SOLD_OUT_TTL:PT30S}
 
 cors:
   allowed-origins:

@@ -127,7 +127,7 @@ class SaleServiceTest {
         }
 
         override fun reserve(saleId: Long, quantity: Int, now: Instant): SaleInventoryReserveResult =
-            SaleInventoryReserveResult.ACQUIRED
+            SaleInventoryReserveResult.Acquired
 
         override fun release(saleId: Long, quantity: Int, now: Instant): Boolean = true
 

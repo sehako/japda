@@ -46,10 +46,10 @@ class OrderCreationTransactionService(
 		}
 		expiredReservationReleaseService.releaseExpired(request.saleId, now)
 		val order = orderRepository.save(Order.create(request, product.name, sale.price, now))
-		when (counterRepository.reserve(request.saleId, request.quantity, now)) {
-			SaleInventoryReserveResult.ACQUIRED -> Unit
-			SaleInventoryReserveResult.INSUFFICIENT -> throw OrderException(OrderErrorCode.QUANTITY_UNAVAILABLE)
-			SaleInventoryReserveResult.MISSING_COUNTER -> {
+		when (val result = counterRepository.reserve(request.saleId, request.quantity, now)) {
+			SaleInventoryReserveResult.Acquired -> Unit
+			is SaleInventoryReserveResult.Insufficient -> throw OrderInventoryInsufficientException(result.remainingQuantity)
+			SaleInventoryReserveResult.MissingCounter -> {
 				logger.error("판매 일정의 재고 카운터를 찾을 수 없습니다. saleId={}", request.saleId)
 				throw IllegalStateException("판매 일정의 재고 카운터를 찾을 수 없습니다.")
 			}
@@ -86,3 +86,7 @@ data class OrderCreationResult(
 	val response: OrderResponse,
 	val created: Boolean,
 )
+
+class OrderInventoryInsufficientException(
+	val remainingQuantity: Int,
+) : RuntimeException("주문 수량에 필요한 재고가 부족합니다.")

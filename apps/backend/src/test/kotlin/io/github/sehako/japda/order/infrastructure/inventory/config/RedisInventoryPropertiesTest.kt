@@ -16,9 +16,6 @@ class RedisInventoryPropertiesTest {
         assertEquals("japda", properties.namespace)
         assertEquals(Duration.ofMillis(500), properties.connectTimeout)
         assertEquals(Duration.ofMillis(200), properties.commandTimeout)
-        assertEquals(Duration.ofSeconds(30), properties.stockTtl)
-        assertEquals(Duration.ofSeconds(3), properties.lockTtl)
-        assertEquals(Duration.ofMillis(500), properties.pollingTimeout)
-        assertEquals(Duration.ofMillis(25), properties.pollingInterval)
+        assertEquals(Duration.ofSeconds(30), properties.soldOutTtl)
     }
 }

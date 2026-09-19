@@ -11,8 +11,5 @@ data class RedisInventoryProperties(
     val port: Int = 6379,
     val connectTimeout: Duration = Duration.ofMillis(500),
     val commandTimeout: Duration = Duration.ofMillis(200),
-    val stockTtl: Duration = Duration.ofSeconds(30),
-    val lockTtl: Duration = Duration.ofSeconds(3),
-    val pollingTimeout: Duration = Duration.ofMillis(500),
-    val pollingInterval: Duration = Duration.ofMillis(25),
+    val soldOutTtl: Duration = Duration.ofSeconds(30),
 )

@@ -56,5 +56,6 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 024 | [API·배치·원장 기능을 점진적 Gradle 멀티 프로젝트로 구성](ADR-024-backend-api-batch-ledger-multi-project.md) | backend | 승인 |
 | 025 | [판매자 일일 정산과 사용자 플랫폼 지갑 원장](ADR-025-daily-seller-settlement-and-user-wallet-ledger.md) | backend | 승인 |
 | 026 | [짧은 수명의 동적 Redis 재고 선점 계층 도입](ADR-026-dynamic-redis-inventory-reservation.md) | backend | 대체됨 |
-| 027 | [Redis 분산 lock만으로 재고 초기화 Single-flight 구성](ADR-027-redis-only-inventory-initialization-single-flight.md) | backend | 승인 |
+| 027 | [Redis 분산 lock만으로 재고 초기화 Single-flight 구성](ADR-027-redis-only-inventory-initialization-single-flight.md) | backend | 대체됨 |
 | 028 | [DB 재고 카운터와 주문별 예약으로 재고 관리](ADR-028-database-inventory-counter-and-order-reservation.md) | backend | 승인 |
+| 029 | [Redis 재고 선점을 짧은 수명의 품절 마커로 대체](ADR-029-redis-sold-out-marker.md) | backend | 승인 |

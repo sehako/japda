@@ -12,8 +12,10 @@ interface SaleInventoryCounterRepository {
 	fun findCommittedQuantity(saleId: Long): Int?
 }
 
-enum class SaleInventoryReserveResult {
-	ACQUIRED,
-	INSUFFICIENT,
-	MISSING_COUNTER,
+sealed interface SaleInventoryReserveResult {
+	data object Acquired : SaleInventoryReserveResult
+
+	data class Insufficient(val remainingQuantity: Int) : SaleInventoryReserveResult
+
+	data object MissingCounter : SaleInventoryReserveResult
 }

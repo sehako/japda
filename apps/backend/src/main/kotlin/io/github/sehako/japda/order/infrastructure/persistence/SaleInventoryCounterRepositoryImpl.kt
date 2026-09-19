@@ -4,6 +4,7 @@ import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterReposi
 import io.github.sehako.japda.order.domain.repository.SaleInventoryReserveResult
 import java.sql.Timestamp
 import java.time.Instant
+import org.slf4j.LoggerFactory
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 
@@ -37,12 +38,19 @@ class SaleInventoryCounterRepositoryImpl(
 			quantity,
 			quantity,
 		)
-		if (updated == 1) return SaleInventoryReserveResult.ACQUIRED
-		return if (findCommittedQuantity(saleId) == null) {
-			SaleInventoryReserveResult.MISSING_COUNTER
-		} else {
-			SaleInventoryReserveResult.INSUFFICIENT
+		if (updated == 1) return SaleInventoryReserveResult.Acquired
+		val inventory = findInventoryQuantities(saleId) ?: return SaleInventoryReserveResult.MissingCounter
+		val remainingQuantity = inventory.saleQuantity - inventory.committedQuantity
+		if (remainingQuantity < 0 || remainingQuantity > Int.MAX_VALUE) {
+			logger.error(
+				"판매 일정의 잔여 재고가 유효 범위를 벗어났습니다. saleId={}, saleQuantity={}, committedQuantity={}",
+				saleId,
+				inventory.saleQuantity,
+				inventory.committedQuantity,
+			)
+			throw IllegalStateException("판매 일정의 잔여 재고가 유효 범위를 벗어났습니다.")
 		}
+		return SaleInventoryReserveResult.Insufficient(remainingQuantity.toInt())
 	}
 
 	override fun release(saleId: Long, quantity: Int, now: Instant): Boolean =
@@ -65,4 +73,30 @@ class SaleInventoryCounterRepositoryImpl(
 		{ result, _ -> result.getInt("committed_quantity") },
 		saleId,
 	).singleOrNull()
+
+	private fun findInventoryQuantities(saleId: Long): InventoryQuantities? = jdbcTemplate.query(
+		"""SELECT sale.quantity AS sale_quantity, inventory.committed_quantity
+			FROM sales sale
+			LEFT JOIN sale_inventory_counters inventory ON inventory.sale_id = sale.id
+			WHERE sale.id = ?""",
+		{ result, _ ->
+			val committedQuantity = (result.getObject("committed_quantity") as? Number)?.toLong()
+			committedQuantity?.let {
+				InventoryQuantities(
+					saleQuantity = result.getLong("sale_quantity"),
+					committedQuantity = it,
+				)
+			}
+		},
+		saleId,
+	).singleOrNull()
+
+	private data class InventoryQuantities(
+		val saleQuantity: Long,
+		val committedQuantity: Long,
+	)
+
+	private companion object {
+		val logger = LoggerFactory.getLogger(SaleInventoryCounterRepositoryImpl::class.java)
+	}
 }
