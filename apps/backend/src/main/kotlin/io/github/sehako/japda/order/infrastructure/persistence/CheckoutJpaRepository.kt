@@ -11,19 +11,8 @@ internal interface CheckoutJpaRepository : Repository<Order, Long> {
 			SELECT s.id AS "saleId",
 			       p.name AS "productName",
 			       pi.object_key AS "representativeImageObjectKey",
-			       s.price AS "unitPrice"
-			FROM sales s
-			LEFT JOIN products p ON p.id = s.product_id
-			LEFT JOIN product_images pi ON pi.product_id = p.id AND pi.is_representative = true
-			WHERE s.id = :saleId
-		""",
-		nativeQuery = true,
-	)
-	fun findProductSnapshot(@Param("saleId") saleId: Long): CheckoutProductSnapshotProjection?
-
-	@Query(
-		value = """
-			SELECT a.id AS "shippingAddressId",
+			       s.price AS "unitPrice",
+			       a.id AS "shippingAddressId",
 			       a.address_name AS "addressName",
 			       a.recipient_name AS "recipientName",
 			       a.phone_number AS "phoneNumber",
@@ -31,24 +20,24 @@ internal interface CheckoutJpaRepository : Repository<Order, Long> {
 			       a.address AS "address",
 			       a.detail_address AS "detailAddress",
 			       a.delivery_message AS "deliveryMessage"
-			FROM buyer_shipping_address_books b
-			JOIN buyer_shipping_addresses a ON a.buyer_shipping_address_book_id = b.id
-			WHERE b.buyer_id = :buyerId
+			FROM sales s
+			LEFT JOIN products p ON p.id = s.product_id
+			LEFT JOIN product_images pi ON pi.product_id = p.id AND pi.is_representative = true
+			LEFT JOIN buyer_shipping_address_books b ON b.buyer_id = :buyerId
+			LEFT JOIN buyer_shipping_addresses a ON a.buyer_shipping_address_book_id = b.id
+			WHERE s.id = :saleId
 			ORDER BY a.id ASC
 		""",
 		nativeQuery = true,
 	)
-	fun findShippingAddresses(@Param("buyerId") buyerId: Long): List<CheckoutShippingAddressProjection>
+	fun findRows(@Param("saleId") saleId: Long, @Param("buyerId") buyerId: Long): List<CheckoutProjection>
 }
 
-internal interface CheckoutProductSnapshotProjection {
+internal interface CheckoutProjection {
 	val saleId: Long
 	val productName: String?
 	val representativeImageObjectKey: String?
 	val unitPrice: Long
-}
-
-internal interface CheckoutShippingAddressProjection {
 	val shippingAddressId: Long?
 	val addressName: String?
 	val recipientName: String?

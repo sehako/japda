@@ -1,21 +1,14 @@
 package io.github.sehako.japda.order.domain.repository
 
-interface CheckoutProductSnapshotQuery {
-	fun findBySaleId(saleId: Long): CheckoutProductSnapshot?
+interface CheckoutQueryRepository {
+	fun findBySaleIdAndBuyerId(saleId: Long, buyerId: Long): List<CheckoutQueryRow>
 }
 
-interface CheckoutShippingAddressQuery {
-	fun findByBuyerId(buyerId: Long): List<CheckoutShippingAddress>
-}
-
-data class CheckoutProductSnapshot(
+data class CheckoutQueryRow(
 	val saleId: Long,
 	val productName: String?,
 	val representativeImageObjectKey: String?,
 	val unitPrice: Long,
-)
-
-data class CheckoutShippingAddress(
 	val shippingAddressId: Long?,
 	val addressName: String?,
 	val recipientName: String?,

@@ -1,33 +1,20 @@
 package io.github.sehako.japda.order.infrastructure.persistence
 
-import io.github.sehako.japda.order.domain.repository.CheckoutProductSnapshot
-import io.github.sehako.japda.order.domain.repository.CheckoutProductSnapshotQuery
-import io.github.sehako.japda.order.domain.repository.CheckoutShippingAddress
-import io.github.sehako.japda.order.domain.repository.CheckoutShippingAddressQuery
+import io.github.sehako.japda.order.domain.repository.CheckoutQueryRepository
+import io.github.sehako.japda.order.domain.repository.CheckoutQueryRow
 import org.springframework.stereotype.Repository
 
 @Repository
-internal class CheckoutProductSnapshotQueryRepositoryImpl(
+internal class CheckoutQueryRepositoryImpl(
 	private val jpaRepository: CheckoutJpaRepository,
-) : CheckoutProductSnapshotQuery {
-	override fun findBySaleId(saleId: Long): CheckoutProductSnapshot? =
-		jpaRepository.findProductSnapshot(saleId)?.let { row ->
-			CheckoutProductSnapshot(
+) : CheckoutQueryRepository {
+	override fun findBySaleIdAndBuyerId(saleId: Long, buyerId: Long): List<CheckoutQueryRow> =
+		jpaRepository.findRows(saleId, buyerId).map { row ->
+			CheckoutQueryRow(
 				saleId = row.saleId,
 				productName = row.productName,
 				representativeImageObjectKey = row.representativeImageObjectKey,
 				unitPrice = row.unitPrice,
-			)
-		}
-}
-
-@Repository
-internal class CheckoutShippingAddressQueryRepositoryImpl(
-	private val jpaRepository: CheckoutJpaRepository,
-) : CheckoutShippingAddressQuery {
-	override fun findByBuyerId(buyerId: Long): List<CheckoutShippingAddress> =
-		jpaRepository.findShippingAddresses(buyerId).map { row ->
-			CheckoutShippingAddress(
 				shippingAddressId = row.shippingAddressId,
 				addressName = row.addressName,
 				recipientName = row.recipientName,

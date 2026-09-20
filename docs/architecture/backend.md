@@ -103,7 +103,7 @@ HTTP Request
 - 연관관계 Fetch는 기본 LAZY로 한다.
 - 자식 목록은 Repository Query, Projection, Application 조립으로 조회한다.
 - 여러 도메인의 읽기 정보가 항상 함께 필요한 구매자 판매 상품 목록은 쓰기 Repository와 분리된 조회 전용 Repository 및 projection으로 단일 join 조회한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-010](decisions/ADR-010-buyer-sale-product-query-model.md)을 따른다.
-- 구매자 체크아웃은 `order` 영역의 기술 독립적인 상품 스냅샷·구매자 배송지 조회 계약으로 조립한다. PostgreSQL은 두 조회를 각각 수행하고, 선택적으로 활성화한 Redis는 판매별 불변 상품 스냅샷만 fresh/stale SWR 방식으로 캐시한다. 배송지와 구매자 정보는 항상 PostgreSQL에서 조회하며, Redis 장애는 PostgreSQL로 우회한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-018](decisions/ADR-018-buyer-checkout-query-model.md), [ADR-032](decisions/ADR-032-checkout-product-snapshot-cache.md)를 따른다.
+- 구매자 체크아웃은 `order` 영역의 기술 독립적인 단일 조회 계약으로 조립한다. PostgreSQL은 판매·상품·대표 이미지와 구매자 배송지를 한 번의 조회로 결합하며, application은 결과를 응답으로 조립한다. 쓰기 Entity 사이의 JPA 연관관계는 추가하지 않는다. [ADR-018](decisions/ADR-018-buyer-checkout-query-model.md), [ADR-034](decisions/ADR-034-single-query-checkout-read-model.md)를 따른다.
 
 ## 도메인 규칙
 

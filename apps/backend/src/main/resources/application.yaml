@@ -1,11 +1,4 @@
 spring:
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
   application:
     name: backend
   datasource:
@@ -49,18 +42,6 @@ payment:
     connect-timeout: ${TOSS_CONNECT_TIMEOUT:PT3S}
     response-timeout: ${TOSS_RESPONSE_TIMEOUT:PT10S}
 
-order:
-  checkout:
-    cache:
-      enabled: ${ORDER_CHECKOUT_CACHE_ENABLED:false}
-      namespace: ${ORDER_CHECKOUT_CACHE_NAMESPACE:japda}
-      host: ${ORDER_CHECKOUT_CACHE_HOST:localhost}
-      port: ${ORDER_CHECKOUT_CACHE_PORT:6379}
-      connect-timeout: ${ORDER_CHECKOUT_CACHE_CONNECT_TIMEOUT:PT0.5S}
-      command-timeout: ${ORDER_CHECKOUT_CACHE_COMMAND_TIMEOUT:PT0.2S}
-      fresh-ttl: ${ORDER_CHECKOUT_CACHE_FRESH_TTL:PT5M}
-      stale-ttl: ${ORDER_CHECKOUT_CACHE_STALE_TTL:PT55M}
-      physical-ttl: ${ORDER_CHECKOUT_CACHE_PHYSICAL_TTL:PT65M}
 cors:
   allowed-origins:
     - http://localhost:5173

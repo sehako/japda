@@ -78,8 +78,8 @@ class CheckoutIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("배송지가 없어도 상품 스냅샷과 배송지를 분리 조회하고 데이터를 변경하지 않는다")
-	fun 배송지_없어도_분리_조회하고_데이터를_변경하지_않는다() {
+	@DisplayName("배송지가 없어도 대표 이미지와 예상 총액을 한 SQL로 조회하고 데이터를 변경하지 않는다")
+	fun 배송지_없어도_한_SQL로_조회하고_데이터를_변경하지_않는다() {
 		val statistics = entityManagerFactoryBean.nativeEntityManagerFactory.unwrap(SessionFactory::class.java).statistics
 		statistics.isStatisticsEnabled = true
 		statistics.clear()
@@ -93,7 +93,7 @@ class CheckoutIntegrationTest {
 			.andExpect(jsonPath("$.totalPrice").value(70000))
 			.andExpect(jsonPath("$.shippingAddresses").isEmpty)
 
-		assertEquals(4, statistics.prepareStatementCount - before)
+		assertEquals(3, statistics.prepareStatementCount - before)
 		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM orders", Int::class.java))
 		assertEquals(0, jdbcTemplate.queryForObject("SELECT count(*) FROM buyer_shipping_address_books", Int::class.java))
 		assertEquals(35_000L, jdbcTemplate.queryForObject("SELECT price FROM sales WHERE id = ?", Long::class.java, saleId))
