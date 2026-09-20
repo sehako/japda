@@ -61,3 +61,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 029 | [Redis 재고 선점을 짧은 수명의 품절 마커로 대체](ADR-029-redis-sold-out-marker.md) | backend | 승인 |
 | 030 | [판매자 일일 정산에 로컬 파티셔닝 적용](ADR-030-daily-seller-settlement-local-partitioning.md) | backend | 승인 |
 | 031 | [PostgreSQL 단일 재고 예약 경로 사용](ADR-031-postgresql-only-inventory-reservation.md) | backend | 승인 |
+| 032 | [체크아웃 상품 스냅샷 캐시와 stale-while-revalidate 적용](ADR-032-checkout-product-snapshot-cache.md) | backend | 승인 |
