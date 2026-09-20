@@ -2,7 +2,6 @@ package io.github.sehako.japda.order.application.service
 
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
 import io.github.sehako.japda.order.application.inventory.ExpiredInventoryReservationReleaseService
-import io.github.sehako.japda.order.application.inventory.SoldOutInventoryMarker
 import io.github.sehako.japda.order.application.response.toResponse
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.model.OrderRequest
@@ -27,43 +26,22 @@ import org.mockito.Mockito.mock
 @DisplayName("주문 서비스")
 class OrderServiceTest {
 	@Test
-	@DisplayName("기존 멱등 주문은 품절 마커를 조회하지 않고 반환한다")
-	fun 기존_멱등_주문_품절_마커_조회_없이_반환한다() {
-		val marker = RecordingSoldOutInventoryMarker(soldOut = true)
+	@DisplayName("기존 멱등 주문은 PostgreSQL 주문 transaction 없이 반환한다")
+	fun 기존_멱등_주문_DB_transaction_없이_반환한다() {
 		val transactionService = RecordingTransactionService()
 
-		val response = service(RecordingOrderRepository(existingOrder()), transactionService, marker).create(dto())
+		val response = service(RecordingOrderRepository(existingOrder()), transactionService).create(dto())
 
 		assertEquals(9L, response.orderId)
-		assertEquals(0, marker.checkCount)
 		assertEquals(0, transactionService.createCount)
 	}
 
 	@Test
-	@DisplayName("품절 마커가 있으면 DB transaction 없이 기존 재고 부족 오류를 반환한다")
-	fun 품절_마커_존재_DB_transaction_없이_재고_부족을_반환한다() {
-		val marker = RecordingSoldOutInventoryMarker(soldOut = true)
-		val transactionService = RecordingTransactionService()
-
-		val exception = assertFailsWith<OrderException> {
-			service(RecordingOrderRepository(), transactionService, marker).create(dto())
-		}
-
-		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
-		assertEquals(1, marker.checkCount)
-		assertEquals(0, transactionService.createCount)
-	}
-
-	@Test
-	@DisplayName("품절 마커가 없으면 임의 UUID로 DB 주문 transaction을 실행한다")
-	fun 품절_마커_없음_임의_UUID로_DB_주문_transaction을_실행한다() {
+	@DisplayName("신규 주문은 임의 UUID로 PostgreSQL 주문 transaction을 실행한다")
+	fun 신규_주문_임의_UUID로_DB_주문_transaction을_실행한다() {
 		val transactionService = RecordingTransactionService(result = creationResult(created = true))
 
-		val service = service(
-			RecordingOrderRepository(),
-			transactionService,
-			RecordingSoldOutInventoryMarker(soldOut = false),
-		)
+		val service = service(RecordingOrderRepository(), transactionService)
 
 		val firstResponse = service.create(dto())
 		val secondResponse = service.create(dto())
@@ -75,109 +53,36 @@ class OrderServiceTest {
 	}
 
 	@Test
-	@DisplayName("품절 마커 조회 오류는 DB 주문 경로로 우회한다")
-	fun 품절_마커_조회_오류_DB_주문_경로로_우회한다() {
-		val transactionService = RecordingTransactionService(result = creationResult(created = true))
-
-		val response = service(
-			RecordingOrderRepository(),
-			transactionService,
-			RecordingSoldOutInventoryMarker(checkFailure = IllegalStateException("테스트 조회 실패")),
-		).create(dto())
-
-		assertEquals(1L, response.orderId)
-		assertEquals(1, transactionService.createCount)
-	}
-
-	@Test
-	@DisplayName("DB가 완전 품절을 확인하면 rollback 뒤 품절 마커를 기록한다")
-	fun DB_완전_품절_rollback_후_품절_마커를_기록한다() {
-		val marker = RecordingSoldOutInventoryMarker()
-
-		val exception = assertFailsWith<OrderException> {
-			service(
-				RecordingOrderRepository(),
-				RecordingTransactionService(failure = OrderInventoryInsufficientException(0)),
-				marker,
-			).create(dto())
-		}
-
-		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
-		assertEquals(listOf(100L), marker.markedSaleIds)
-	}
-
-	@Test
-	@DisplayName("DB 잔여 재고가 양수이면 품절 마커를 기록하지 않는다")
-	fun DB_잔여_재고_양수_품절_마커를_기록하지_않는다() {
-		val marker = RecordingSoldOutInventoryMarker()
-
+	@DisplayName("DB 재고 부족은 기존 재고 부족 오류로 변환한다")
+	fun DB_재고_부족_기존_재고_부족_오류로_변환한다() {
 		val exception = assertFailsWith<OrderException> {
 			service(
 				RecordingOrderRepository(),
 				RecordingTransactionService(failure = OrderInventoryInsufficientException(1)),
-				marker,
 			).create(dto())
 		}
 
 		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
-		assertEquals(emptyList(), marker.markedSaleIds)
 	}
 
 	@Test
-	@DisplayName("품절 마커 기록 실패는 DB 재고 부족 결과를 변경하지 않는다")
-	fun 품절_마커_기록_실패_DB_재고_부족_결과를_변경하지_않는다() {
-		val marker = RecordingSoldOutInventoryMarker(markFailure = IllegalStateException("테스트 기록 실패"))
-
-		val exception = assertFailsWith<OrderException> {
-			service(
-				RecordingOrderRepository(),
-				RecordingTransactionService(failure = OrderInventoryInsufficientException(0)),
-				marker,
-			).create(dto())
-		}
-
-		assertEquals(OrderErrorCode.QUANTITY_UNAVAILABLE, exception.errorCode)
-		assertEquals(listOf(100L), marker.markedSaleIds)
-	}
-
-	@Test
-	@DisplayName("멱등 unique 충돌을 기존 주문으로 복구하면 품절 마커를 기록하지 않는다")
-	fun 멱등_unique_충돌_기존_주문_복구_품절_마커를_기록하지_않는다() {
-		val marker = RecordingSoldOutInventoryMarker()
+	@DisplayName("멱등 unique 충돌은 기존 주문으로 복구한다")
+	fun 멱등_unique_충돌_기존_주문으로_복구한다() {
 		val transactionService = RecordingTransactionService(
 			failure = OrderIdempotencyPersistenceException(IllegalStateException("테스트 충돌")),
 			recoveryResult = creationResult(orderId = 9L, created = false),
 		)
 
-		val response = service(RecordingOrderRepository(), transactionService, marker).create(dto())
+		val response = service(RecordingOrderRepository(), transactionService).create(dto())
 
 		assertEquals(9L, response.orderId)
 		assertEquals(1, transactionService.recoverCount)
-		assertEquals(emptyList(), marker.markedSaleIds)
-	}
-
-	@Test
-	@DisplayName("DB 주문의 다른 오류에는 품절 마커를 기록하지 않는다")
-	fun DB_주문_다른_오류_품절_마커를_기록하지_않는다() {
-		val marker = RecordingSoldOutInventoryMarker()
-
-		val exception = assertFailsWith<OrderException> {
-			service(
-				RecordingOrderRepository(),
-				RecordingTransactionService(failure = OrderException(OrderErrorCode.SALE_NOT_OPEN)),
-				marker,
-			).create(dto())
-		}
-
-		assertEquals(OrderErrorCode.SALE_NOT_OPEN, exception.errorCode)
-		assertEquals(emptyList(), marker.markedSaleIds)
 	}
 
 	private fun service(
 		orderRepository: OrderRepository,
 		transactionService: OrderCreationTransactionService,
-		marker: SoldOutInventoryMarker,
-	) = OrderService(orderRepository, transactionService, marker)
+	) = OrderService(orderRepository, transactionService)
 
 	private fun dto() = CreateOrderDto(
 		buyerId = 123L,
@@ -202,26 +107,6 @@ class OrderServiceTest {
 	private fun creationResult(orderId: Long = 1L, created: Boolean): OrderCreationResult {
 		val order = Order.create(dto().toDomainRequest(), "서버 상품명", 35_000L, NOW).also { setId(it, orderId) }
 		return OrderCreationResult(order.toResponse(), created)
-	}
-
-	private class RecordingSoldOutInventoryMarker(
-		private val soldOut: Boolean = false,
-		private val checkFailure: RuntimeException? = null,
-		private val markFailure: RuntimeException? = null,
-	) : SoldOutInventoryMarker {
-		var checkCount = 0
-		val markedSaleIds = mutableListOf<Long>()
-
-		override fun isSoldOut(saleId: Long): Boolean {
-			checkCount++
-			checkFailure?.let { throw it }
-			return soldOut
-		}
-
-		override fun markSoldOut(saleId: Long) {
-			markedSaleIds += saleId
-			markFailure?.let { throw it }
-		}
 	}
 
 	private class RecordingTransactionService(

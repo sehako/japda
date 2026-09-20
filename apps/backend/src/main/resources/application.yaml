@@ -1,11 +1,4 @@
 spring:
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisReactiveAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.DataRedisRepositoriesAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisHealthContributorAutoConfiguration
-      - org.springframework.boot.data.redis.autoconfigure.health.DataRedisReactiveHealthContributorAutoConfiguration
   application:
     name: backend
   datasource:
@@ -48,17 +41,6 @@ payment:
     secret-key: ${TOSS_SECRET_KEY:}
     connect-timeout: ${TOSS_CONNECT_TIMEOUT:PT3S}
     response-timeout: ${TOSS_RESPONSE_TIMEOUT:PT10S}
-
-order:
-  inventory:
-    redis:
-      enabled: ${ORDER_INVENTORY_REDIS_ENABLED:false}
-      namespace: ${ORDER_INVENTORY_REDIS_NAMESPACE:japda}
-      host: ${ORDER_INVENTORY_REDIS_HOST:localhost}
-      port: ${ORDER_INVENTORY_REDIS_PORT:6379}
-      connect-timeout: ${ORDER_INVENTORY_REDIS_CONNECT_TIMEOUT:PT0.5S}
-      command-timeout: ${ORDER_INVENTORY_REDIS_COMMAND_TIMEOUT:PT0.2S}
-      sold-out-ttl: ${ORDER_INVENTORY_REDIS_SOLD_OUT_TTL:PT30S}
 
 cors:
   allowed-origins:
