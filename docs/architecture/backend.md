@@ -115,14 +115,15 @@ HTTP Request
 - 단일 상품 주문의 재고는 판매 일정별 `sale_inventory_counters`와 주문별 `inventory_reservations`로 관리한다. 최초 판매 수량은 `Sale.quantity`에만 두고, 주문 application은 판매 일정 행을 잠그거나 주문을 집계하지 않고 카운터의 조건부 UPDATE로 재고를 확보한 뒤 주문과 `RESERVED` 예약을 같은 transaction에 저장한다. 예약은 주문 및 판매 Entity와 JPA 연관관계를 맺지 않고 `orderId`와 `saleId`로 참조한다. [ADR-028](decisions/ADR-028-database-inventory-counter-and-order-reservation.md)을 따른다.
 - 신규 주문은 선행 멱등성 조회 뒤 Redis 등의 보조 재고 계층을 거치지 않고 PostgreSQL 주문 transaction으로 처리한다. 품절 요청도 판매 일정별 `sale_inventory_counters`의 조건부 UPDATE를 시도하고, 재고 부족 시 transaction을 rollback한 뒤 기존 품절 오류를 반환한다. 조건부 UPDATE와 주문별 `inventory_reservations`가 재고의 유일한 정합성 기준이며, Redis 품절 마커·재고 cache·분산 lock을 사용하지 않는다. [ADR-028](decisions/ADR-028-database-inventory-counter-and-order-reservation.md), [ADR-031](decisions/ADR-031-postgresql-only-inventory-reservation.md)을 따른다.
 - 결제 시도는 주문 ID를 참조하는 별도 `Payment`로 저장한다. 결제 시작은 유효한 `RESERVED` 예약을 `PAYMENT_PENDING`으로 전이하고, 승인 성공은 `Payment.APPROVED`, `Order.PAID`와 `InventoryReservation.CONFIRMED`를 같은 transaction에서 확정한다. 확정 실패는 기대 상태 기반 전이에 성공한 예약만 반환하고 카운터를 감소시키며, 승인 중이거나 수동 확인 대상인 예약은 만료 후에도 `PAYMENT_PENDING`으로 재고를 유지한다. 결제와 예약 상태 경쟁은 판매 일정 잠금이 아니라 현재 상태를 조건으로 하는 변경 연산으로 판정한다. [ADR-028](decisions/ADR-028-database-inventory-counter-and-order-reservation.md)을 따른다.
-- 플랫폼 지갑은 판매자 역할이 아니라 `users.id`에 귀속하며 사용자별 하나만 둔다. 잔액 변경은 수정·삭제하지 않는 원장 항목과 같은 트랜잭션에서 처리하고 원인 종류와 원인 ID로 멱등성을 보장한다. 판매자 일일 정산은 구매별 근거를 보존하고 판매자별로 합산·검산한 뒤 연결된 사용자의 지갑에 입금한다. 정산의 업무 불변식은 [ADR-025](decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md), 병렬 실행과 재시작 계약은 [ADR-030](decisions/ADR-030-daily-seller-settlement-local-partitioning.md)를 따른다.
+- 플랫폼 지갑은 판매자 역할이 아니라 `users.id`에 귀속하며 사용자별 하나만 둔다. 잔액 변경은 수정·삭제하지 않는 원장 항목과 같은 트랜잭션에서 처리하고 원인 종류와 원인 ID로 멱등성을 보장한다. 판매자 일일 정산은 구매별 근거를 보존하고 판매자별로 합산·검산한 뒤 연결된 사용자의 지갑에 입금한다. 결제 승인 transaction은 결제·주문·재고 예약 상태와 함께 판매자, 지급 대상 사용자, 금액과 정산일을 불변 정산 원천으로 저장하며, 일일 배치는 이 원천을 다시 원본 관계와 조인하지 않고 집계한다. 정산의 업무 불변식은 [ADR-025](decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md), 병렬 실행과 재시작 계약은 [ADR-030](decisions/ADR-030-daily-seller-settlement-local-partitioning.md), 정산 원천 생성 경계는 [ADR-035](decisions/ADR-035-payment-approval-settlement-entry-snapshot.md)를 따른다.
 - 의미와 규칙이 있는 값만 Value Object로 만든다.
 
 ## 배치
 
 - 배치 Job은 API HTTP 흐름과 분리된 `:batch` 애플리케이션에서 실행한다.
+- 판매자 일일 정산의 결제별 불변 원천은 결제 승인 application이 승인 상태 전이와 같은 PostgreSQL transaction에서 생성한다. `:batch`는 정산일과 최초 실행에서 고정한 ID 경계 안의 원천을 읽으며 결제·주문·판매·판매자 사용자 연결을 다시 조인해 동일한 상세를 생성하지 않는다.
 - 판매자 일일 정산 Job은 상세 수집과 지갑 입금에 Spring Batch local partitioning을 적용하고, 검산·확정 Step은 단일 실행으로 순서대로 수행한다. collection과 credit worker는 동시에 실행하지 않으며 하나의 전용 bounded worker pool을 공유한다.
-- 준비 Step은 결제 ID와 판매자별 정산 ID를 결정론적인 상호 배타 범위로 한 번 나누어 고정 key의 기본값으로 Job `ExecutionContext`에 저장한다. 동일 JobInstance 재시작에서는 저장된 계획을 재사용하며 현재 데이터나 변경된 설정으로 다시 계산하지 않는다.
+- 준비 Step은 정산 원천 ID와 판매자별 정산 ID를 결정론적인 상호 배타 범위로 한 번 나누어 고정 key의 기본값으로 Job `ExecutionContext`에 저장한다. 동일 JobInstance 재시작에서는 저장된 계획을 재사용하며 현재 데이터나 변경된 설정으로 다시 계산하지 않는다.
 - 각 worker는 자신의 ID 범위에서 단일 thread keyset paging을 수행하고 마지막 commit cursor를 Step `ExecutionContext`에 저장한다. 완료된 worker는 재시작하지 않고 실패하거나 미완료된 worker만 checkpoint부터 재시작한다.
 - Job 입력은 식별 가능한 JobParameter로 받고 실패한 동일 JobInstance를 checkpoint부터 재시작한다. 임의의 run ID로 중복 실행 제약을 우회하지 않는다.
 - 금액과 정산 소유권 오류는 skip하지 않고 Job을 실패시킨다. 일시적인 인프라 오류에만 제한적인 retry를 사용한다.

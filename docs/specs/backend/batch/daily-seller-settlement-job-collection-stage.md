@@ -1,5 +1,7 @@
 # 판매자 일일 정산 Job의 대상 수집 단계
 
+> 이 문서의 원본 결제 조인과 `settlement_details` 생성 설계는 [결제 승인 시 정산 원천 스냅샷 적재](../settlement/payment-approval-settlement-entry-snapshot.md)가 대체한다. 기존 문서는 최초 수집 단계의 설계 기록으로 보존하며, 구현 시 승인 transaction에서 생성한 `settlement_entries`를 결제별 정산 근거로 사용한다.
+
 ## 목적과 완료 조건
 
 판매자 일일 정산 전체를 수행할 `dailySellerSettlementJob`을 정의하고, 한국 시간 기준으로 종료된 정산일의 승인 결제를 구매별 정산 상세로 수집하는 첫 업무 단계를 구현한다. 이번 작업은 [ADR-025](../../../architecture/decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md)의 `수집 → 검산·확정 → 지갑 입금` 흐름 중 수집 단계만 먼저 구현하는 증분 범위다. 별도의 수집 전용 Job을 만들지 않으며, 후속 작업은 같은 Job flow 뒤에 검산·확정 및 판매자 지갑 가상 입금 Step을 연결한다.

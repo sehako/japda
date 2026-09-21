@@ -64,3 +64,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 032 | [체크아웃 상품 스냅샷 캐시와 stale-while-revalidate 적용](ADR-032-checkout-product-snapshot-cache.md) | backend | 대체됨 |
 | 033 | [PostgreSQL 단일 체크아웃 상품 스냅샷 조회 사용](ADR-033-postgresql-only-checkout-product-snapshot-query.md) | backend | 대체됨 |
 | 034 | [체크아웃 단일 쿼리 조회 모델 복원](ADR-034-single-query-checkout-read-model.md) | backend | 승인 |
+| 035 | [결제 승인 transaction에서 정산 원천 스냅샷 생성](ADR-035-payment-approval-settlement-entry-snapshot.md) | backend | 승인 |

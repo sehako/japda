@@ -1,5 +1,7 @@
 # 판매자 일일 정산 Job의 대용량 성능 최적화
 
+> 이 문서의 `payments` 기반 keyset reader와 배치 시점의 `settlement_details` 생성 최적화는 [결제 승인 시 정산 원천 스냅샷 적재](../settlement/payment-approval-settlement-entry-snapshot.md)가 대체한다. 전체 행 메모리 적재 금지, 집합 기반 확정, 검산과 지갑 원장 계약은 계속 유효하다.
+
 ## 목적과 완료 조건
 
 `dailySellerSettlementJob`이 주문 1,000만 건 규모에서도 정산 정합성과 재시작 계약을 유지하면서 1시간 이내에 전체 처리를 완료하도록 수집과 검산·확정 단계를 최적화한다. 현재 성능 측정에서 1,000만 건 실행은 상세 수집에 약 2시간 31분이 걸렸고, 이후 확정 단계에서 정산 상세 ID 전체를 조회하여 잠그는 과정에서 `OutOfMemoryError`가 발생했다. 이번 작업은 두 문제를 함께 해결하되 기존 단일 partition·단일 thread 구조는 유지한다.

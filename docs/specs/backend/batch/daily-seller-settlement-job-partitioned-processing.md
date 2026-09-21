@@ -1,5 +1,7 @@
 # 판매자 일일 정산 Job 파티션 병렬 처리
 
+> 이 문서의 결제 ID 기반 collection 입력과 `settlement_details` 생성 설계는 [결제 승인 시 정산 원천 스냅샷 적재](../settlement/payment-approval-settlement-entry-snapshot.md)가 대체한다. local partitioning, 결정론적 계획, worker별 checkpoint, 지갑 입금과 최종 검산 계약은 유지하되 collection 범위는 `settlement_entries.id`를 기준으로 한다.
+
 ## 목적
 
 `dailySellerSettlementJob`이 승인 결제 1억 건 이상을 처리할 때도 구매별 정산 상세 수집과 판매자 지갑 입금을 제한된 동시성으로 병렬 실행한다. 각 worker가 상호 배타적인 ID 범위를 소유하게 하여 공유 reader를 사용하는 멀티스레드 Step의 상태 경쟁을 피하고, Spring Batch checkpoint와 동일 JobInstance 재시작 계약을 유지한다.
