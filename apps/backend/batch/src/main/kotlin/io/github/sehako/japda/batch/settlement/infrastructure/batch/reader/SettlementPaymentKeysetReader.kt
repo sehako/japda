@@ -2,7 +2,7 @@ package io.github.sehako.japda.batch.settlement.infrastructure.batch.reader
 
 import io.github.sehako.japda.batch.settlement.application.dto.SettlementPaymentProjection
 import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
-import java.time.ZoneOffset
+import java.time.ZoneId
 import javax.sql.DataSource
 import org.springframework.batch.infrastructure.item.ExecutionContext
 import org.springframework.batch.infrastructure.item.ItemStreamException
@@ -26,7 +26,7 @@ open class SettlementPaymentKeysetReader(
 	private val namedJdbcTemplate = NamedParameterJdbcTemplate(jdbcTemplate)
 	private var page = emptyList<SettlementPaymentProjection>()
 	private var pageIndex = 0
-	private var lastReturnedPaymentId: Long? = null
+	private var lastReturnedEntryId: Long? = null
 
 	init {
 		require(pageSize > 0) { "판매자 일일 정산 page 크기는 양수여야 합니다." }
@@ -41,7 +41,7 @@ open class SettlementPaymentKeysetReader(
 		super.open(executionContext)
 		page = emptyList()
 		pageIndex = 0
-		lastReturnedPaymentId = restoreCursor(executionContext)
+		lastReturnedEntryId = restoreCursor(executionContext)
 	}
 
 	override fun read(): SettlementPaymentProjection? {
@@ -49,22 +49,22 @@ open class SettlementPaymentKeysetReader(
 		if (pageIndex == page.size) return null
 
 		val projection = page[pageIndex++]
-		val paymentId = projection.paymentId
-		if (!contains(paymentId)) {
-			throw ItemStreamException("정산 결제가 파티션 범위를 벗어났습니다: paymentId=$paymentId")
+		val entryId = projection.entryId
+		if (!contains(entryId)) {
+			throw ItemStreamException("정산 원천이 파티션 범위를 벗어났습니다: entryId=$entryId")
 		}
-		val previousCursor = lastReturnedPaymentId
-		if (previousCursor != null && paymentId <= previousCursor) {
-			throw ItemStreamException("정산 결제 keyset cursor가 증가하지 않습니다: paymentId=$paymentId")
+		val previousCursor = lastReturnedEntryId
+		if (previousCursor != null && entryId <= previousCursor) {
+			throw ItemStreamException("정산 원천 keyset cursor가 증가하지 않습니다: entryId=$entryId")
 		}
-		lastReturnedPaymentId = paymentId
+		lastReturnedEntryId = entryId
 		return projection
 	}
 
 	override fun update(executionContext: ExecutionContext) {
 		super.update(executionContext)
-		lastReturnedPaymentId?.let { paymentId ->
-			executionContext.putLong(getExecutionContextKey(LAST_PAYMENT_ID_KEY), paymentId)
+		lastReturnedEntryId?.let { entryId ->
+			executionContext.putLong(getExecutionContextKey(LAST_ENTRY_ID_KEY), entryId)
 			executionContext.putInt(getExecutionContextKey(CHECKPOINTED_KEY), CHECKPOINTED_VALUE)
 		}
 	}
@@ -73,7 +73,7 @@ open class SettlementPaymentKeysetReader(
 		super.close()
 		page = emptyList()
 		pageIndex = 0
-		lastReturnedPaymentId = null
+		lastReturnedEntryId = null
 	}
 
 	private fun fetchPage() {
@@ -83,7 +83,7 @@ open class SettlementPaymentKeysetReader(
 			partitionStartInclusive,
 			partitionEndExclusive,
 			partitionEndInclusive,
-			lastReturnedPaymentId,
+			lastReturnedEntryId,
 		)
 		page = namedJdbcTemplate.query(query.sql, query.parameters, ::mapProjection)
 		pageIndex = 0
@@ -91,6 +91,7 @@ open class SettlementPaymentKeysetReader(
 
 	private fun mapProjection(resultSet: java.sql.ResultSet, rowNum: Int): SettlementPaymentProjection =
 		SettlementPaymentProjection(
+			entryId = resultSet.getLong("entry_id"),
 			paymentId = resultSet.getLong("payment_id"),
 			requestedAmount = resultSet.getLong("requested_amount"),
 			paymentApprovedAt = resultSet.getTimestamp("payment_approved_at").toInstant(),
@@ -106,7 +107,7 @@ open class SettlementPaymentKeysetReader(
 
 	private fun restoreCursor(executionContext: ExecutionContext): Long? {
 		val checkpointedKey = getExecutionContextKey(CHECKPOINTED_KEY)
-		val paymentIdKey = getExecutionContextKey(LAST_PAYMENT_ID_KEY)
+		val paymentIdKey = getExecutionContextKey(LAST_ENTRY_ID_KEY)
 		val hasCheckpointed = executionContext.containsKey(checkpointedKey)
 		val hasPaymentId = executionContext.containsKey(paymentIdKey)
 		if (hasCheckpointed != hasPaymentId) {
@@ -128,7 +129,7 @@ open class SettlementPaymentKeysetReader(
 		} catch (exception: RuntimeException) {
 			throw ItemStreamException("정산 결제 keyset cursor를 복원할 수 없습니다.", exception)
 		}
-		if (!contains(paymentId)) throw ItemStreamException("정산 결제 keyset cursor가 파티션 범위를 벗어났습니다: paymentId=$paymentId")
+		if (!contains(paymentId)) throw ItemStreamException("정산 원천 keyset cursor가 파티션 범위를 벗어났습니다: entryId=$paymentId")
 		return paymentId
 	}
 
@@ -145,7 +146,7 @@ open class SettlementPaymentKeysetReader(
 		const val NAME = "settlementPaymentKeysetReader"
 		const val CHECKPOINTED_KEY = "checkpointed"
 		const val CHECKPOINTED_VALUE = 1
-		const val LAST_PAYMENT_ID_KEY = "lastPaymentId"
+		const val LAST_ENTRY_ID_KEY = "lastEntryId"
 	}
 }
 
@@ -174,43 +175,37 @@ data class SettlementPaymentKeysetQuery(
 		)
 
 		private fun baseParameters(dateRange: SettlementDateRange, pageSize: Int) = mapOf(
-			"approvedStatus" to APPROVED_PAYMENT_STATUS,
-			"startInclusive" to dateRange.startInclusive.atOffset(ZoneOffset.UTC),
-			"endExclusive" to dateRange.endExclusive.atOffset(ZoneOffset.UTC),
+			"settlementDate" to dateRange.startInclusive.atZone(SEOUL_ZONE).toLocalDate(),
 			"pageSize" to pageSize,
 		)
 
-		private const val APPROVED_PAYMENT_STATUS = "APPROVED"
-
 		private val BASE_SQL = """
-			SELECT p.id AS payment_id,
-			       p.requested_amount AS requested_amount,
-			       p.approved_at AS payment_approved_at,
-			       o.id AS order_id,
-			       o.status AS order_status,
-			       s.id AS sale_id,
-			       s.seller_id AS seller_id,
-			       spi.user_id AS recipient_user_id,
-			       o.quantity AS quantity,
-			       o.unit_price AS unit_price,
-			       o.total_price AS total_price
-			FROM payments p
-			LEFT JOIN orders o ON o.id = p.order_id
-			LEFT JOIN sales s ON s.id = o.sale_id
-			LEFT JOIN seller_principal_identities spi ON spi.seller_id = s.seller_id
-			WHERE p.status = :approvedStatus
-			  AND p.approved_at >= :startInclusive
-			  AND p.approved_at < :endExclusive
-			  AND p.id >= :partitionStartInclusive
+			SELECT se.id AS entry_id,
+			       se.payment_id,
+			       se.gross_amount AS requested_amount,
+			       se.payment_approved_at,
+			       se.order_id,
+			       'PAID' AS order_status,
+			       se.sale_id,
+			       se.seller_id,
+			       se.recipient_user_id,
+			       se.quantity,
+			       se.unit_price,
+			       se.gross_amount AS total_price
+			FROM settlement_entries se
+			WHERE se.settlement_date = :settlementDate
+			  AND se.id >= :partitionStartInclusive
 			%s
 			%s
-			ORDER BY p.id ASC
+			ORDER BY se.id ASC
 			LIMIT :pageSize
 		""".trimIndent()
 
 		private fun createSql(endInclusive: Boolean, hasCursor: Boolean): String = BASE_SQL.format(
-			if (endInclusive) "  AND p.id <= :partitionEndExclusive" else "  AND p.id < :partitionEndExclusive",
-			if (hasCursor) "  AND p.id > :lastPaymentId" else "",
+			if (endInclusive) "  AND se.id <= :partitionEndExclusive" else "  AND se.id < :partitionEndExclusive",
+			if (hasCursor) "  AND se.id > :lastPaymentId" else "",
 		)
+
+		private val SEOUL_ZONE = ZoneId.of("Asia/Seoul")
 	}
 }

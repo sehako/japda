@@ -2,6 +2,8 @@ package io.github.sehako.japda.batch.settlement.infrastructure.persistence
 
 import java.math.BigDecimal
 import java.time.Instant
+import java.time.LocalDate
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds
 import java.time.ZoneOffset
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
@@ -71,7 +73,7 @@ class SellerSettlementJdbcRepository(
 			{ resultSet, _ -> resultSet.getLong("seller_id") },
 			settlementRunId,
 		).singleOrNull()
-	fun createTemporarySellerAggregates(settlementRunId: Long) {
+	fun createTemporarySellerAggregates(settlementDate: LocalDate, entryBounds: SettlementEntryBounds) {
 		jdbcTemplate.execute(
 			"""
 			CREATE TEMPORARY TABLE settlement_seller_aggregates (
@@ -93,11 +95,15 @@ class SellerSettlementJdbcRepository(
 			       MAX(recipient_user_id),
 			       COUNT(*)::BIGINT,
 			       SUM(gross_amount)::NUMERIC
-			FROM settlement_details
-			WHERE settlement_run_id = ?
+			FROM settlement_entries
+			WHERE settlement_date = ?
+			  AND id >= COALESCE(?, id)
+			  AND id <= COALESCE(?, id)
 			GROUP BY seller_id
 			""".trimIndent(),
-			settlementRunId,
+			settlementDate,
+			entryBounds.minId,
+			entryBounds.maxId,
 		)
 	}
 

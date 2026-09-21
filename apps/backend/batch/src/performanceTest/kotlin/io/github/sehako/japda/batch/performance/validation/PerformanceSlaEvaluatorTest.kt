@@ -16,12 +16,29 @@ import org.junit.jupiter.api.DisplayName
 @DisplayName("대용량 정산 성능 SLA 판정")
 class PerformanceSlaEvaluatorTest {
 	@Test
+	@DisplayName("1000만 건은 실제 파티션 manager 단계 이름으로 SLA를 판정한다")
+	fun 천만_실제_단계_이름_SLA_판정() {
+		val result = PerformanceSlaEvaluator().evaluate(
+			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
+			Duration.ofSeconds(40).toMillis(),
+			listOf(
+				step("collectSettlementDetailsManagerStep", 1),
+				step("confirmSellerSettlementsStep", 1),
+				step("creditSellerWalletsManagerStep", 1),
+				step("completeSettlementRunStep", 1),
+			),
+		)
+
+		assertTrue(result.success, result.failures.joinToString())
+	}
+
+	@Test
 	@DisplayName("1000만 FIXED 기준 시나리오는 전체와 단계별 상한을 모두 판정한다")
 	fun 천만_FIXED_기준_시나리오는_전체와_단계별_상한을_모두_판정한다() {
 		val result = PerformanceSlaEvaluator().evaluate(
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
 			Duration.ofMinutes(61).toMillis(),
-			listOf(step("collectSettlementDetailsStep", 50), step("confirmSellerSettlementsStep", 5)),
+			listOf(step("collectSettlementDetailsManagerStep", 50), step("confirmSellerSettlementsStep", 5)),
 		)
 
 		assertFalse(result.success)
@@ -49,7 +66,7 @@ class PerformanceSlaEvaluatorTest {
 		val result = PerformanceSlaEvaluator().evaluate(
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED, timeout = Duration.ofMinutes(64)),
 			Duration.ofMinutes(59).toMillis(),
-			listOf(step("collectSettlementDetailsStep", 49), step("confirmSellerSettlementsStep", 4)),
+			listOf(step("collectSettlementDetailsManagerStep", 49), step("confirmSellerSettlementsStep", 4)),
 		)
 
 		assertFalse(result.success)
@@ -63,9 +80,9 @@ class PerformanceSlaEvaluatorTest {
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
 			Duration.ofMinutes(59).toMillis(),
 			listOf(
-				step("collectSettlementDetailsStep", 49),
+				step("collectSettlementDetailsManagerStep", 49),
 				step("confirmSellerSettlementsStep", 4),
-				step("creditSellerWalletsStep", 3),
+				step("creditSellerWalletsManagerStep", 3),
 				step("completeSettlementRunStep", 3),
 			),
 		)

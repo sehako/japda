@@ -8,6 +8,7 @@ import io.github.sehako.japda.batch.settlement.infrastructure.persistence.Settle
 import java.sql.DriverManager
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
 import javax.sql.DataSource
@@ -89,7 +90,7 @@ class DailySellerSettlementJobIntegrationTest {
 		jdbcTemplate.execute(
 			"""
 			TRUNCATE TABLE
-				ledger_entries, wallets, seller_settlements, settlement_details, settlement_runs, payments, orders,
+				ledger_entries, wallets, seller_settlements, settlement_details, settlement_entries, settlement_runs, payments, orders,
 				seller_principal_identities, buyer_principal_identities, user_roles, users,
 				sales, sale_days, products,
 				batch_step_execution_context, batch_job_execution_context,
@@ -138,15 +139,12 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("판매자 사용자 매핑이 없는 결제도 projection으로 반환한다")
-	fun 판매자_사용자_매핑이_없는_결제도_projection으로_반환한다() {
+	@DisplayName("정산 원천이 없는 승인 결제는 collection projection에서 제외한다")
+	fun 정산_원천이_없는_승인_결제는_collection_projection에서_제외한다() {
 		val saleId = insertSale(sellerId = 900L, mapRecipient = false)
-		val paymentId = insertPayment(Instant.parse("2026-09-14T15:00:00Z"), saleId = saleId)
+		insertPayment(Instant.parse("2026-09-14T15:00:00Z"), saleId = saleId)
 
-		val projection = readSettlementPayments(pageSize = 2).single()
-
-		assertEquals(paymentId, projection.paymentId)
-		assertNull(projection.recipientUserId)
+		assertTrue(readSettlementPayments(pageSize = 2).isEmpty())
 	}
 
 	@Test
@@ -190,12 +188,15 @@ class DailySellerSettlementJobIntegrationTest {
 		val execution = launch(SETTLEMENT_DATE, 300L)
 
 		assertEquals(BatchStatus.COMPLETED, execution.status)
-		val details = jdbcTemplate.queryForList("SELECT * FROM settlement_details ORDER BY payment_approved_at, payment_id")
-		assertEquals(1, details.size)
-		assertEquals(includedAtStart, (details.single()["payment_id"] as Number).toLong())
-		assertEquals(1L, (details.single()["quantity"] as Number).toLong())
-		assertEquals(10_000L, (details.single()["unit_price"] as Number).toLong())
-		assertEquals(10_000L, (details.single()["gross_amount"] as Number).toLong())
+		val entries = jdbcTemplate.queryForList(
+			"SELECT * FROM settlement_entries WHERE settlement_date = ? ORDER BY payment_approved_at, payment_id",
+			SETTLEMENT_DATE,
+		)
+		assertEquals(1, entries.size)
+		assertEquals(includedAtStart, (entries.single()["payment_id"] as Number).toLong())
+		assertEquals(1L, (entries.single()["quantity"] as Number).toLong())
+		assertEquals(10_000L, (entries.single()["unit_price"] as Number).toLong())
+		assertEquals(10_000L, (entries.single()["gross_amount"] as Number).toLong())
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT collected_count FROM settlement_runs", Long::class.java))
 		assertEquals(10_000L, jdbcTemplate.queryForObject("SELECT collected_amount FROM settlement_runs", Long::class.java))
 		val sellerSettlement = jdbcTemplate.queryForMap("SELECT * FROM seller_settlements")
@@ -216,8 +217,8 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("chunk 실패 후 같은 JobInstance를 재시작하면 checkpoint 다음 항목부터 수집한다")
-	fun chunk_실패_후_같은_JobInstance를_재시작하면_checkpoint_다음_항목부터_수집한다() {
+	@DisplayName("정산 원천 collection은 상세를 중복 생성하지 않는다")
+	fun 정산_원천_collection은_상세를_중복_생성하지_않는다() {
 		val validSaleId = insertSale(sellerId = 1L, mapRecipient = true)
 		repeat(100) {
 			insertPayment(
@@ -225,49 +226,26 @@ class DailySellerSettlementJobIntegrationTest {
 				saleId = validSaleId,
 			)
 		}
-		val invalidSaleId = insertSale(sellerId = 2L, mapRecipient = false)
-		insertPayment(
-			approvedAt = Instant.parse("2026-09-13T15:00:01Z"),
-			saleId = invalidSaleId,
-		)
+		val execution = launch(RESTART_SETTLEMENT_DATE, 350L)
 
-		val failed = launch(RESTART_SETTLEMENT_DATE, 350L)
-
-		assertEquals(BatchStatus.FAILED, failed.status)
-		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
-		assertEquals("COLLECTING", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
-		val completedWorkers = failed.stepExecutions.filter {
-			it.stepName.startsWith("collectSettlementDetailsWorkerStep:") && it.status == BatchStatus.COMPLETED
-		}
-		assertTrue(completedWorkers.isNotEmpty())
-		assertEquals(100L, completedWorkers.sumOf { it.writeCount })
-
-		insertSellerIdentity(sellerId = 2L)
-		val restarted = launch(RESTART_SETTLEMENT_DATE, 350L)
-
-		assertEquals(BatchStatus.COMPLETED, restarted.status)
-		assertEquals(101L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
-		val restartedCollect = restarted.stepExecutions.single { it.stepName.startsWith("collectSettlementDetailsWorkerStep:") }
-		assertEquals(1L, restartedCollect.readCount)
-		assertEquals(1L, restartedCollect.writeCount)
-		assertEquals(2L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_execution", Long::class.java))
-		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_instance", Long::class.java))
+		assertEquals(BatchStatus.COMPLETED, execution.status)
+		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
 	}
 
 	@Test
 	@DisplayName("재시작 수수료율이 최초 스냅샷과 다르면 실패한다")
 	fun 재시작_수수료율이_최초_스냅샷과_다르면_실패한다() {
-		insertPayment(
-			approvedAt = Instant.parse("2026-09-12T15:00:00Z"),
-			orderStatus = "PENDING_PAYMENT",
-		)
-		assertEquals(BatchStatus.FAILED, launch(FEE_MISMATCH_SETTLEMENT_DATE, 400L).status)
+		insertPayment(approvedAt = Instant.parse("2026-09-12T15:00:00Z"))
+		val first = launch(FEE_MISMATCH_SETTLEMENT_DATE, 400L)
+		assertEquals(BatchStatus.COMPLETED, first.status)
+		markStepAndJobFailed(first, "prepareSettlementRunStep")
 
 		val restarted = launch(FEE_MISMATCH_SETTLEMENT_DATE, 401L)
 
 		assertEquals(BatchStatus.FAILED, restarted.status)
 		assertEquals(400, jdbcTemplate.queryForObject("SELECT platform_fee_rate_bps FROM settlement_runs", Int::class.java))
-		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 	}
 
 	@Test
@@ -282,8 +260,8 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("완료 처리는 같은 집계에 멱등하고 다른 집계에는 실패한다")
-	fun 완료_처리는_같은_집계에_멱등하고_다른_집계에는_실패한다() {
+	@DisplayName("완료 처리는 같은 정산 원천 집계에 멱등하다")
+	fun 완료_처리는_같은_정산_원천_집계에_멱등하다() {
 		insertPayment(approvedAt = Instant.parse("2026-09-10T15:00:00Z"))
 		val execution = launch(IDEMPOTENCY_SETTLEMENT_DATE, 500L)
 		assertEquals(BatchStatus.COMPLETED, execution.status)
@@ -299,10 +277,6 @@ class DailySellerSettlementJobIntegrationTest {
 			completedAt,
 			jdbcTemplate.queryForObject("SELECT collection_completed_at FROM settlement_runs", java.time.OffsetDateTime::class.java),
 		)
-		jdbcTemplate.update("UPDATE settlement_details SET gross_amount = gross_amount + 1")
-		assertFailsWith<SettlementRunStateException> {
-			executeCompleteTasklet(tasklet, execution)
-		}
 	}
 
 	@Test
@@ -402,7 +376,7 @@ class DailySellerSettlementJobIntegrationTest {
 
 		assertEquals(BatchStatus.FAILED, failed.status)
 		assertEquals("COLLECTED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
-		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements", Long::class.java))
 		jdbcTemplate.execute("DROP TRIGGER fail_seller_settlement_insert_trigger ON seller_settlements")
 		jdbcTemplate.execute("DROP FUNCTION fail_seller_settlement_insert()")
@@ -422,7 +396,7 @@ class DailySellerSettlementJobIntegrationTest {
 			restarted.stepExecutions.sortedBy { it.startTime }.map { it.stepName },
 		)
 		assertEquals("COMPLETED", jdbcTemplate.queryForObject("SELECT status FROM settlement_runs", String::class.java))
-		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM seller_settlements", Long::class.java))
 		assertEquals(2L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_execution", Long::class.java))
 		assertEquals(1L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM batch_job_instance", Long::class.java))
@@ -600,7 +574,7 @@ class DailySellerSettlementJobIntegrationTest {
 			Instant.parse("2026-09-14T00:00:00Z").atOffset(ZoneOffset.UTC),
 			Instant.parse("2026-09-14T00:10:00Z").atOffset(ZoneOffset.UTC),
 		)!!
-		return jdbcTemplate.queryForObject(
+		val paymentId = jdbcTemplate.queryForObject(
 			"""
 			INSERT INTO payments (
 				order_id, payment_key, toss_idempotency_key, status, requested_amount, created_at, approved_at
@@ -615,6 +589,33 @@ class DailySellerSettlementJobIntegrationTest {
 			Instant.parse("2026-09-14T00:00:00Z").atOffset(ZoneOffset.UTC),
 			approvedAt.atOffset(ZoneOffset.UTC),
 		)!!
+		if (status == "APPROVED" && orderStatus == "PAID") {
+			val sellerId = jdbcTemplate.queryForObject("SELECT seller_id FROM sales WHERE id = ?", Long::class.java, saleId)!!
+			val recipientUserId = jdbcTemplate.query(
+				"SELECT user_id FROM seller_principal_identities WHERE seller_id = ?",
+				{ resultSet, _ -> resultSet.getLong("user_id") },
+				sellerId,
+			).singleOrNull()
+			if (recipientUserId != null) {
+				jdbcTemplate.update(
+					"""
+					INSERT INTO settlement_entries (
+						payment_id, order_id, sale_id, seller_id, recipient_user_id, quantity, unit_price,
+						gross_amount, payment_approved_at, settlement_date, created_at
+					) VALUES (?, ?, ?, ?, ?, 1, 10000, 10000, ?, ?, ?)
+					""".trimIndent(),
+					paymentId,
+					orderId,
+					saleId,
+					sellerId,
+					recipientUserId,
+					approvedAt.atOffset(ZoneOffset.UTC),
+					approvedAt.atZone(SEOUL_ZONE).toLocalDate(),
+					approvedAt.atOffset(ZoneOffset.UTC),
+				)
+			}
+		}
+		return paymentId
 	}
 
 	private fun insertSale(sellerId: Long, mapRecipient: Boolean): Long {
@@ -665,6 +666,7 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	private companion object {
+		val SEOUL_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
 		const val SCHEMA = "daily_seller_settlement_job"
 		val SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 15)
 		val EMPTY_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 9)

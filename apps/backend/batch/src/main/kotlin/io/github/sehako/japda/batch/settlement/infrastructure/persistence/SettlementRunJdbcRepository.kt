@@ -49,12 +49,14 @@ class SettlementRunJdbcRepository(
 		)
 	}
 
-	fun aggregateDetails(settlementRunId: Long): SettlementDetailAggregate =
+	fun aggregateEntries(settlementDate: LocalDate, entryBounds: io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds): SettlementDetailAggregate =
 		jdbcTemplate.queryForObject(
 			"""
 			SELECT COUNT(*) AS collected_count, COALESCE(SUM(gross_amount), 0) AS collected_amount
-			FROM settlement_details
-			WHERE settlement_run_id = ?
+			FROM settlement_entries
+			WHERE settlement_date = ?
+			  AND id >= COALESCE(?, id)
+			  AND id <= COALESCE(?, id)
 			""".trimIndent(),
 			{ resultSet, _ ->
 				SettlementDetailAggregate(
@@ -62,7 +64,9 @@ class SettlementRunJdbcRepository(
 					collectedAmount = resultSet.getLong("collected_amount"),
 				)
 			},
-			settlementRunId,
+			settlementDate,
+			entryBounds.minId,
+			entryBounds.maxId,
 		)
 
 	fun markCollected(settlementRunId: Long, aggregate: SettlementDetailAggregate, completedAt: Instant) {

@@ -1,5 +1,6 @@
 package io.github.sehako.japda.payment.application.service
 
+import io.github.sehako.japda.auth.domain.repository.PrincipalIdentityRepository
 import io.github.sehako.japda.order.domain.model.InventoryReservationStatus
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.model.OrderStatus
@@ -14,9 +15,14 @@ import io.github.sehako.japda.payment.domain.model.PaymentStatus
 import io.github.sehako.japda.payment.domain.repository.PaymentRepository
 import io.github.sehako.japda.payment.exception.PaymentErrorCode
 import io.github.sehako.japda.payment.exception.PaymentException
+import io.github.sehako.japda.sale.domain.repository.SaleRepository
+import io.github.sehako.japda.settlement.domain.model.SettlementEntry
+import io.github.sehako.japda.settlement.domain.model.SettlementEntrySnapshot
+import io.github.sehako.japda.settlement.domain.repository.SettlementEntryRepository
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+import java.time.ZoneId
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
@@ -24,10 +30,13 @@ import org.springframework.transaction.annotation.Transactional
 
 @Service
 class PaymentTransactionService(
+	private val identities: PrincipalIdentityRepository,
 	private val orders: OrderRepository,
 	private val payments: PaymentRepository,
 	private val reservations: InventoryReservationRepository,
 	private val inventoryCounters: SaleInventoryCounterRepository,
+	private val sales: SaleRepository,
+	private val settlementEntries: SettlementEntryRepository,
 	private val clock: Clock,
 	@Value("\${payment.reconcile-interval:PT30S}") private val reconcileInterval: Duration,
 ) {
@@ -55,9 +64,12 @@ class PaymentTransactionService(
 	fun apply(paymentId: Long, result: TossPaymentResult): PaymentResponse? {
 		val payment = payments.findById(paymentId) ?: return null
 		val order = orders.findById(payment.orderId) ?: return null
-		if (payment.status == PaymentStatus.APPROVED) return response(order, payment)
-		if (payment.status != PaymentStatus.CONFIRMING) return null
 		val now = clock.instant()
+		if (payment.status == PaymentStatus.APPROVED) {
+			verifySettlementEntry(payment, order, requireNotNull(payment.approvedAt))
+			return response(order, payment)
+		}
+		if (payment.status != PaymentStatus.CONFIRMING) return null
 		when (result) {
 			is TossPaymentResult.Record -> {
 				if (result.paymentKey != payment.paymentKey || result.orderId != order.paymentOrderId || result.totalAmount != payment.requestedAmount) {
@@ -110,7 +122,10 @@ class PaymentTransactionService(
 	private fun resolveExisting(order: Order, payment: Payment, paymentKey: String): PreparedPayment {
 		if (payment.paymentKey != paymentKey) throw PaymentException(PaymentErrorCode.KEY_CONFLICT)
 		return when (payment.status) {
-			PaymentStatus.APPROVED -> PreparedPayment.Completed(response(order, payment))
+			PaymentStatus.APPROVED -> {
+				verifySettlementEntry(payment, order, requireNotNull(payment.approvedAt))
+				PreparedPayment.Completed(response(order, payment))
+			}
 			PaymentStatus.CONFIRMING -> throw PaymentException(PaymentErrorCode.IN_PROGRESS)
 			PaymentStatus.FAILED -> throw PaymentException(PaymentErrorCode.FAILED)
 			PaymentStatus.REVIEW_REQUIRED -> throw PaymentException(PaymentErrorCode.REVIEW_REQUIRED)
@@ -120,7 +135,10 @@ class PaymentTransactionService(
 	private fun approve(payment: Payment, order: Order, approvedAt: Instant, now: Instant): PaymentResponse? {
 		if (!payments.approveIfConfirming(requireNotNull(payment.id), approvedAt)) {
 			val current = payments.findById(requireNotNull(payment.id)) ?: return null
-			return if (current.status == PaymentStatus.APPROVED) response(order, current) else null
+			return if (current.status == PaymentStatus.APPROVED) {
+				verifySettlementEntry(current, order, requireNotNull(current.approvedAt))
+				response(order, current)
+			} else null
 		}
 		check(orders.markPaidIfPending(payment.orderId)) { "결제 승인 주문 상태 전이에 실패했습니다." }
 		check(
@@ -131,7 +149,55 @@ class PaymentTransactionService(
 				now,
 			),
 		) { "결제 승인 예약 상태 전이에 실패했습니다." }
+		createOrVerifySettlementEntry(payment, order, approvedAt, now)
 		return PaymentResponse(requireNotNull(order.id), order.paymentOrderId, OrderStatus.PAID.name, order.totalPrice, approvedAt)
+	}
+
+	private fun createOrVerifySettlementEntry(payment: Payment, order: Order, approvedAt: Instant, now: Instant) {
+		val snapshot = settlementEntrySnapshot(payment, order, approvedAt)
+		val existing = settlementEntries.findByPaymentId(snapshot.paymentId)
+		if (existing == null) {
+			settlementEntries.save(SettlementEntry.create(snapshot, now))
+		} else if (!existing.matches(snapshot)) {
+			throw PaymentException(PaymentErrorCode.SETTLEMENT_SNAPSHOT_INVALID)
+		}
+	}
+
+	private fun verifySettlementEntry(payment: Payment, order: Order, approvedAt: Instant) {
+		val snapshot = settlementEntrySnapshot(payment, order, approvedAt)
+		val entry = settlementEntries.findByPaymentId(snapshot.paymentId)
+		if (entry == null || !entry.matches(snapshot)) {
+			throw PaymentException(PaymentErrorCode.SETTLEMENT_SNAPSHOT_INVALID)
+		}
+	}
+
+	private fun settlementEntrySnapshot(payment: Payment, order: Order, approvedAt: Instant): SettlementEntrySnapshot {
+		val sale = sales.findById(order.saleId) ?: throw PaymentException(PaymentErrorCode.SETTLEMENT_SNAPSHOT_INVALID)
+		val recipientUserId = identities.findUserIdBySellerId(sale.sellerId)
+			?: throw PaymentException(PaymentErrorCode.SETTLEMENT_SNAPSHOT_INVALID)
+		if (
+			payment.requestedAmount != order.totalPrice ||
+			order.quantity <= 0 || order.unitPrice <= 0 || order.totalPrice <= 0 ||
+			try {
+				Math.multiplyExact(order.quantity.toLong(), order.unitPrice) != order.totalPrice
+			} catch (_: ArithmeticException) {
+				true
+			}
+		) {
+			throw PaymentException(PaymentErrorCode.SETTLEMENT_SNAPSHOT_INVALID)
+		}
+		return SettlementEntrySnapshot(
+			paymentId = requireNotNull(payment.id),
+			orderId = requireNotNull(order.id),
+			saleId = requireNotNull(sale.id),
+			sellerId = sale.sellerId,
+			recipientUserId = recipientUserId,
+			quantity = order.quantity,
+			unitPrice = order.unitPrice,
+			grossAmount = order.totalPrice,
+			paymentApprovedAt = approvedAt,
+			settlementDate = approvedAt.atZone(SETTLEMENT_ZONE).toLocalDate(),
+		)
 	}
 
 	private fun fail(payment: Payment, now: Instant) {
@@ -182,6 +248,7 @@ class PaymentTransactionService(
 
 	private companion object {
 		val log = LoggerFactory.getLogger(PaymentTransactionService::class.java)
+		val SETTLEMENT_ZONE: ZoneId = ZoneId.of("Asia/Seoul")
 	}
 }
 

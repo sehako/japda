@@ -78,7 +78,7 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 	fun 데이터를_정리한다() {
 		jdbcTemplate.execute(
 			"""
-			TRUNCATE TABLE seller_settlements, settlement_details, settlement_runs, payments, orders,
+			TRUNCATE TABLE seller_settlements, settlement_details, settlement_entries, settlement_runs, payments, orders,
 				seller_principal_identities, buyer_principal_identities, user_roles, users,
 				sales, sale_days, products RESTART IDENTITY CASCADE
 			""".trimIndent(),
@@ -137,8 +137,8 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("확정 transaction은 실행 행만 잠그고 정산 상세 변경을 막지 않는다")
-	fun 확정_transaction은_실행_행만_잠그고_정산_상세_변경을_막지_않는다() {
+	@DisplayName("확정 transaction은 실행 행만 잠그고 정산 원천 변경을 막지 않는다")
+	fun 확정_transaction은_실행_행만_잠그고_정산_원천_변경을_막지_않는다() {
 		val runId = insertRun(feeRateBps = 500, collectedCount = 1, collectedAmount = 100)
 		insertDetail(runId, sellerId = 35, recipientUserId = insertUser(), grossAmount = 100)
 		val otherRecipientId = insertUser()
@@ -158,10 +158,10 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 			DriverManager.getConnection(postgres.jdbcUrl.withCurrentSchema(SCHEMA), postgres.username, postgres.password).use { connection ->
 				connection.createStatement().use { it.execute("SET lock_timeout = '250ms'") }
 				connection.prepareStatement(
-					"UPDATE settlement_details SET recipient_user_id = ? WHERE settlement_run_id = ?",
+					"UPDATE settlement_entries SET recipient_user_id = ? WHERE seller_id = ?",
 				).use { statement ->
 					statement.setLong(1, otherRecipientId)
-					statement.setLong(2, runId)
+					statement.setLong(2, 35L)
 					assertEquals(1, statement.executeUpdate())
 				}
 			}
@@ -412,14 +412,19 @@ class ConfirmSellerSettlementsTaskletIntegrationTest {
 			Long::class.java, orderId, "payment-${UUID.randomUUID()}", UUID.randomUUID().toString(), grossAmount,
 			CREATED_AT.atOffset(ZoneOffset.UTC), CREATED_AT.atOffset(ZoneOffset.UTC),
 		)!!
+		val settlementDate = jdbcTemplate.queryForObject(
+			"SELECT settlement_date FROM settlement_runs WHERE id = ?",
+			LocalDate::class.java,
+			runId,
+		)!!
 		jdbcTemplate.update(
 			"""
-			INSERT INTO settlement_details (settlement_run_id, payment_id, order_id, sale_id, seller_id,
-				recipient_user_id, quantity, unit_price, gross_amount, payment_approved_at, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+			INSERT INTO settlement_entries (payment_id, order_id, sale_id, seller_id, recipient_user_id,
+				quantity, unit_price, gross_amount, payment_approved_at, settlement_date, created_at)
+			VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
 			""".trimIndent(),
-			runId, paymentId, orderId, saleId, sellerId, recipientUserId, grossAmount, grossAmount,
-			CREATED_AT.atOffset(ZoneOffset.UTC), CREATED_AT.atOffset(ZoneOffset.UTC),
+			paymentId, orderId, saleId, sellerId, recipientUserId, grossAmount, grossAmount,
+			CREATED_AT.atOffset(ZoneOffset.UTC), settlementDate, CREATED_AT.atOffset(ZoneOffset.UTC),
 		)
 	}
 

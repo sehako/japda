@@ -120,6 +120,16 @@ class SettlementCollectionMigrationTest {
 		)
 	}
 
+	@Test
+	@DisplayName("결제 승인 정산 원천 테이블을 생성한다")
+	fun 결제_승인_정산_원천_테이블_생성() {
+		val tableExists = query(
+			"SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_name = 'settlement_entries'",
+		) { result -> result.getString("table_name") }
+
+		assertEquals(listOf("settlement_entries"), tableExists)
+	}
+
 	private fun <T> query(sql: String, rowMapper: (java.sql.ResultSet) -> T): List<T> =
 		DriverManager.getConnection(postgres.jdbcUrl, postgres.username, postgres.password).use { connection ->
 			connection.prepareStatement(sql).use { statement ->

@@ -18,6 +18,12 @@ class PrincipalIdentityRepositoryImpl(private val jdbc: JdbcTemplate) : Principa
         userId,
     ).firstOrNull()
 
+    override fun findUserIdBySellerId(sellerId: Long): Long? = jdbc.query(
+        "SELECT user_id FROM seller_principal_identities WHERE seller_id = ?",
+        { resultSet, _ -> resultSet.getLong("user_id") },
+        sellerId,
+    ).firstOrNull()
+
     override fun createBuyerLink(userId: Long): Long {
         val buyerId = checkNotNull(jdbc.queryForObject("SELECT nextval('buyer_domain_id_seq')", Long::class.java))
         jdbc.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, ?)", userId, buyerId)

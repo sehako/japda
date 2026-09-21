@@ -20,4 +20,5 @@ enum class PaymentErrorCode(
 	FAILED("PAYMENT_CONFIRMATION_FAILED", "결제 승인이 실패했습니다.", null, ErrorCategory.CONFLICT),
 	UNAVAILABLE("PAYMENT_CONFIRMATION_UNAVAILABLE", "결제 결과를 확인할 수 없습니다.", null, ErrorCategory.SERVICE_UNAVAILABLE),
 	REVIEW_REQUIRED("PAYMENT_REVIEW_REQUIRED", "결제에 수동 확인이 필요합니다.", null, ErrorCategory.CONFLICT),
+	SETTLEMENT_SNAPSHOT_INVALID("PAYMENT_SETTLEMENT_SNAPSHOT_INVALID", "결제 승인 정산 원천의 정합성이 올바르지 않습니다.", null, ErrorCategory.CONFLICT),
 }

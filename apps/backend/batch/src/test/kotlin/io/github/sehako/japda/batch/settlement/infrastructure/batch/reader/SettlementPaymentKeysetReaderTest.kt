@@ -46,7 +46,7 @@ class SettlementPaymentKeysetReaderTest {
 		val reader = reader()
 		val executionContext = ExecutionContext().apply {
 			putString("settlementPaymentKeysetReader.checkpointed", "true")
-			putLong("settlementPaymentKeysetReader.lastPaymentId", 150L)
+			putLong("settlementPaymentKeysetReader.lastEntryId", 150L)
 		}
 
 		assertFailsWith<ItemStreamException> {
@@ -60,7 +60,7 @@ class SettlementPaymentKeysetReaderTest {
 		val reader = reader()
 		val executionContext = ExecutionContext().apply {
 			putInt("settlementPaymentKeysetReader.checkpointed", 1)
-			putString("settlementPaymentKeysetReader.lastPaymentId", "150")
+			putString("settlementPaymentKeysetReader.lastEntryId", "150")
 		}
 
 		assertFailsWith<ItemStreamException> {
@@ -73,7 +73,7 @@ class SettlementPaymentKeysetReaderTest {
 	fun sentinel_없이_cursor만_남은_손상된_context는_reader를_열지_않는다() {
 		val reader = reader()
 		val executionContext = ExecutionContext().apply {
-			putLong("settlementPaymentKeysetReader.lastPaymentId", 150L)
+			putLong("settlementPaymentKeysetReader.lastEntryId", 150L)
 		}
 
 		assertFailsWith<ItemStreamException> {
@@ -87,7 +87,7 @@ class SettlementPaymentKeysetReaderTest {
 		val reader = reader()
 		val executionContext = ExecutionContext().apply {
 			putInt("settlementPaymentKeysetReader.checkpointed", 1)
-			putLong("settlementPaymentKeysetReader.lastPaymentId", 99L)
+			putLong("settlementPaymentKeysetReader.lastEntryId", 99L)
 		}
 
 		assertFailsWith<ItemStreamException> {
@@ -101,7 +101,7 @@ class SettlementPaymentKeysetReaderTest {
 		val reader = reader()
 		val executionContext = ExecutionContext().apply {
 			putInt("settlementPaymentKeysetReader.checkpointed", 1)
-			putLong("settlementPaymentKeysetReader.lastPaymentId", 200L)
+			putLong("settlementPaymentKeysetReader.lastEntryId", 200L)
 		}
 
 		assertFailsWith<ItemStreamException> {
@@ -110,8 +110,8 @@ class SettlementPaymentKeysetReaderTest {
 	}
 
 	@Test
-	@DisplayName("결제 조회는 날짜와 파티션 ID 범위 및 ID cursor를 함께 적용한다")
-	fun 결제_조회는_날짜와_파티션_ID_범위_및_ID_cursor를_함께_적용한다() {
+	@DisplayName("정산 원천 조회는 날짜와 파티션 ID 범위 및 ID cursor를 함께 적용한다")
+	fun 정산_원천_조회는_날짜와_파티션_ID_범위_및_ID_cursor를_함께_적용한다() {
 		val query = SettlementPaymentKeysetQuery.create(
 			dateRange = SettlementDateRange.from(LocalDate.of(2026, 9, 15)),
 			pageSize = 100,
@@ -124,10 +124,14 @@ class SettlementPaymentKeysetReaderTest {
 		assertEquals(100L, query.parameters["partitionStartInclusive"])
 		assertEquals(200L, query.parameters["partitionEndExclusive"])
 		assertEquals(150L, query.parameters["lastPaymentId"])
-		assertTrue(query.sql.contains("p.id >= :partitionStartInclusive"))
-		assertTrue(query.sql.contains("p.id < :partitionEndExclusive"))
-		assertTrue(query.sql.contains("p.id > :lastPaymentId"))
-		assertTrue(query.sql.contains("ORDER BY p.id ASC"))
+		assertTrue(query.sql.contains("FROM settlement_entries se"))
+		assertTrue(query.sql.contains("se.id >= :partitionStartInclusive"))
+		assertTrue(query.sql.contains("se.id < :partitionEndExclusive"))
+		assertTrue(query.sql.contains("se.id > :lastPaymentId"))
+		assertTrue(query.sql.contains("ORDER BY se.id ASC"))
+		assertFalse(query.sql.contains("JOIN orders"))
+		assertFalse(query.sql.contains("JOIN sales"))
+		assertFalse(query.sql.contains("seller_principal_identities"))
 	}
 
 	@Test
@@ -143,7 +147,7 @@ class SettlementPaymentKeysetReaderTest {
 		)
 
 		assertEquals(Long.MAX_VALUE, query.parameters["partitionEndExclusive"])
-		assertTrue(query.sql.contains("p.id <= :partitionEndExclusive"))
+		assertTrue(query.sql.contains("se.id <= :partitionEndExclusive"))
 	}
 
 	private fun reader() = SettlementPaymentKeysetReader(

@@ -64,9 +64,9 @@ class PerformanceSlaEvaluator {
 		const val ONE_MILLION = 1_000_000
 		const val TEN_MILLION = 10_000_000
 		const val ONE_HUNDRED_THOUSAND = 100_000
-		const val COLLECT_STEP = "collectSettlementDetailsStep"
+		const val COLLECT_STEP = "collectSettlementDetailsManagerStep"
 		const val CONFIRM_STEP = "confirmSellerSettlementsStep"
-		const val CREDIT_STEP = "creditSellerWalletsStep"
+		const val CREDIT_STEP = "creditSellerWalletsManagerStep"
 		const val COMPLETE_STEP = "completeSettlementRunStep"
 		val ONE_MILLION_JOB_LIMIT: Duration = Duration.ofMinutes(4)
 		val TEN_MILLION_JOB_LIMIT: Duration = Duration.ofMinutes(60)

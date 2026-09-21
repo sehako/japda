@@ -289,7 +289,7 @@ class DailySellerSettlementJobPerformanceTest {
 				expected.sellerSettlementCount,
 			),
 		)
-		report = report.merge(PartitionSkewValidator().validate(steps))
+		report = report.merge(PartitionSkewValidator().validate(steps, expected.detailCount))
 		val settlementRunId = jdbcTemplate.query(
 			"SELECT id FROM settlement_runs ORDER BY id",
 			{ resultSet, _ -> resultSet.getLong("id") },

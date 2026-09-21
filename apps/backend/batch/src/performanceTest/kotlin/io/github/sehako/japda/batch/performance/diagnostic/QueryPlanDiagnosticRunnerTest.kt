@@ -36,6 +36,7 @@ class QueryPlanDiagnosticRunnerTest {
 				resourceSamplingInterval = Duration.ofMillis(100),
 			)
 			SyntheticDatasetInserter().insertAndVerify(jdbcTemplate, SyntheticDatasetFactory.create(scenario), 2)
+			jdbcTemplate.update("DELETE FROM settlement_entries WHERE id = 7")
 
 			val diagnostics = QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
 				SettlementDateRange.from(scenario.job.settlementDate),
@@ -58,12 +59,12 @@ class QueryPlanDiagnosticRunnerTest {
 				diagnostics.map { it.partitionLabel to it.cursorPosition },
 			)
 			assertEquals(1L, diagnostics.first().partitionStartInclusive)
-			assertEquals(4L, diagnostics.first().partitionEndExclusive)
+			assertEquals(3L, diagnostics.first().partitionEndExclusive)
 			assertFalse(diagnostics.first().partitionEndInclusive)
-			assertEquals(6L, diagnostics.last().partitionStartInclusive)
-			assertEquals(8L, diagnostics.last().partitionEndExclusive)
+			assertEquals(5L, diagnostics.last().partitionStartInclusive)
+			assertEquals(7L, diagnostics.last().partitionEndExclusive)
 			assertFalse(diagnostics.last().partitionEndInclusive)
-			assertFalse(diagnostics.any { it.plan.contains("payment_id") || it.plan.contains("2026-09-15 03:00:00") })
+			assertFalse(diagnostics.any { it.plan.contains("2026-09-15 03:00:00") })
 			assertFalse(diagnostics.any { it.executionMillis < 0 })
 		}
 	}

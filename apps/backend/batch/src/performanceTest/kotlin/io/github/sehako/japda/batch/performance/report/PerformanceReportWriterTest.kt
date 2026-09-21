@@ -70,6 +70,8 @@ class PerformanceReportWriterTest {
 		val allText = directory.toFile().listFiles()!!.joinToString("\n") { it.readText() }
 		assertThat(allText).doesNotContain("secret", "절대 기록하면 안 됨", "password=")
 		assertThat(directory.resolve("resources.csv").readText()).contains("UNAVAILABLE", "\"Docker stats, 권한 없음\"")
+		assertThat(directory.resolve("iterations.csv").readText())
+			.contains("processed_settlement_entry_count")
 		assertThat(directory.resolve("summary.properties").readText())
 			.contains(
 				"job.duration.sample.count=1",

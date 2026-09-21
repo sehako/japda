@@ -84,7 +84,7 @@ class PerformanceReportWriter(
 		}
 		writeCsv(
 			"iterations.csv",
-			listOf("iteration", "kind", "status", "migration_millis", "data_calculation_millis", "data_insert_millis", "context_start_millis", "job_duration_millis", "processed_order_count", "throughput_per_second", "validation_success"),
+			listOf("iteration", "kind", "status", "migration_millis", "data_calculation_millis", "data_insert_millis", "context_start_millis", "job_duration_millis", "processed_settlement_entry_count", "throughput_per_second", "validation_success"),
 			rows,
 		)
 	}

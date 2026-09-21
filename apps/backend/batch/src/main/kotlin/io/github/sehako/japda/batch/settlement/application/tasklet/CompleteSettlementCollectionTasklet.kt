@@ -1,6 +1,7 @@
 package io.github.sehako.japda.batch.settlement.application.tasklet
 
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStateException
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStatus
 import java.time.Clock
@@ -19,7 +20,8 @@ class CompleteSettlementCollectionTasklet(
 			.getLong(PrepareSettlementRunTasklet.SETTLEMENT_RUN_ID_CONTEXT_KEY)
 		val settlementRun = settlementRunRepository.findById(settlementRunId)
 			?: throw SettlementRunStateException("SettlementRun을 찾을 수 없습니다: settlementRunId=$settlementRunId")
-		val aggregate = settlementRunRepository.aggregateDetails(settlementRunId)
+		val entryBounds = SettlementEntryBounds.from(contribution.stepExecution.jobExecution.executionContext)
+		val aggregate = settlementRunRepository.aggregateEntries(settlementRun.settlementDate, entryBounds)
 		when (settlementRun.status) {
 			SettlementRunStatus.COLLECTING -> settlementRunRepository.markCollected(settlementRunId, aggregate, Instant.now(clock))
 			SettlementRunStatus.COLLECTED,
