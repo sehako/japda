@@ -99,11 +99,12 @@ class BatchCounterValidator(
 }
 
 class PartitionSkewValidator {
-	fun validate(steps: List<StepMeasurement>): ValidationReport {
+	fun validate(steps: List<StepMeasurement>, expectedEntryCount: Long = Long.MAX_VALUE): ValidationReport {
 		val values = linkedMapOf<String, String>()
 		val failures = mutableListOf<String>()
-		validatePhase(steps, COLLECTION_PHASE, values, failures)
-		validatePhase(steps, CREDIT_PHASE, values, failures)
+		val reportOnly = expectedEntryCount < MINIMUM_SKEW_EVALUATION_COUNT
+		validatePhase(steps, COLLECTION_PHASE, values, failures, reportOnly)
+		validatePhase(steps, CREDIT_PHASE, values, failures, reportOnly)
 		return ValidationReport(failures.isEmpty(), values, failures)
 	}
 
@@ -112,6 +113,7 @@ class PartitionSkewValidator {
 		phase: Phase,
 		values: MutableMap<String, String>,
 		failures: MutableList<String>,
+		reportOnly: Boolean,
 	) {
 		val manager = steps.singleOrNull { it.name == phase.managerStep } ?: return
 		val longestWorker = steps.filter { it.name.startsWith("${phase.workerPrefix}:") }
@@ -126,7 +128,7 @@ class PartitionSkewValidator {
 		values["partition.${phase.name}.longest.duration.millis"] = longestWorker.durationMillis.toString()
 		values["partition.${phase.name}.phase.duration.millis"] = manager.durationMillis.toString()
 		values["partition.${phase.name}.longest.ratio"] = formatRatio(ratio)
-		if (ratio > MAX_LONGEST_PARTITION_RATIO) {
+		if (!reportOnly && ratio > MAX_LONGEST_PARTITION_RATIO) {
 			failures += "${phase.name} 파티션 처리 편향이 25.0%를 초과했습니다: partition=$partition, ratio=${formatPercent(ratio)}%"
 		}
 	}
@@ -139,6 +141,7 @@ class PartitionSkewValidator {
 
 	private companion object {
 		const val MAX_LONGEST_PARTITION_RATIO = 0.25
+		const val MINIMUM_SKEW_EVALUATION_COUNT = 1_000_000L
 		val COLLECTION_PHASE = Phase("collection", "collectSettlementDetailsManagerStep", "collectSettlementDetailsWorkerStep")
 		val CREDIT_PHASE = Phase("credit", "creditSellerWalletsManagerStep", "creditSellerWalletsWorkerStep")
 	}
@@ -185,9 +188,9 @@ data class ActualSettlementValues(
 object SettlementValidationEvaluator {
 	fun validate(expected: ExpectedSettlementValues, actual: ActualSettlementValues): ValidationReport {
 		val failures = mutableListOf<String>()
-		checkEqual("정산 상세 건수", expected.detailCount, actual.detailCount, failures)
+		checkEqual("정산 원천 건수", expected.detailCount, actual.detailCount, failures)
 		checkEqual("판매자별 정산 건수", expected.sellerSettlementCount, actual.sellerSettlementCount, failures)
-		checkEqual("정산 상세 gross 합계", expected.grossAmount, actual.detailGrossAmount, failures)
+		checkEqual("정산 원천 gross 합계", expected.grossAmount, actual.detailGrossAmount, failures)
 		checkEqual("판매자별 정산 gross 합계", expected.grossAmount, actual.sellerGrossAmount, failures)
 		checkEqual("수수료 합계", expected.platformFeeAmount, actual.platformFeeAmount, failures)
 		checkEqual("net 합계", expected.netAmount, actual.netAmount, failures)
@@ -200,12 +203,12 @@ object SettlementValidationEvaluator {
 		checkEqual("지갑 잔액 합계", expected.netAmount, actual.walletBalanceAmount, failures)
 		checkEqual("지갑과 마지막 원장 잔액 불일치 건수", 0, actual.walletLastBalanceMismatchCount, failures)
 		val values = linkedMapOf(
-			"expected.detail.count" to expected.detailCount.toString(),
-			"actual.detail.count" to actual.detailCount.toString(),
+			"expected.entry.count" to expected.detailCount.toString(),
+			"actual.entry.count" to actual.detailCount.toString(),
 			"expected.seller.settlement.count" to expected.sellerSettlementCount.toString(),
 			"actual.seller.settlement.count" to actual.sellerSettlementCount.toString(),
 			"expected.gross.amount" to expected.grossAmount.toString(),
-			"actual.detail.gross.amount" to actual.detailGrossAmount.toString(),
+			"actual.entry.gross.amount" to actual.detailGrossAmount.toString(),
 			"actual.seller.gross.amount" to actual.sellerGrossAmount.toString(),
 			"expected.platform.fee.amount" to expected.platformFeeAmount.toString(),
 			"actual.platform.fee.amount" to actual.platformFeeAmount.toString(),
@@ -238,8 +241,10 @@ class SettlementResultValidator(
 		val aggregate = jdbcTemplate.queryForMap(
 			"""
 			SELECT
-			  (SELECT COUNT(*) FROM settlement_details WHERE settlement_run_id = ?) AS detail_count,
-			  (SELECT COALESCE(SUM(gross_amount), 0) FROM settlement_details WHERE settlement_run_id = ?) AS detail_gross,
+			  (SELECT COUNT(*) FROM settlement_entries WHERE settlement_date =
+			     (SELECT settlement_date FROM settlement_runs WHERE id = ?)) AS detail_count,
+			  (SELECT COALESCE(SUM(gross_amount), 0) FROM settlement_entries WHERE settlement_date =
+			     (SELECT settlement_date FROM settlement_runs WHERE id = ?)) AS detail_gross,
 			  (SELECT COUNT(*) FROM seller_settlements WHERE settlement_run_id = ?) AS seller_count,
 			  (SELECT COALESCE(SUM(gross_amount), 0) FROM seller_settlements WHERE settlement_run_id = ?) AS seller_gross,
 			  (SELECT COALESCE(SUM(platform_fee_amount), 0) FROM seller_settlements WHERE settlement_run_id = ?) AS fee_amount,

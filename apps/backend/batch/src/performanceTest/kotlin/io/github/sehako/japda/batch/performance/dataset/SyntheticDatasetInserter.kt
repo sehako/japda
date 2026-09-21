@@ -38,6 +38,7 @@ class SyntheticDatasetInserter {
 				val parameters = commonParameters.addRange(startId, endId)
 				namedJdbc.update(sql("insert-orders.sql"), parameters)
 				namedJdbc.update(sql("insert-payments.sql"), parameters)
+				namedJdbc.update(sql("insert-settlement-entries.sql"), parameters)
 			}
 		}
 
@@ -78,6 +79,7 @@ class SyntheticDatasetInserter {
 			"sales" to dataset.sellerCount.toLong(),
 			"orders" to dataset.orderCount.toLong(),
 			"payments" to dataset.orderCount.toLong(),
+			"settlement_entries" to dataset.orderCount.toLong(),
 		)
 		val actualCounts = expectedCounts.mapValues { (table, _) ->
 			jdbc.queryForObject("SELECT COUNT(*) FROM $table", Long::class.java)!!
@@ -86,13 +88,22 @@ class SyntheticDatasetInserter {
 			"SELECT COALESCE(SUM(requested_amount), 0) FROM payments WHERE status = 'APPROVED'",
 			Long::class.java,
 		)!!
-		if (actualCounts != expectedCounts || paymentGrossAmount != dataset.expectedSettlement.grossAmount) {
+		val settlementEntryGrossAmount = jdbc.queryForObject(
+			"SELECT COALESCE(SUM(gross_amount), 0) FROM settlement_entries",
+			Long::class.java,
+		)!!
+		if (
+			actualCounts != expectedCounts ||
+			paymentGrossAmount != dataset.expectedSettlement.grossAmount ||
+			settlementEntryGrossAmount != dataset.expectedSettlement.grossAmount
+		) {
 			throw DatasetPreparationException(
 				"합성 데이터 사전 검증에 실패했습니다: expectedCounts=$expectedCounts, actualCounts=$actualCounts, " +
-					"expectedGross=${dataset.expectedSettlement.grossAmount}, actualGross=$paymentGrossAmount",
+					"expectedGross=${dataset.expectedSettlement.grossAmount}, paymentGross=$paymentGrossAmount, " +
+					"settlementEntryGross=$settlementEntryGrossAmount",
 			)
 		}
-		return DatasetPreparationResult(actualCounts, paymentGrossAmount)
+		return DatasetPreparationResult(actualCounts, paymentGrossAmount, settlementEntryGrossAmount)
 	}
 
 	private fun sql(name: String): String = SQL_RESOURCES.getValue(name)
@@ -106,6 +117,7 @@ class SyntheticDatasetInserter {
 			"insert-sales.sql",
 			"insert-orders.sql",
 			"insert-payments.sql",
+			"insert-settlement-entries.sql",
 		).associateWith { name ->
 			ClassPathResource("dataset/$name").getContentAsString(StandardCharsets.UTF_8)
 		}
@@ -115,6 +127,7 @@ class SyntheticDatasetInserter {
 data class DatasetPreparationResult(
 	val tableCounts: Map<String, Long>,
 	val paymentGrossAmount: Long,
+	val settlementEntryGrossAmount: Long,
 )
 
 class DatasetPreparationException(message: String) : IllegalStateException(message)

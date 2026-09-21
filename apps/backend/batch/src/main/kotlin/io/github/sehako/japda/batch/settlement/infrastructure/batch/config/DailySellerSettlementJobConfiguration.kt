@@ -1,8 +1,6 @@
 package io.github.sehako.japda.batch.settlement.infrastructure.batch.config
 
-import io.github.sehako.japda.batch.settlement.application.dto.CreateSettlementDetailCommand
 import io.github.sehako.japda.batch.settlement.application.dto.SettlementPaymentProjection
-import io.github.sehako.japda.batch.settlement.application.processor.SettlementPaymentProcessor
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementCollectionTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementRunTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.ConfirmSellerSettlementsTasklet
@@ -29,7 +27,6 @@ import io.github.sehako.japda.ledger.domain.repository.LedgerEntryRepository
 import io.github.sehako.japda.ledger.infrastructure.config.LedgerConfiguration
 import java.time.Clock
 import java.time.LocalDate
-import java.time.ZoneOffset
 import javax.sql.DataSource
 import org.springframework.batch.core.configuration.annotation.StepScope
 import org.springframework.batch.core.job.Job
@@ -41,11 +38,8 @@ import org.springframework.batch.core.step.Step
 import org.springframework.batch.core.step.builder.StepBuilder
 import org.springframework.batch.core.step.tasklet.Tasklet
 import org.springframework.batch.infrastructure.item.ExecutionContext
-import org.springframework.batch.infrastructure.item.ItemProcessor
 import org.springframework.batch.infrastructure.item.ItemStreamReader
 import org.springframework.batch.infrastructure.item.ItemWriter
-import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter
-import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.context.properties.EnableConfigurationProperties
@@ -122,8 +116,7 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 			jdbcTemplate.queryForObject(
 				COLLECTION_BOUNDS_SQL,
 				{ resultSet, _ -> IdBounds(resultSet.getNullableLong("min_id"), resultSet.getNullableLong("max_id")) },
-				range.startInclusive.atOffset(ZoneOffset.UTC),
-				range.endExclusive.atOffset(ZoneOffset.UTC),
+				LocalDate.parse(settlementDateParameter),
 			)
 		}
 	}
@@ -199,32 +192,20 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 
 	@Bean
 	@StepScope
-	fun settlementPaymentProcessor(
-		@Value("#{jobExecutionContext['settlementRunId']}") settlementRunId: Long,
-	): ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand> = SettlementPaymentProcessor(settlementRunId)
-
-	@Bean
-	fun settlementDetailWriter(dataSource: DataSource): JdbcBatchItemWriter<CreateSettlementDetailCommand> =
-		JdbcBatchItemWriterBuilder<CreateSettlementDetailCommand>()
-			.dataSource(dataSource)
-			.sql(SETTLEMENT_DETAIL_INSERT_SQL)
-			.beanMapped()
-			.build()
+	fun settlementEntryCollectionWriter(): ItemWriter<SettlementPaymentProjection> = ItemWriter { }
 
 	@Bean
 	fun collectSettlementDetailsWorkerStep(
 		jobRepository: JobRepository,
 		transactionManager: PlatformTransactionManager,
 		settlementPaymentReader: ItemStreamReader<SettlementPaymentProjection>,
-		settlementPaymentProcessor: ItemProcessor<SettlementPaymentProjection, CreateSettlementDetailCommand>,
-		settlementDetailWriter: JdbcBatchItemWriter<CreateSettlementDetailCommand>,
+		settlementEntryCollectionWriter: ItemWriter<SettlementPaymentProjection>,
 	): Step = StepBuilder(COLLECTION_WORKER_STEP_NAME, jobRepository)
-		.chunk<SettlementPaymentProjection, CreateSettlementDetailCommand>(properties.chunkSize)
+		.chunk<SettlementPaymentProjection, SettlementPaymentProjection>(properties.chunkSize)
 		.transactionManager(transactionManager)
 		.reader(settlementPaymentReader)
 		.stream(settlementPaymentReader)
-		.processor(settlementPaymentProcessor)
-		.writer(settlementDetailWriter)
+		.writer(settlementEntryCollectionWriter)
 		.build()
 
 	@Bean
@@ -361,24 +342,13 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 
 		val COLLECTION_BOUNDS_SQL = """
 			SELECT MIN(id) AS min_id, MAX(id) AS max_id
-			FROM payments
-			WHERE status = 'APPROVED'
-			  AND approved_at >= ?
-			  AND approved_at < ?
+			FROM settlement_entries
+			WHERE settlement_date = ?
 		""".trimIndent()
 		val CREDIT_BOUNDS_SQL = """
 			SELECT MIN(id) AS min_id, MAX(id) AS max_id
 			FROM seller_settlements
 			WHERE settlement_run_id = ?
-		""".trimIndent()
-		val SETTLEMENT_DETAIL_INSERT_SQL = """
-			INSERT INTO settlement_details (
-				settlement_run_id, payment_id, order_id, sale_id, seller_id, recipient_user_id,
-				quantity, unit_price, gross_amount, payment_approved_at, created_at
-			) VALUES (
-				:settlementRunId, :paymentId, :orderId, :saleId, :sellerId, :recipientUserId,
-				:quantity, :unitPrice, :grossAmount, :paymentApprovedAt, CURRENT_TIMESTAMP
-			)
 		""".trimIndent()
 	}
 }

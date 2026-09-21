@@ -39,6 +39,7 @@ class SyntheticDatasetInserterTest {
 					"sales" to 3L,
 					"orders" to 7L,
 					"payments" to 7L,
+					"settlement_entries" to 7L,
 				),
 				result.tableCounts,
 			)
@@ -56,6 +57,25 @@ class SyntheticDatasetInserterTest {
 			assertEquals(
 				"733e8c63-a840-48e9-4b0c-caa02ca91a61",
 				jdbcTemplate.queryForObject("SELECT toss_idempotency_key FROM payments WHERE id = 1", String::class.java),
+			)
+			assertEquals(
+				listOf(1L, 1L, 1L, 1L, 10_000L, LocalDate.of(2026, 9, 15)),
+				jdbcTemplate.queryForObject(
+					"""
+					SELECT payment_id, order_id, sale_id, seller_id, gross_amount, settlement_date
+					FROM settlement_entries
+					WHERE id = 1
+					""".trimIndent(),
+				) { resultSet, _ ->
+					listOf(
+						resultSet.getLong("payment_id"),
+						resultSet.getLong("order_id"),
+						resultSet.getLong("sale_id"),
+						resultSet.getLong("seller_id"),
+						resultSet.getLong("gross_amount"),
+						resultSet.getObject("settlement_date", LocalDate::class.java),
+					)
+				},
 			)
 
 			val orderTransactions = transactionIds(jdbcTemplate, "orders")

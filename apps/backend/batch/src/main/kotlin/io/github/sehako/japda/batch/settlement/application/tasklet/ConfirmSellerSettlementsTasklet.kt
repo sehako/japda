@@ -2,6 +2,7 @@ package io.github.sehako.japda.batch.settlement.application.tasklet
 
 import io.github.sehako.japda.batch.settlement.exception.SettlementConfirmationErrorType
 import io.github.sehako.japda.batch.settlement.exception.SettlementConfirmationException
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementAggregate
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
@@ -27,7 +28,7 @@ class ConfirmSellerSettlementsTasklet(
 		val settlementRunId = jobExecution.executionContext
 			.getLong(PrepareSettlementRunTasklet.SETTLEMENT_RUN_ID_CONTEXT_KEY)
 		return try {
-			executeConfirmation(settlementRunId)
+			executeConfirmation(settlementRunId, SettlementEntryBounds.from(jobExecution.executionContext))
 		} catch (exception: RuntimeException) {
 			val confirmationException = exception as? SettlementConfirmationException
 			logger.error(
@@ -44,13 +45,13 @@ class ConfirmSellerSettlementsTasklet(
 		}
 	}
 
-	private fun executeConfirmation(settlementRunId: Long): RepeatStatus {
+	private fun executeConfirmation(settlementRunId: Long, entryBounds: SettlementEntryBounds): RepeatStatus {
 		val settlementRun = settlementRunRepository.findByIdForUpdate(settlementRunId)
 			?: fail(SettlementConfirmationErrorType.RUN_NOT_FOUND, "SettlementRun을 찾을 수 없습니다: settlementRunId=$settlementRunId")
 		when (settlementRun.status) {
 			SettlementRunStatus.COLLECTED,
 			SettlementRunStatus.CONFIRMED,
-			-> confirmOrValidate(settlementRun)
+			-> confirmOrValidate(settlementRun, entryBounds)
 			SettlementRunStatus.COLLECTING,
 			SettlementRunStatus.COMPLETED,
 			-> fail(
@@ -61,8 +62,8 @@ class ConfirmSellerSettlementsTasklet(
 		return RepeatStatus.FINISHED
 	}
 
-	private fun confirmOrValidate(settlementRun: SettlementRunSnapshot) {
-		sellerSettlementRepository.createTemporarySellerAggregates(settlementRun.id)
+	private fun confirmOrValidate(settlementRun: SettlementRunSnapshot, entryBounds: SettlementEntryBounds) {
+		sellerSettlementRepository.createTemporarySellerAggregates(settlementRun.settlementDate, entryBounds)
 		validateDetailAggregate(settlementRun, sellerSettlementRepository.aggregateTemporarySellerAggregates())
 		validateRecipientsAndRanges(settlementRun)
 		if (settlementRun.status == SettlementRunStatus.CONFIRMED) {

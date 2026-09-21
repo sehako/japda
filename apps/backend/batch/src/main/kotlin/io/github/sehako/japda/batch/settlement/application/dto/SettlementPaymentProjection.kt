@@ -4,6 +4,7 @@ import java.time.Instant
 
 data class SettlementPaymentProjection(
 	val paymentId: Long,
+	val entryId: Long = paymentId,
 	val requestedAmount: Long,
 	val paymentApprovedAt: Instant,
 	val orderId: Long?,

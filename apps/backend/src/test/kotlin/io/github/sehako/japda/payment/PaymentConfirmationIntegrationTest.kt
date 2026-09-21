@@ -5,6 +5,7 @@ import io.github.sehako.japda.auth.infrastructure.token.ServiceJwtIssuer
 import io.github.sehako.japda.payment.application.client.TossPaymentClient
 import io.github.sehako.japda.payment.application.client.TossPaymentResult
 import io.github.sehako.japda.payment.application.service.PaymentService
+import io.github.sehako.japda.payment.application.service.PaymentTransactionService
 import jakarta.servlet.http.Cookie
 import java.time.Clock
 import java.time.Instant
@@ -55,8 +56,10 @@ class PaymentConfirmationIntegrationTest {
 	@Autowired private lateinit var clock: MutableClock
 	@Autowired private lateinit var toss: FakeTossClient
 	@Autowired private lateinit var paymentService: PaymentService
+	@Autowired private lateinit var paymentTransactions: PaymentTransactionService
 	private var saleId: Long = 0
 	private lateinit var userIds: Map<Long, Long>
+	private var sellerUserId: Long = 0
 	private lateinit var csrfToken: String
 	private lateinit var csrfCookie: Cookie
 
@@ -71,6 +74,7 @@ class PaymentConfirmationIntegrationTest {
 		toss.confirmEntered = null
 		toss.confirmRelease = null
 		jdbc.update("DELETE FROM inventory_reservations")
+		jdbc.update("DELETE FROM settlement_entries")
 		jdbc.update("DELETE FROM payments")
 		jdbc.update("DELETE FROM orders")
 		jdbc.update("DELETE FROM sale_inventory_counters")
@@ -78,6 +82,7 @@ class PaymentConfirmationIntegrationTest {
 		jdbc.update("DELETE FROM sale_days")
 		jdbc.update("DELETE FROM product_images")
 		jdbc.update("DELETE FROM products")
+		jdbc.update("DELETE FROM seller_principal_identities")
 		jdbc.update("DELETE FROM buyer_principal_identities WHERE buyer_id IN (123, 999)")
 		userIds = listOf(123L, 999L).associateWith { buyerId ->
 			val userId = jdbc.queryForObject(
@@ -87,6 +92,11 @@ class PaymentConfirmationIntegrationTest {
 			jdbc.update("INSERT INTO buyer_principal_identities (user_id, buyer_id) VALUES (?, ?)", userId, buyerId)
 			userId
 		}
+		sellerUserId = jdbc.queryForObject(
+			"INSERT INTO users (provider, provider_subject, email, created_at) VALUES ('GOOGLE', ?, ?, now()) RETURNING id",
+			Long::class.java, UUID.randomUUID().toString(), "seller-${UUID.randomUUID()}@example.com",
+		)!!
+		jdbc.update("INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, 1)", sellerUserId)
 		val csrfResponse = mvc.perform(get("/api/auth/csrf").cookie(jwtCookie(123L)))
 			.andExpect(status().isOk).andReturn().response
 		csrfToken = JsonPath.read(csrfResponse.contentAsString, "$.token")
@@ -124,9 +134,104 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals("PAID", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
 		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 		assertEquals("CONFIRMED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 		assertEquals(NOW, jdbc.queryForObject("SELECT updated_at FROM inventory_reservations", java.time.OffsetDateTime::class.java)!!.toInstant())
 		assertEquals(2, committedQuantity())
 		mvc.perform(orderRequest(orderKey)).andExpect(status().isCreated).andExpect(jsonPath("$.status").value("PAID"))
+	}
+
+	@Test
+	@DisplayName("정상 승인은 불변 정산 원천을 함께 저장한다")
+	fun 정상_승인_불변_정산_원천_함께_저장() {
+		val orderId = createOrder()
+		toss.result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
+
+		mvc.perform(confirm(orderId)).andExpect(status().isOk)
+
+		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+		val entry = jdbc.queryForMap("SELECT * FROM settlement_entries")
+		assertEquals(1L, (entry["seller_id"] as Number).toLong())
+		assertEquals(sellerUserId, (entry["recipient_user_id"] as Number).toLong())
+		assertEquals(2L, (entry["quantity"] as Number).toLong())
+		assertEquals(35_000L, (entry["unit_price"] as Number).toLong())
+		assertEquals(70_000L, (entry["gross_amount"] as Number).toLong())
+		assertEquals(NOW.plusSeconds(1), (entry["payment_approved_at"] as java.sql.Timestamp).toInstant())
+		assertEquals(SALE_DATE, (entry["settlement_date"] as java.sql.Date).toLocalDate())
+	}
+
+	@Test
+	@DisplayName("승인 결제에 정산 원천이 없으면 재호출을 정합성 오류로 처리한다")
+	fun 승인_결제_정산_원천_누락_재호출_정합성_오류() {
+		val orderId = createOrder()
+		toss.result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
+		mvc.perform(confirm(orderId)).andExpect(status().isOk)
+		jdbc.update("DELETE FROM settlement_entries")
+
+		mvc.perform(confirm(orderId))
+			.andExpect(status().isConflict)
+			.andExpect(jsonPath("$.code").value("PAYMENT_SETTLEMENT_SNAPSHOT_INVALID"))
+	}
+
+	@Test
+	@DisplayName("승인 결제의 다른 정산 원천은 재호출을 정합성 오류로 처리한다")
+	fun 승인_결제_다른_정산_원천_재호출_정합성_오류() {
+		val orderId = createOrder()
+		toss.result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
+		mvc.perform(confirm(orderId)).andExpect(status().isOk)
+		jdbc.update("UPDATE settlement_entries SET unit_price = 35_001, gross_amount = 70_002")
+
+		mvc.perform(confirm(orderId))
+			.andExpect(status().isConflict)
+			.andExpect(jsonPath("$.code").value("PAYMENT_SETTLEMENT_SNAPSHOT_INVALID"))
+	}
+
+	@Test
+	@DisplayName("정산 원천 생성 실패 후 대사 처리로 결제와 정산 원천을 함께 확정한다")
+	fun 정산_원천_생성_실패_대사_처리_결제와_정산_원천_함께_확정() {
+		val orderId = createOrder()
+		toss.result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
+		jdbc.update("DELETE FROM seller_principal_identities WHERE seller_id = 1")
+
+		mvc.perform(confirm(orderId)).andExpect(status().isConflict)
+		assertEquals("CONFIRMING", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
+		assertEquals("PENDING_PAYMENT", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
+		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+
+		jdbc.update("INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, 1)", sellerUserId)
+		clock.set(NOW.plusSeconds(31))
+		paymentService.reconcileDue()
+
+		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
+		assertEquals("PAID", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
+		assertEquals("CONFIRMED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+	}
+
+	@Test
+	@DisplayName("동시 승인 적용은 하나의 정산 원천과 같은 성공 결과를 남긴다")
+	fun 동시_승인_적용_하나의_정산_원천_같은_성공_결과() {
+		val orderId = createOrder()
+		val paymentId = paymentTransactions.prepare(123L, orderId, "payment-key", 70_000L).let {
+			(it as io.github.sehako.japda.payment.application.service.PreparedPayment.Started).payment.id
+		}
+		val result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
+		val start = CountDownLatch(1)
+
+		Executors.newFixedThreadPool(2).use { executor ->
+			val responses = List(2) {
+				executor.submit<io.github.sehako.japda.payment.application.response.PaymentResponse?> {
+					start.await(5, TimeUnit.SECONDS)
+					paymentTransactions.apply(paymentId, result)
+				}
+			}
+			start.countDown()
+			val applied = responses.map { it.get(5, TimeUnit.SECONDS) }
+			assertEquals(2, applied.filterNotNull().size, "동시 승인 적용 결과=$applied")
+		}
+
+		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 	}
 
 	@Test

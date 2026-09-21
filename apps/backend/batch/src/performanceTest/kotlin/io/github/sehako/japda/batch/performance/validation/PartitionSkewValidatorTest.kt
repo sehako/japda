@@ -9,6 +9,23 @@ import org.junit.jupiter.api.Test
 @DisplayName("파티션 처리 편향 검산기")
 class PartitionSkewValidatorTest {
 	@Test
+	@DisplayName("100건 smoke 실행은 파티션 편향을 기록하되 실패로 판정하지 않는다")
+	fun 백건_smoke_파티션_편향_기록만_수행() {
+		val report = PartitionSkewValidator().validate(
+			listOf(
+				step("collectSettlementDetailsManagerStep", duration = 50),
+				step("collectSettlementDetailsWorkerStep:collectionPartition000", duration = 25, read = 25, write = 25, commit = 3),
+				step("creditSellerWalletsManagerStep", duration = 50),
+				step("creditSellerWalletsWorkerStep:creditPartition000", duration = 25, read = 3, write = 3, commit = 1),
+			),
+			100,
+		)
+
+		assertThat(report.success).isTrue()
+		assertThat(report.values).containsEntry("partition.collection.longest.ratio", "0.500")
+	}
+
+	@Test
 	fun 최장_worker_시간이_phase의_25퍼센트를_초과하면_실패한다() {
 		val report = PartitionSkewValidator().validate(
 			listOf(
