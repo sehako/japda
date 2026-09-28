@@ -5,16 +5,35 @@ interface BuyerOrderRowProps {
   order: BuyerOrder
 }
 
+const ORDER_STATUS_DISPLAY = {
+  PENDING_PAYMENT: {
+    label: '결제 대기',
+    className: 'border-[var(--color-concrete-gray)] bg-white text-[var(--color-steel)]',
+  },
+  PAID: {
+    label: '결제 완료',
+    className: 'border-[var(--color-obsidian)] bg-[var(--color-obsidian)] text-white',
+  },
+  EXPIRED: {
+    label: '만료',
+    className: 'border-[var(--color-concrete-gray)] bg-[var(--color-soft-mist)] text-[var(--color-steel)]',
+  },
+  PAYMENT_FAILED: {
+    label: '결제 실패',
+    className: 'border-[color-mix(in_srgb,var(--color-signal)_28%,white)] bg-white text-[var(--color-signal)]',
+  },
+} as const
+
 export function BuyerOrderRow({ order }: BuyerOrderRowProps) {
-  const isPaid = order.status === 'PAID'
+  const statusDisplay = ORDER_STATUS_DISPLAY[order.status]
 
   return <li className="grid grid-cols-[minmax(0,1fr)_auto] border-b border-[var(--color-concrete-gray)] py-7 min-[601px]:grid-cols-[120px_minmax(0,1fr)] min-[601px]:gap-x-7 min-[821px]:grid-cols-[170px_minmax(0,1fr)_210px] min-[821px]:gap-x-10 min-[821px]:py-8">
     <p className="col-start-1 row-start-1 m-0 text-[13px] font-semibold">
       <time dateTime={order.createdAt}>{formatOrderDateTime(order.createdAt)}</time>
     </p>
 
-    <span className={`col-start-2 row-start-1 inline-flex min-h-[27px] shrink-0 items-center self-start justify-self-end rounded-full border px-[11px] text-[11px] font-semibold whitespace-nowrap ${isPaid ? 'border-[var(--color-obsidian)] bg-[var(--color-obsidian)] text-white' : 'border-[var(--color-concrete-gray)] bg-white text-[var(--color-steel)]'} min-[601px]:z-10 min-[601px]:mr-0`}>
-      {isPaid ? '결제 완료' : '결제 대기'}
+    <span aria-label={statusDisplay.label} className={`col-start-2 row-start-1 inline-flex min-h-[27px] shrink-0 items-center self-start justify-self-end rounded-full border px-[11px] text-[11px] font-semibold whitespace-nowrap ${statusDisplay.className} min-[601px]:z-10 min-[601px]:mr-0`}>
+      {statusDisplay.label}
     </span>
 
     <div className="col-span-2 row-start-2 mt-[18px] min-w-0 min-[601px]:col-start-2 min-[601px]:row-start-1 min-[601px]:row-span-2 min-[601px]:mt-0 min-[601px]:pr-24 min-[821px]:col-start-2 min-[821px]:pr-24">

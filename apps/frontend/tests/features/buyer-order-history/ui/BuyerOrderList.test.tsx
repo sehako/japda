@@ -27,6 +27,20 @@ const paidOrder: BuyerOrder = {
   expiresAt: new Date(2026, 8, 14, 14, 35).toISOString(),
 }
 
+const expiredOrder: BuyerOrder = {
+  ...pendingOrder,
+  orderId: 1285,
+  status: 'EXPIRED',
+  productName: '만료 상품',
+}
+
+const paymentFailedOrder: BuyerOrder = {
+  ...pendingOrder,
+  orderId: 1286,
+  status: 'PAYMENT_FAILED',
+  productName: '결제 실패 상품',
+}
+
 const defaultProps = {
   orders: [pendingOrder, paidOrder],
   isLoading: false,
@@ -63,6 +77,18 @@ describe('구매자 주문 목록', () => {
     const rows = screen.getAllByRole('listitem')
     expect(rows[0]).toHaveTextContent('결제 기한 2026. 09. 13. 20:21')
     expect(rows[1]).not.toHaveTextContent('결제 기한')
+  })
+
+  test('종료 상태를 각각 표시하고 결제 기한을 표시하지 않는다', () => {
+    render(<MemoryRouter><BuyerOrderList {...defaultProps} orders={[pendingOrder, paidOrder, expiredOrder, paymentFailedOrder]} /></MemoryRouter>)
+
+    const rows = screen.getAllByRole('listitem')
+    expect(rows[2]).toHaveTextContent('만료')
+    expect(rows[2]).not.toHaveTextContent('결제 대기')
+    expect(rows[2]).not.toHaveTextContent('결제 기한')
+    expect(rows[3]).toHaveTextContent('결제 실패')
+    expect(rows[3]).not.toHaveTextContent('결제 대기')
+    expect(rows[3]).not.toHaveTextContent('결제 기한')
   })
 
   test('최초 로딩을 접근 가능한 진행 상태로 표시한다', () => {

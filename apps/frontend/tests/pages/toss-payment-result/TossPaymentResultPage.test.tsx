@@ -92,12 +92,47 @@ test('주문 식별자가 다른 승인 응답은 완료로 표시하지 않는�
   expect(screen.queryByRole('link', { name: '결제 화면으로 돌아가기' })).not.toBeInTheDocument()
 })
 
+test.each([
+  ['결제 대기 응답', { ...paid, status: 'PENDING_PAYMENT' }],
+  ['금액이 다른 응답', { ...paid, totalAmount: 120001 }],
+  ['승인 시각이 잘못된 응답', { ...paid, approvedAt: 'invalid' }],
+] as const)('%s은 결제 완료로 표시하지 않는다', async (_description, response) => {
+  stubAuthenticatedPayment(() => Response.json(response))
+  renderResult(successPath)
+
+  expect(await screen.findByRole('heading', { name: '결제 결과를 아직 확인할 수 없습니다.' })).toBeInTheDocument()
+  expect(screen.queryByText('결제가 완료됐습니다.')).not.toBeInTheDocument()
+  expect(screen.queryByText('1284')).not.toBeInTheDocument()
+})
+
 test('확정 실패는 검증된 체크아웃 복귀 링크를 제공한다', async () => {
   stubAuthenticatedPayment(() => Response.json({ code: 'PAYMENT_CONFIRMATION_FAILED' }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } }))
   renderResult(successPath)
 
   expect(await screen.findByRole('heading', { name: '결제에 실패했습니다.' })).toBeInTheDocument()
   expect(screen.getByRole('link', { name: '결제 화면으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
+})
+
+test('주문 만료는 확정 실패와 구분하고 새 주문을 위한 체크아웃 복귀 링크를 제공한다', async () => {
+  stubAuthenticatedPayment(() => Response.json({ code: 'PAYMENT_ORDER_EXPIRED' }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } }))
+  renderResult(successPath)
+
+  expect(await screen.findByRole('heading', { name: '주문이 만료됐습니다.' })).toBeInTheDocument()
+  expect(screen.getByText('이 주문으로는 결제를 진행할 수 없습니다.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '결제 화면으로 돌아가기' })).toHaveAttribute('href', '/checkout/11?quantity=3')
+})
+
+test.each([
+  ['PAYMENT_REVIEW_REQUIRED', '결제 상태에 별도 확인이 필요합니다.'],
+  ['PAYMENT_CONFIRMATION_UNAVAILABLE', '승인 요청 중 오류가 발생했습니다.'],
+] as const)('%s는 결과 확인 필요 화면으로 표시하고 새 결제를 권하지 않는다', async (code, detail) => {
+  stubAuthenticatedPayment(() => Response.json({ code }, { status: 409, headers: { 'Content-Type': 'application/problem+json' } }))
+  renderResult(successPath)
+
+  expect(await screen.findByRole('heading', { name: '결제 결과를 아직 확인할 수 없습니다.' })).toBeInTheDocument()
+  expect(screen.getByText(detail)).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: '상품 목록으로 돌아가기' })).toHaveAttribute('href', '/')
+  expect(screen.queryByRole('link', { name: '결제 화면으로 돌아가기' })).not.toBeInTheDocument()
 })
 
 test('결제창 취소 코드를 일반 실패와 구분하고 외부 메시지를 숨긴다', () => {
