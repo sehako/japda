@@ -27,9 +27,14 @@ class Sale private constructor(
 	val price: Long,
 	@field:Column(nullable = false)
 	val quantity: Int,
+	committedQuantity: Int,
 	@field:Column(name = "created_at", nullable = false)
 	val createdAt: Instant,
 ) {
+	@field:Column(name = "committed_quantity", nullable = false)
+	var committedQuantity: Int = committedQuantity
+		protected set
+
 	@field:Id
 	@field:GeneratedValue(strategy = GenerationType.IDENTITY)
 	var id: Long? = id
@@ -64,7 +69,7 @@ class Sale private constructor(
 			if (price == null || price <= 0) throw SaleException(SaleErrorCode.PRICE_INVALID)
 			if (quantity == null || quantity <= 0) throw SaleException(SaleErrorCode.QUANTITY_INVALID)
 
-			return Sale(null, productId, sellerId, saleDate, price, quantity, createdAt)
+			return Sale(null, productId, sellerId, saleDate, price, quantity, 0, createdAt)
 		}
 
 		fun validateRegistrationTime(saleDate: LocalDate, now: Instant) {

@@ -24,6 +24,7 @@ class SaleTest {
 		assertEquals(saleDate, sale.saleDate)
 		assertEquals(35_000L, sale.price)
 		assertEquals(100, sale.quantity)
+		assertEquals(0, sale.committedQuantity)
 		assertEquals(Instant.parse("2026-09-11T15:00:00Z"), sale.startsAt)
 		assertEquals(Instant.parse("2026-09-12T15:00:00Z"), sale.endsAt)
 		assertEquals(createdAt, sale.createdAt)

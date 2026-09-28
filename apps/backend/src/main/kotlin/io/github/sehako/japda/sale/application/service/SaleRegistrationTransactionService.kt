@@ -1,6 +1,5 @@
 package io.github.sehako.japda.sale.application.service
 
-import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
 import io.github.sehako.japda.product.domain.model.ProductStatus
 import io.github.sehako.japda.product.domain.repository.ProductRepository
 import io.github.sehako.japda.sale.application.config.SaleDailyCapacity
@@ -20,7 +19,6 @@ class SaleRegistrationTransactionService(
 	private val productRepository: ProductRepository,
 	private val saleRepository: SaleRepository,
 	private val saleDayRepository: SaleDayRepository,
-	private val saleInventoryCounterRepository: SaleInventoryCounterRepository,
 	private val dailyCapacity: SaleDailyCapacity,
 	private val clock: Clock,
 ) {
@@ -53,7 +51,6 @@ class SaleRegistrationTransactionService(
 		saleDay.reserve()
 		saleDayRepository.save(saleDay)
 		val savedSale = saleRepository.save(sale)
-		saleInventoryCounterRepository.create(requireNotNull(savedSale.id), savedSale.createdAt)
 		return savedSale.toResponse()
 	}
 

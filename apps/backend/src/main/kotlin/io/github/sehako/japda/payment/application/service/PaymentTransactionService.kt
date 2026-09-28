@@ -1,12 +1,9 @@
 package io.github.sehako.japda.payment.application.service
 
 import io.github.sehako.japda.auth.domain.repository.PrincipalIdentityRepository
-import io.github.sehako.japda.order.domain.model.InventoryReservationStatus
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.model.OrderStatus
-import io.github.sehako.japda.order.domain.repository.InventoryReservationRepository
 import io.github.sehako.japda.order.domain.repository.OrderRepository
-import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
 import io.github.sehako.japda.payment.application.client.TossPaymentResult
 import io.github.sehako.japda.payment.application.client.TossPaymentStatuses
 import io.github.sehako.japda.payment.application.response.PaymentResponse
@@ -33,8 +30,6 @@ class PaymentTransactionService(
 	private val identities: PrincipalIdentityRepository,
 	private val orders: OrderRepository,
 	private val payments: PaymentRepository,
-	private val reservations: InventoryReservationRepository,
-	private val inventoryCounters: SaleInventoryCounterRepository,
 	private val sales: SaleRepository,
 	private val settlementEntries: SettlementEntryRepository,
 	private val clock: Clock,
@@ -47,11 +42,7 @@ class PaymentTransactionService(
 		val internalOrderId = requireNotNull(order.id)
 		payments.findByOrderId(internalOrderId)?.let { return resolveExisting(order, it, paymentKey) }
 		val now = clock.instant()
-		if (order.status != OrderStatus.PENDING_PAYMENT) {
-			throw PaymentException(PaymentErrorCode.ORDER_EXPIRED)
-		}
-		if (!reservations.markPaymentPendingIfReservedAndNotExpired(internalOrderId, now)) {
-			payments.findByOrderId(internalOrderId)?.let { return resolveExisting(order, it, paymentKey) }
+		if (order.status != OrderStatus.PENDING_PAYMENT || !now.isBefore(order.expiresAt)) {
 			throw PaymentException(PaymentErrorCode.ORDER_EXPIRED)
 		}
 		val payment = Payment.create(internalOrderId, paymentKey, amount, now)
@@ -80,14 +71,14 @@ class PaymentTransactionService(
 					} else {
 						requireReview(paymentId, now, "APPROVED_AT_MISSING")
 					}
-					TossPaymentStatuses.ABORTED, TossPaymentStatuses.EXPIRED -> fail(payment, now)
+					TossPaymentStatuses.ABORTED, TossPaymentStatuses.EXPIRED -> fail(payment, order, now)
 					TossPaymentStatuses.IN_PROGRESS -> defer(paymentId, now)
 					else -> {
 						requireReview(paymentId, now, "UNSUPPORTED_STATUS")
 					}
 				}
 			}
-			TossPaymentResult.ConfirmedFailure -> fail(payment, now)
+			TossPaymentResult.ConfirmedFailure -> fail(payment, order, now)
 			TossPaymentResult.InvalidData -> {
 				requireReview(paymentId, now, "INVALID_RESPONSE")
 			}
@@ -141,14 +132,6 @@ class PaymentTransactionService(
 			} else null
 		}
 		check(orders.markPaidIfPending(payment.orderId)) { "결제 승인 주문 상태 전이에 실패했습니다." }
-		check(
-			reservations.transitionByOrderId(
-				payment.orderId,
-				InventoryReservationStatus.PAYMENT_PENDING,
-				InventoryReservationStatus.CONFIRMED,
-				now,
-			),
-		) { "결제 승인 예약 상태 전이에 실패했습니다." }
 		createOrVerifySettlementEntry(payment, order, approvedAt, now)
 		return PaymentResponse(requireNotNull(order.id), order.paymentOrderId, OrderStatus.PAID.name, order.totalPrice, approvedAt)
 	}
@@ -200,28 +183,10 @@ class PaymentTransactionService(
 		)
 	}
 
-	private fun fail(payment: Payment, now: Instant) {
+	private fun fail(payment: Payment, order: Order, now: Instant) {
 		if (!payments.failIfConfirming(requireNotNull(payment.id), now)) return
-		val reservation = checkNotNull(reservations.findByOrderId(payment.orderId)) {
-			"결제 실패 주문의 재고 예약을 찾을 수 없습니다."
-		}
-		check(
-			reservations.transitionByOrderId(
-				payment.orderId,
-				InventoryReservationStatus.PAYMENT_PENDING,
-				InventoryReservationStatus.RELEASED,
-				now,
-			),
-		) { "결제 실패 예약 상태 전이에 실패했습니다." }
-		if (!inventoryCounters.release(reservation.saleId, reservation.quantity, now)) {
-			log.error(
-				"결제 실패 예약 반환 중 재고 카운터 감소에 실패했습니다. saleId={}, orderId={}, reservationId={}",
-				reservation.saleId,
-				reservation.orderId,
-				reservation.id,
-			)
-			error("결제 실패 예약 반환 중 재고 카운터 감소에 실패했습니다.")
-		}
+		check(orders.markPaymentFailedIfPending(payment.orderId)) { "결제 실패 주문 상태 전이에 실패했습니다." }
+		check(sales.decreaseCommittedQuantity(order.saleId, order.quantity)) { "결제 실패 판매 수량 반환에 실패했습니다." }
 	}
 
 	private fun defer(paymentId: Long, now: Instant) {

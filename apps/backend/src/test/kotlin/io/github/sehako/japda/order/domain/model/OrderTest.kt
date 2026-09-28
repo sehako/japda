@@ -16,6 +16,15 @@ import org.junit.jupiter.api.DisplayName
 @DisplayName("주문")
 class OrderTest {
 	@Test
+	@DisplayName("주문 상태는 결제 대기, 결제 완료, 만료, 결제 실패만 사용한다")
+	fun 주문_상태는_네_가지_상태만_사용한다() {
+		assertEquals(
+			setOf("PENDING_PAYMENT", "PAID", "EXPIRED", "PAYMENT_FAILED"),
+			enumValues<OrderStatus>().map { it.name }.toSet(),
+		)
+	}
+
+	@Test
 	@DisplayName("주문 요청을 만들면 배송 문자열을 정규화한다")
 	fun 주문_요청_생성_배송_문자열을_정규화한다() {
 		val request = request(deliveryMessage = "   ")
@@ -85,6 +94,20 @@ class OrderTest {
 
 		assertEquals(OrderStatus.PAID, order.status)
 		assertEquals(expiresAt, order.expiresAt)
+	}
+
+	@Test
+	@DisplayName("결제 대기 주문은 만료 또는 결제 실패로 한 번만 전이한다")
+	fun 결제_대기_주문은_만료_또는_결제_실패로_한_번만_전이한다() {
+		val expired = Order.create(request(), "상품", 1_000L, CREATED_AT)
+		expired.markExpired()
+		assertEquals(OrderStatus.EXPIRED, expired.status)
+		assertFailsWith<IllegalStateException> { expired.markExpired() }
+
+		val failed = Order.create(request(), "상품", 1_000L, CREATED_AT)
+		failed.markPaymentFailed()
+		assertEquals(OrderStatus.PAYMENT_FAILED, failed.status)
+		assertFailsWith<IllegalStateException> { failed.markPaid() }
 	}
 
 	@Test

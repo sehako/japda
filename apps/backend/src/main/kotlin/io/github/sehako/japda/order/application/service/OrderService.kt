@@ -9,7 +9,6 @@ import io.github.sehako.japda.order.domain.repository.OrderRepository
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
-import java.util.UUID
 import org.springframework.stereotype.Service
 
 @Service
@@ -25,7 +24,7 @@ class OrderService(
 
 		return try {
 			try {
-				transactionService.create(request, UUID.randomUUID())
+				transactionService.create(request)
 			} catch (_: OrderIdempotencyPersistenceException) {
 				transactionService.recoverIdempotentRequest(request)
 			}.response

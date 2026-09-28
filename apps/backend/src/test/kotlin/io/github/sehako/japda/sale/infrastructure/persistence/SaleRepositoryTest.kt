@@ -73,7 +73,7 @@ class SaleRepositoryTest {
 		val savedSaleId = assertNotNull(savedSale.id)
 		assertTrue(saleRepository.existsBySellerIdAndSaleDate(1L, SALE_DATE))
 		val row = jdbcTemplate.queryForMap(
-			"SELECT product_id, seller_id, sale_date, price, quantity, created_at FROM sales WHERE id = ?",
+			"SELECT product_id, seller_id, sale_date, price, quantity, committed_quantity, created_at FROM sales WHERE id = ?",
 			savedSaleId,
 		)
 		assertEquals(productId, (row["product_id"] as Number).toLong())
@@ -81,7 +81,43 @@ class SaleRepositoryTest {
 		assertEquals(SALE_DATE, (row["sale_date"] as java.sql.Date).toLocalDate())
 		assertEquals(35_000L, (row["price"] as Number).toLong())
 		assertEquals(100, (row["quantity"] as Number).toInt())
+		assertEquals(0, (row["committed_quantity"] as Number).toInt())
 		assertEquals(CREATED_AT, (row["created_at"] as java.sql.Timestamp).toInstant())
+	}
+
+	@Test
+	@DisplayName("판매 수량 범위 안에서만 committed quantity를 조건부로 증가시킨다")
+	fun 판매_수량_범위_안에서만_committed_quantity를_조건부_증가한다() {
+		val productId = insertProduct()
+		saleDayRepository.createIfAbsent(SALE_DATE, 20)
+		val saleId = assertNotNull(saleRepository.save(Sale.create(productId, 1L, SALE_DATE, 35_000L, 10, CREATED_AT)).id)
+		entityManager.flush()
+		entityManager.clear()
+
+		assertEquals(
+			io.github.sehako.japda.sale.domain.repository.SaleCommittedQuantityIncreaseResult.Increased,
+			saleRepository.increaseCommittedQuantity(saleId, 6),
+		)
+		assertEquals(
+			io.github.sehako.japda.sale.domain.repository.SaleCommittedQuantityIncreaseResult.Insufficient(4),
+			saleRepository.increaseCommittedQuantity(saleId, 5),
+		)
+		assertEquals(6, jdbcTemplate.queryForObject("SELECT committed_quantity FROM sales WHERE id = ?", Int::class.java, saleId))
+	}
+
+	@Test
+	@DisplayName("committed quantity는 현재 점유량 이상일 때만 조건부로 감소시킨다")
+	fun committed_quantity는_현재_점유량_이상일_때만_조건부_감소한다() {
+		val productId = insertProduct()
+		saleDayRepository.createIfAbsent(SALE_DATE, 20)
+		val saleId = assertNotNull(saleRepository.save(Sale.create(productId, 1L, SALE_DATE, 35_000L, 10, CREATED_AT)).id)
+		entityManager.flush()
+		entityManager.clear()
+		saleRepository.increaseCommittedQuantity(saleId, 4)
+
+		assertFalse(saleRepository.decreaseCommittedQuantity(saleId, 5))
+		assertTrue(saleRepository.decreaseCommittedQuantity(saleId, 4))
+		assertEquals(0, jdbcTemplate.queryForObject("SELECT committed_quantity FROM sales WHERE id = ?", Int::class.java, saleId))
 	}
 
 	@Test

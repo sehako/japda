@@ -62,6 +62,16 @@ class Order private constructor(
 		status = OrderStatus.PAID
 	}
 
+	fun markExpired() {
+		check(status == OrderStatus.PENDING_PAYMENT) { "결제 대기 주문만 만료할 수 있습니다." }
+		status = OrderStatus.EXPIRED
+	}
+
+	fun markPaymentFailed() {
+		check(status == OrderStatus.PENDING_PAYMENT) { "결제 대기 주문만 결제 실패 처리할 수 있습니다." }
+		status = OrderStatus.PAYMENT_FAILED
+	}
+
 	fun matches(request: OrderRequest): Boolean =
 		buyerId == request.buyerId &&
 			idempotencyKey == request.idempotencyKey &&

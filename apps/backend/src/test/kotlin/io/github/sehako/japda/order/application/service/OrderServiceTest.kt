@@ -1,13 +1,10 @@
 package io.github.sehako.japda.order.application.service
 
 import io.github.sehako.japda.order.application.dto.CreateOrderDto
-import io.github.sehako.japda.order.application.inventory.ExpiredInventoryReservationReleaseService
 import io.github.sehako.japda.order.application.response.toResponse
 import io.github.sehako.japda.order.domain.model.Order
 import io.github.sehako.japda.order.domain.model.OrderRequest
-import io.github.sehako.japda.order.domain.repository.InventoryReservationRepository
 import io.github.sehako.japda.order.domain.repository.OrderRepository
-import io.github.sehako.japda.order.domain.repository.SaleInventoryCounterRepository
 import io.github.sehako.japda.order.exception.OrderErrorCode
 import io.github.sehako.japda.order.exception.OrderException
 import io.github.sehako.japda.order.exception.OrderIdempotencyPersistenceException
@@ -48,8 +45,7 @@ class OrderServiceTest {
 
 		assertEquals(1L, firstResponse.orderId)
 		assertEquals(1L, secondResponse.orderId)
-		assertEquals(2, transactionService.reservationIds.size)
-		assertNotEquals(transactionService.reservationIds[0], transactionService.reservationIds[1])
+		assertEquals(2, transactionService.createCount)
 	}
 
 	@Test
@@ -117,18 +113,13 @@ class OrderServiceTest {
 		mock(OrderRepository::class.java),
 		mock(SaleRepository::class.java),
 		mock(ProductRepository::class.java),
-		mock(InventoryReservationRepository::class.java),
-		mock(SaleInventoryCounterRepository::class.java),
-		mock(ExpiredInventoryReservationReleaseService::class.java),
 		Clock.systemUTC(),
 	) {
 		var createCount = 0
 		var recoverCount = 0
-		val reservationIds = mutableListOf<UUID>()
 
-		override fun create(request: OrderRequest, reservationId: UUID): OrderCreationResult {
+		override fun create(request: OrderRequest): OrderCreationResult {
 			createCount++
-			reservationIds += reservationId
 			failure?.let { throw it }
 			return requireNotNull(result)
 		}
