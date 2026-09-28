@@ -180,12 +180,12 @@ migration은 개발 데이터 폐기 정책을 지켜야 한다. `orders`·`paym
 - [x] 재고 단순화 Decision Brief 확정
 - [x] 백엔드 전용 범위와 상태·만료·수량 정책 확정
 - [x] 구현 계획과 검증 범위 작성
-- [ ] 대체 ADR 작성 및 승인
-- [ ] `docs/architecture/backend.md`와 관련 spec 갱신
-- [ ] Flyway migration 및 개발 데이터 정리 구현
-- [ ] 주문·판매·결제 runtime 변경
-- [ ] 만료 scheduler 구현
-- [ ] 테스트·REST Docs·build 검증
+- [x] 대체 ADR 작성 및 승인
+- [x] `docs/architecture/backend.md`와 관련 spec 갱신
+- [x] Flyway migration 및 개발 데이터 정리 구현
+- [x] 주문·판매·결제 runtime 변경
+- [x] 만료 scheduler 구현
+- [x] 테스트·REST Docs·build 검증
 
 ## 발견 사항
 
@@ -208,11 +208,22 @@ migration은 개발 데이터 폐기 정책을 지켜야 한다. `orders`·`paym
 | 결제 시도 없는 만료 주문에 30초 scheduler 적용 | 요청이 추가로 오지 않아도 만료 재고를 자동 반환하기 위해서다. 기존 reconcile과는 별도 책임이다. |
 | PG 취소·환불 연동 제외 | 포트폴리오 범위에서 결제 결과 정리보다 재고 저장 모델 단순화를 우선하기 위해서다. |
 | 관련 상태·수량 변경을 조건부 UPDATE와 단일 transaction으로 처리 | 중복 반환·중복 승인·동시 주문 초과 판매를 방지하기 위해서다. |
+| 대체 ADR-036 작성 및 사용자 승인 | 기존 ADR-028을 대체하는 재고 원천 변경을 구현하기 전에 결정 내용을 기록하고 승인받았다. |
 
 ## 미해결 질문
 
-제품·도메인·범위·완료 조건에 관한 blocking question은 없다. 다만 대체 ADR 승인 전에는 구현을 시작하지 않는다.
+제품·도메인·범위·완료 조건에 관한 blocking question은 없다. ADR-036 승인 후 계획된 구현과 검증을 완료했다.
 
 ## 결과 및 회고
 
-구현 후 실제 변경 파일, 실행한 검증 명령, 실패·미실행 검증, migration 적용 결과와 남은 운영 리스크를 이 절에 추가한다. 특히 개발 데이터 폐기 migration이 의도한 환경에만 적용되었는지와 scheduler·결제 경합 테스트 결과를 기록한다.
+구현을 완료했다. 주요 변경은 `sales.committed_quantity` 기반 V20 migration, 기존 재고 예약·카운터 runtime 제거, 주문 상태 4종 전환, 주문 생성·결제 실패·만료 scheduler의 조건부 수량 변경, 결제 승인 시 수량 유지, 관련 문서와 테스트 갱신이다. 기존 ADR-028은 보존하고 승인된 ADR-036으로 대체 관계를 기록했다.
+
+검증 결과:
+
+- `./gradlew compileTestKotlin`: 성공
+- `./gradlew test --tests '*order*' --tests '*sale*' --tests '*payment*' --tests '*MigrationTest' --tests '*RepositoryTest'`: 성공, 274개 테스트 결과 실패·오류·skip 0건 확인
+- `./gradlew test`: 첫 실행은 Gradle `:test` 결과 처리 중 `java.io.EOFException`이 발생했으나, `./gradlew test --no-daemon --console=plain` 재실행은 성공했다.
+- `./gradlew build` 및 `./gradlew build --no-daemon --console=plain`: 최종 성공했다. REST Docs `asciidoctor`, `bootJar`, batch·ledger build를 포함한다. daemon 실행에서 일시적인 EOF가 발생한 원인은 특정하지 못했으나 no-daemon 재실행으로 회복했다.
+- `git diff --check`: 성공
+
+migration은 Testcontainers 기반 `InventorySimplificationMigrationTest`에서 새 컬럼·제약, 네 가지 상태, 정산 자식 데이터 정리와 제거된 두 테이블을 검증했다. 남은 운영 리스크는 V20이 개발 데이터 폐기를 수행하므로 운영 데이터베이스에 적용하지 않아야 한다는 점과 daemon 실행에서 간헐적인 Gradle/Testcontainers EOF가 재발할 경우 `--no-daemon`으로 재실행해야 한다는 점이다.

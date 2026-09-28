@@ -1,6 +1,7 @@
 package io.github.sehako.japda.order.domain.repository
 
 import io.github.sehako.japda.order.domain.model.Order
+import java.time.Instant
 import java.util.UUID
 
 interface OrderRepository {
@@ -15,6 +16,12 @@ interface OrderRepository {
 	fun findSaleIdById(id: Long): Long?
 
 	fun markPaidIfPending(orderId: Long): Boolean
+
+	fun markPaymentFailedIfPending(orderId: Long): Boolean = false
+
+	fun findExpiredPendingWithoutPayment(now: Instant): List<Order> = emptyList()
+
+	fun markExpiredIfPendingWithoutPayment(orderId: Long, now: Instant): Boolean = false
 
 	fun save(order: Order): Order
 }

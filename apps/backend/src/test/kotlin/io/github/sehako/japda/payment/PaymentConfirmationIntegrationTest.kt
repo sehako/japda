@@ -73,11 +73,9 @@ class PaymentConfirmationIntegrationTest {
 		toss.lastIdempotencyKey = null
 		toss.confirmEntered = null
 		toss.confirmRelease = null
-		jdbc.update("DELETE FROM inventory_reservations")
 		jdbc.update("DELETE FROM settlement_entries")
 		jdbc.update("DELETE FROM payments")
 		jdbc.update("DELETE FROM orders")
-		jdbc.update("DELETE FROM sale_inventory_counters")
 		jdbc.update("DELETE FROM sales")
 		jdbc.update("DELETE FROM sale_days")
 		jdbc.update("DELETE FROM product_images")
@@ -107,15 +105,9 @@ class PaymentConfirmationIntegrationTest {
 		)!!
 		jdbc.update("INSERT INTO sale_days (sale_date, capacity, registered_count) VALUES (?, 20, 1)", SALE_DATE)
 		saleId = jdbc.queryForObject(
-			"INSERT INTO sales (product_id, seller_id, sale_date, price, quantity, created_at) VALUES (?, 1, ?, 35000, 2, ?) RETURNING id",
+			"INSERT INTO sales (product_id, seller_id, sale_date, price, quantity, committed_quantity, created_at) VALUES (?, 1, ?, 35000, 2, 0, ?) RETURNING id",
 			Long::class.java, productId, SALE_DATE, java.sql.Timestamp.from(NOW),
 		)!!
-		jdbc.update(
-			"INSERT INTO sale_inventory_counters (sale_id, committed_quantity, created_at, updated_at) VALUES (?, 0, ?, ?)",
-			saleId,
-			java.sql.Timestamp.from(NOW),
-			java.sql.Timestamp.from(NOW),
-		)
 	}
 
 	@Test
@@ -133,9 +125,7 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals(1, toss.confirmCalls)
 		assertEquals("PAID", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
 		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
-		assertEquals("CONFIRMED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
 		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
-		assertEquals(NOW, jdbc.queryForObject("SELECT updated_at FROM inventory_reservations", java.time.OffsetDateTime::class.java)!!.toInstant())
 		assertEquals(2, committedQuantity())
 		mvc.perform(orderRequest(orderKey)).andExpect(status().isCreated).andExpect(jsonPath("$.status").value("PAID"))
 	}
@@ -195,7 +185,6 @@ class PaymentConfirmationIntegrationTest {
 		mvc.perform(confirm(orderId)).andExpect(status().isConflict)
 		assertEquals("CONFIRMING", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 		assertEquals("PENDING_PAYMENT", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
-		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
 		assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 
 		jdbc.update("INSERT INTO seller_principal_identities (user_id, seller_id) VALUES (?, 1)", sellerUserId)
@@ -204,7 +193,6 @@ class PaymentConfirmationIntegrationTest {
 
 		assertEquals("APPROVED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 		assertEquals("PAID", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
-		assertEquals("CONFIRMED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
 		assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 	}
 
@@ -235,8 +223,8 @@ class PaymentConfirmationIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("응답 단절 후 만료된 주문은 예약을 유지하고 재확인 실패 후 해제한다")
-	fun 응답_단절_후_만료된_주문_예약을_유지하고_실패_후_해제한다() {
+	@DisplayName("응답 단절 후 만료된 주문은 수량을 유지하고 재확인 실패 후 해제한다")
+	fun 응답_단절_후_만료된_주문_수량을_유지하고_실패_후_해제한다() {
 		val orderId = createOrder()
 		mvc.perform(confirm(orderId)).andExpect(status().isServiceUnavailable)
 		val firstKey = toss.lastIdempotencyKey
@@ -247,7 +235,7 @@ class PaymentConfirmationIntegrationTest {
 
 		assertEquals(firstKey, toss.lastIdempotencyKey)
 		assertEquals("FAILED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
-		assertEquals("RELEASED", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
+		assertEquals("PAYMENT_FAILED", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
 		assertEquals(0, committedQuantity())
 		mvc.perform(orderRequest()).andExpect(status().isCreated)
 	}
@@ -266,7 +254,6 @@ class PaymentConfirmationIntegrationTest {
 		assertEquals(1, toss.confirmCalls)
 		assertEquals("REVIEW_REQUIRED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
 		assertEquals("PENDING_PAYMENT", jdbc.queryForObject("SELECT status FROM orders", String::class.java))
-		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
 		assertEquals(2, committedQuantity())
 	}
 
@@ -281,12 +268,11 @@ class PaymentConfirmationIntegrationTest {
 		paymentService.reconcileDue()
 
 		assertEquals("REVIEW_REQUIRED", jdbc.queryForObject("SELECT status FROM payments", String::class.java))
-		assertEquals("PAYMENT_PENDING", jdbc.queryForObject("SELECT status FROM inventory_reservations", String::class.java))
 		assertEquals(2, committedQuantity())
 	}
 
 	@Test
-	@DisplayName("토스 승인 대기 중 예약이 만료되어도 같은 판매 일정의 새 주문은 초과 판매되지 않는다")
+	@DisplayName("토스 승인 대기 중 주문이 만료되어도 같은 판매 일정의 새 주문은 초과 판매되지 않는다")
 	fun 토스_승인_대기_중_만료_새_주문_초과_판매를_막는다() {
 		val orderId = createOrder()
 		toss.result = TossPaymentResult.Record("payment-key", orderId, 70_000L, "DONE", NOW.plusSeconds(1))
@@ -373,7 +359,7 @@ class PaymentConfirmationIntegrationTest {
 		.andReturn().response.contentAsString.let { Regex("\"paymentOrderId\":\"([^\"]+)\"").find(it)!!.groupValues[1] }
 
 	private fun committedQuantity(): Int = jdbc.queryForObject(
-		"SELECT committed_quantity FROM sale_inventory_counters WHERE sale_id = ?",
+		"SELECT committed_quantity FROM sales WHERE id = ?",
 		Int::class.java,
 		saleId,
 	)!!

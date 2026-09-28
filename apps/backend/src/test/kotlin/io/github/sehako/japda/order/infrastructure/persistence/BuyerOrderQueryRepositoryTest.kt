@@ -35,9 +35,7 @@ class BuyerOrderQueryRepositoryTest {
 	@BeforeEach
 	fun 테스트_데이터를_초기화한다() {
 		jdbcTemplate.update("DELETE FROM payments")
-		jdbcTemplate.update("DELETE FROM inventory_reservations")
 		jdbcTemplate.update("DELETE FROM orders")
-		jdbcTemplate.update("DELETE FROM sale_inventory_counters")
 		jdbcTemplate.update("DELETE FROM sales")
 		jdbcTemplate.update("DELETE FROM sale_days")
 		jdbcTemplate.update("DELETE FROM product_images")
