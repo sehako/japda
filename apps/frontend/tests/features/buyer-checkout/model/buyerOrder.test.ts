@@ -6,6 +6,15 @@ const address = { shippingAddressId: 7, addressName: '집', recipientName: '홍�
 const checkout = { saleId: 11, productName: '한정판 후디', representativeImagePath: '/products/21/main.webp', quantity: 3, unitPrice: 120000, totalPrice: 360000, shippingAddresses: [address] }
 const order = { orderId: 9, paymentOrderId: '550e8400-e29b-41d4-a716-446655440000', status: 'PENDING_PAYMENT' as const, productName: '한정판 후디', quantity: 3, unitPrice: 120000, totalPrice: 360000, expiresAt: '2026-09-13T12:03:00Z' }
 
+test.each([
+  ['PENDING_PAYMENT', 'valid'],
+  ['PAID', 'invalid'],
+  ['EXPIRED', 'expired'],
+  ['PAYMENT_FAILED', 'expired'],
+] as const)('주문 상태 %s를 결제 가능성 %s로 판정한다', (status, result) => {
+  expect(checkBuyerOrder({ ...order, status }, checkout, Date.parse('2026-09-13T12:00:00Z'))).toBe(result)
+})
+
 describe('구매자 주문 모델', () => {
   test('선택한 배송지의 주소 스냅샷만 주문 요청에 복사한다', () => {
     expect(createBuyerOrderRequest(checkout, address)).toEqual({ saleId: 11, quantity: 3, shippingAddress: { recipientName: '홍길동', phoneNumber: '010-1234-5678', postalCode: '06236', address: '서울', detailAddress: '101호', deliveryMessage: null } })

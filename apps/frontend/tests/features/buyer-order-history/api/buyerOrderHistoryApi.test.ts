@@ -21,19 +21,33 @@ const paidOrder = {
   productName: '결제 완료 상품',
 } as const
 
+const expiredOrder = {
+  ...pendingOrder,
+  orderId: 998,
+  status: 'EXPIRED',
+  productName: '만료 상품',
+} as const
+
+const paymentFailedOrder = {
+  ...pendingOrder,
+  orderId: 997,
+  status: 'PAYMENT_FAILED',
+  productName: '결제 실패 상품',
+} as const
+
 describe('구매자 주문 내역 API', () => {
   test('보호 요청으로 최초 20개를 조회하고 AbortSignal을 전달한다', async () => {
     let sentRequest: Request | null = null
     const controller = new AbortController()
     const fetcher: typeof fetch = async (input, init) => {
       sentRequest = new Request(input, init)
-      return Response.json({ items: [pendingOrder, paidOrder], nextCursor: 'next-page' })
+      return Response.json({ items: [pendingOrder, paidOrder, expiredOrder, paymentFailedOrder], nextCursor: 'next-page' })
     }
 
     await expect(getBuyerOrderHistoryPage(undefined, controller.signal, {
       baseUrl: 'http://localhost:8080/',
       fetcher,
-    })).resolves.toEqual({ items: [pendingOrder, paidOrder], nextCursor: 'next-page' })
+    })).resolves.toEqual({ items: [pendingOrder, paidOrder, expiredOrder, paymentFailedOrder], nextCursor: 'next-page' })
 
     const request = sentRequest as unknown as Request
     expect(request.url).toBe('http://localhost:8080/api/orders?size=20')
@@ -65,6 +79,7 @@ describe('구매자 주문 내역 API', () => {
   test.each([
     { items: [], nextCursor: null },
     { items: [paidOrder], nextCursor: null },
+    { items: [expiredOrder, paymentFailedOrder], nextCursor: null },
   ])('빈 페이지와 마지막 페이지 %#을 정상 결과로 반환한다', async (page) => {
     const fetcher: typeof fetch = async () => Response.json(page)
     await expect(getBuyerOrderHistoryPage(undefined, undefined, { fetcher })).resolves.toEqual(page)

@@ -13,7 +13,7 @@ function isBuyerOrder(value: unknown): value is BuyerOrder {
   const order = value as Record<string, unknown>
   return isPositiveSafeInteger(order.orderId)
     && typeof order.paymentOrderId === 'string' && canonicalUuidV4.test(order.paymentOrderId)
-    && order.status === 'PENDING_PAYMENT'
+    && (order.status === 'PENDING_PAYMENT' || order.status === 'PAID' || order.status === 'EXPIRED' || order.status === 'PAYMENT_FAILED')
     && typeof order.productName === 'string' && order.productName.trim().length > 0
     && isPositiveSafeInteger(order.quantity) && order.quantity <= 2_147_483_647
     && isPositiveSafeInteger(order.unitPrice)

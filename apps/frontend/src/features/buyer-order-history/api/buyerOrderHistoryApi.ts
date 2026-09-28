@@ -4,7 +4,12 @@ import type { BuyerOrder, BuyerOrderPage, BuyerOrderStatus } from '../model/buye
 
 export const BUYER_ORDER_HISTORY_PAGE_SIZE = 20
 
-const BUYER_ORDER_STATUSES = new Set<BuyerOrderStatus>(['PENDING_PAYMENT', 'PAID'])
+const BUYER_ORDER_STATUSES = new Set<BuyerOrderStatus>([
+  'PENDING_PAYMENT',
+  'PAID',
+  'EXPIRED',
+  'PAYMENT_FAILED',
+])
 
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0

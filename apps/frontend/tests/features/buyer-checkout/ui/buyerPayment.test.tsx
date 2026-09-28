@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, expect, test, vi } from 'vitest'
 
 import { BuyerCheckoutContent } from '../../../../src/features/buyer-checkout/ui/BuyerCheckoutContent.tsx'
@@ -24,6 +24,10 @@ const address = { shippingAddressId: 7, addressName: '집', recipientName: '홍�
 const checkout = { saleId: 11, productName: '한정판 후디', representativeImagePath: '/main.webp', quantity: 3, unitPrice: 120000, totalPrice: 360000, shippingAddresses: [address] }
 const order = { orderId: 1, paymentOrderId: '123e4567-e89b-42d3-a456-426614174000', status: 'PENDING_PAYMENT', productName: '한정판 후디', quantity: 3, unitPrice: 120000, totalPrice: 360000, expiresAt: '2099-01-01T00:00:00Z' }
 
+function LocationProbe() {
+  return <span data-testid="location">{useLocation().pathname}</span>
+}
+
 function show() {
   const domainFetcher = globalThis.fetch
   vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) =>
@@ -31,7 +35,7 @@ function show() {
       ? Promise.resolve(Response.json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' }))
       : domainFetcher(input, init))
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={queryClient}><MemoryRouter><BuyerCheckoutContent saleId={11} quantity={3} /></MemoryRouter></QueryClientProvider>)
+  return render(<QueryClientProvider client={queryClient}><MemoryRouter><BuyerCheckoutContent saleId={11} quantity={3} /><LocationProbe /></MemoryRouter></QueryClientProvider>)
 }
 
 test('체크아웃은 승인 결과를 확인하는 테스트 결제임을 안내한다', async () => {
@@ -60,6 +64,22 @@ afterEach(() => {
   hasSelectedPaymentMethod.mockResolvedValue(true)
   destroy.mockImplementation(async () => undefined)
   for (const key of Object.keys(listeners)) delete listeners[key]
+})
+
+test.each([
+  ['PAID', '/orders', null],
+  ['EXPIRED', null, '기존 주문이 만료됐습니다. 새 주문을 시도해 주세요.'],
+  ['PAYMENT_FAILED', null, '기존 주문의 결제가 실패했습니다. 새 주문을 시도해 주세요.'],
+] as const)('%s 재응답은 기존 주문으로 결제하지 않는다', async (status, path, message) => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(checkout)).mockResolvedValueOnce(Response.json({ ...order, status }))
+  vi.stubGlobal('fetch', fetcher)
+  readyWidget()
+  show()
+  const button = await choosePayment()
+  fireEvent.click(button)
+  if (path) await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent(path))
+  if (message) expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(requestPayment).not.toHaveBeenCalled()
 })
 
 test('결제 버튼을 누른 순간 빠진 항목만 안내하고 선택 변경만으로 문구를 갱신하지 않는다', async () => {

@@ -1,4 +1,4 @@
-export type BuyerOrderStatus = 'PENDING_PAYMENT' | 'PAID'
+export type BuyerOrderStatus = 'PENDING_PAYMENT' | 'PAID' | 'EXPIRED' | 'PAYMENT_FAILED'
 
 export interface BuyerOrder {
   orderId: number

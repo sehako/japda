@@ -27,7 +27,6 @@ describe('구매자 주문 API', () => {
   })
 
   test.each([
-    { ...response, status: 'PAID' },
     { ...response, paymentOrderId: 'legacy_9' },
     { ...response, paymentOrderId: '550e8400-e29b-41d4-a716-446655440001'.replace('-41d4-', '-31d4-') },
     { ...response, totalPrice: Number.MAX_SAFE_INTEGER + 1 },
@@ -37,6 +36,11 @@ describe('구매자 주문 API', () => {
     { ...response, expiresAt: 'invalid' },
   ])('결제에 필요한 주문 응답 계약 오류를 거절한다', async (invalid) => {
     await expect(createBuyerOrder(body, key, { fetcher: async (input) => String(input).endsWith('/api/auth/csrf') ? Response.json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' }) : Response.json(invalid, { status: 201 }) })).rejects.toBeInstanceOf(ApiError)
+  })
+
+  test.each(['PENDING_PAYMENT', 'PAID', 'EXPIRED', 'PAYMENT_FAILED'] as const)('주문 상태 %s 응답을 허용한다', async (status) => {
+    const valid = { ...response, status }
+    await expect(createBuyerOrder(body, key, { fetcher: async (input) => String(input).endsWith('/api/auth/csrf') ? Response.json({ token: 'csrf-token', headerName: 'X-CSRF-TOKEN' }) : Response.json(valid, { status: 201 }) })).resolves.toEqual(valid)
   })
 
   test.each(['', 'invalid', '660e8400-e29b-31d4-a716-446655440000'])('잘못된 멱등성 키 %s에서는 주문을 보내지 않는다', async (invalidKey) => {

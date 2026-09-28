@@ -158,10 +158,10 @@ PAYMENT_FAILED
 - [x] 주문 내역·주문 생성·결제 결과의 현재 상태 처리 확인
 - [x] 구현 범위와 검증 명령 정의
 - [x] 동일 멱등성 키 재응답의 상태 집합과 사용자 경험 확정
-- [ ] 주문 내역 상태 계약과 UI 구현
-- [ ] 주문 생성 종료 상태 재응답 처리 구현
-- [ ] 결제 결과 호환성 테스트 보강
-- [ ] 프론트엔드 명세·테스트·build·lint 갱신 및 실행
+- [x] 주문 내역 상태 계약과 UI 구현
+- [x] 주문 생성 종료 상태 재응답 처리 구현
+- [x] 결제 결과 호환성 테스트 보강
+- [x] 프론트엔드 명세·테스트·build·lint 갱신 및 실행
 
 ## 발견 사항
 
@@ -171,6 +171,8 @@ PAYMENT_FAILED
 - `useBuyerPayment`는 주문 응답 검증 통과 후 곧바로 Toss `requestPayment()`를 호출하므로 `PAID` 재응답의 결제 중복 방지 분기가 필요하다.
 - 결제 결과 hook은 이미 `PAYMENT_CONFIRMATION_FAILED`, `PAYMENT_ORDER_EXPIRED`, `PAYMENT_REVIEW_REQUIRED`를 구분하고 있어, 백엔드 오류 코드가 유지되면 변경보다 회귀 검증이 중심이다.
 - 디자인 지침은 `Signal`을 결제 실패·중요 경고에만 사용할 수 있도록 정의하고 있다.
+- 주문 생성 hook은 종료 상태에서 `expired` 상태와 새 주문 안내를 재사용하고, 기존 UI의 `새 주문 시도` 동작으로 새 멱등성 키를 생성한다.
+- 결제 결과의 production hook은 이미 확정된 상태 분기를 제공하므로 이번 변경에서는 결과 페이지 회귀 테스트와 명세 보강만 필요했다.
 
 ## 결정 로그
 
@@ -191,4 +193,24 @@ PAYMENT_FAILED
 
 ## 결과 및 회고
 
-구현 후 실제 변경 파일, 상태별 UI·API 계약 테스트 결과, `npm test -- --run`, `npm run lint`, `npm run build` 실행 결과와 미실행 사유를 기록한다. 특히 동일 멱등성 키 재응답에서 결제 SDK 중복 호출이 차단되는지와 종료 주문이 기존 주문으로 재결제되지 않는지를 회고에 남긴다.
+### 실제 변경
+
+- `buyer-order-history`의 상태 타입과 API 런타임 검증을 `PENDING_PAYMENT`, `PAID`, `EXPIRED`, `PAYMENT_FAILED` 네 값으로 확장했다.
+- 주문 행에 상태별 문구·스타일 매핑을 도입하고 `expiresAt`은 `PENDING_PAYMENT`에서만 표시하도록 했다.
+- 주문 생성 응답 검증과 `useBuyerPayment`를 확장해 `PAID` 재응답은 `/orders`로 이동하고, `EXPIRED`·`PAYMENT_FAILED`는 기존 주문을 재사용하지 않고 새 주문을 안내하도록 했다.
+- 결제 결과 화면의 검증된 `PAID` 성공 판정과 기존 오류 상태 매핑을 회귀 테스트로 보강했다.
+- `buyer-order-history-page.md`, `buyer-toss-payment-window.md`, `buyer-payment-confirmation-result.md`를 실제 상태 계약과 재결제 금지 원칙에 맞게 갱신했다.
+
+### 검증 결과
+
+- `npm test -- --run`: 47개 파일, 406개 테스트 통과
+- `npm run lint`: 통과
+- `npm run build`: 통과
+- `git diff --check`: 통과
+
+동일 멱등성 키의 `PAID` 재응답에서 `requestPayment()`가 호출되지 않고 `/orders`로 이동하는 테스트를 통과했다. `EXPIRED`·`PAYMENT_FAILED` 재응답도 기존 주문의 결제를 재시도하지 않고 새 주문 안내로 전환하는 테스트를 통과했다. 정의되지 않은 상태는 API 계약 오류로 계속 거절하며, 네 상태의 주문 내역 표시와 `expiresAt` 조건도 검증했다.
+
+### 계획과의 차이 및 후속 작업
+
+- 계획과 구현 범위의 차이는 없다. 결제 결과 production hook은 기존 계약이 이미 요구사항을 충족해 수정하지 않고 테스트·명세만 보강했다.
+- 실제 백엔드와의 통합 환경 검증은 백엔드 구현 및 통합 환경 준비 이후 후속 작업으로 남긴다.

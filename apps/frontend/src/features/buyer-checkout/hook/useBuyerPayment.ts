@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 
 import { ApiError } from '../../../shared/api/apiClient.ts'
 import { apiBaseUrl, tossPaymentPreviewConfig } from '../../../shared/config/env.ts'
@@ -39,6 +40,7 @@ export function useBuyerPayment({ checkout, selectedAddress, blocked, refresh }:
   blocked: boolean
   refresh: () => Promise<unknown>
 }) {
+  const navigate = useNavigate()
   const [status, setStatus] = useState<PaymentStatus>('loading')
   const [message, setMessage] = useState<string | null>(null)
   const [retryIndex, setRetryIndex] = useState(0)
@@ -123,6 +125,17 @@ export function useBuyerPayment({ checkout, selectedAddress, blocked, refresh }:
         if (attemptRef.current !== attempt) { setStatus('ready'); return }
         attempt = { ...attempt, order }
         attemptRef.current = attempt
+      }
+      if (order.status === 'PAID') {
+        attemptRef.current = null
+        navigate('/orders')
+        return
+      }
+      if (order.status === 'EXPIRED' || order.status === 'PAYMENT_FAILED') {
+        attemptRef.current = null
+        setStatus('expired')
+        setMessage(order.status === 'EXPIRED' ? '기존 주문이 만료됐습니다. 새 주문을 시도해 주세요.' : '기존 주문의 결제가 실패했습니다. 새 주문을 시도해 주세요.')
+        return
       }
       const check = checkBuyerOrder(order, checkout)
       if (check !== 'valid') {
