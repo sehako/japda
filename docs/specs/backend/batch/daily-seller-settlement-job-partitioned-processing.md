@@ -1,6 +1,8 @@
 # 판매자 일일 정산 Job 파티션 병렬 처리
 
 > 이 문서의 결제 ID 기반 collection 입력과 `settlement_details` 생성 설계는 [결제 승인 시 정산 원천 스냅샷 적재](../settlement/payment-approval-settlement-entry-snapshot.md)가 대체한다. local partitioning, 결정론적 계획, worker별 checkpoint, 지갑 입금과 최종 검산 계약은 유지하되 collection 범위는 `settlement_entries.id`를 기준으로 한다.
+>
+> [ADR-037](../../../architecture/decisions/ADR-037-remove-settlement-collection-partitioning.md)은 위 collection 파티셔닝 자체를 제거한다. 이 문서의 collection 계획 준비 Step, collection manager·worker, `collection-partition-count`, "상세 수집 파티셔닝" 절과 collection 관련 테스트·성능 기준은 구현 당시의 설계 기록으로 보존하며 현재 구현이 아니다. 현재 Job은 `정산 실행 준비(entry ID 경계 고정) → 수집 집계 고정 → 판매자별 확정 → credit 계획 준비 → credit 파티션 입금 → 실행 완료`로 구성하고, credit 파티셔닝과 계획·재시작 계약은 이 문서를 따른다.
 
 ## 목적
 

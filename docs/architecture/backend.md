@@ -122,8 +122,8 @@ HTTP Request
 
 - 배치 Job은 API HTTP 흐름과 분리된 `:batch` 애플리케이션에서 실행한다.
 - 판매자 일일 정산의 결제별 불변 원천은 결제 승인 application이 승인 상태 전이와 같은 PostgreSQL transaction에서 생성한다. `:batch`는 정산일과 최초 실행에서 고정한 ID 경계 안의 원천을 읽으며 결제·주문·판매·판매자 사용자 연결을 다시 조인해 동일한 상세를 생성하지 않는다.
-- 판매자 일일 정산 Job은 상세 수집과 지갑 입금에 Spring Batch local partitioning을 적용하고, 검산·확정 Step은 단일 실행으로 순서대로 수행한다. collection과 credit worker는 동시에 실행하지 않으며 하나의 전용 bounded worker pool을 공유한다.
-- 준비 Step은 정산 원천 ID와 판매자별 정산 ID를 결정론적인 상호 배타 범위로 한 번 나누어 고정 key의 기본값으로 Job `ExecutionContext`에 저장한다. 동일 JobInstance 재시작에서는 저장된 계획을 재사용하며 현재 데이터나 변경된 설정으로 다시 계산하지 않는다.
+- 판매자 일일 정산 Job은 지갑 입금에만 Spring Batch local partitioning을 적용한다. 정산 원천은 파티션 worker로 읽지 않고, 수집 집계 고정과 판매자별 확정을 SQL 집합 연산으로 단일 실행한다. credit worker는 전용 bounded worker pool에서 실행한다. [ADR-037](decisions/ADR-037-remove-settlement-collection-partitioning.md)을 따르며, [ADR-030](decisions/ADR-030-daily-seller-settlement-local-partitioning.md)의 collection 파티셔닝을 대체한다.
+- 정산 실행 준비 Step은 정산일의 정산 원천 ID 최소·최대 경계를 한 번 조회해 Job `ExecutionContext`에 고정하고, 수집 집계 고정과 판매자별 확정은 이 경계 안의 원천만 대상으로 한다. 판매자별 정산 ID는 입금 계획 준비 Step이 결정론적인 상호 배타 범위로 한 번 나누어 고정 key의 기본값으로 Job `ExecutionContext`에 저장한다. 동일 JobInstance 재시작에서는 저장된 경계와 계획을 재사용하며 현재 데이터나 변경된 설정으로 다시 계산하지 않는다.
 - 각 worker는 자신의 ID 범위에서 단일 thread keyset paging을 수행하고 마지막 commit cursor를 Step `ExecutionContext`에 저장한다. 완료된 worker는 재시작하지 않고 실패하거나 미완료된 worker만 checkpoint부터 재시작한다.
 - Job 입력은 식별 가능한 JobParameter로 받고 실패한 동일 JobInstance를 checkpoint부터 재시작한다. 임의의 run ID로 중복 실행 제약을 우회하지 않는다.
 - 금액과 정산 소유권 오류는 skip하지 않고 Job을 실패시킨다. 일시적인 인프라 오류에만 제한적인 retry를 사용한다.

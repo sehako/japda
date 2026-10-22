@@ -22,7 +22,7 @@
 - [ADR-024](../../../architecture/decisions/ADR-024-backend-api-batch-ledger-multi-project.md)의 API·배치·원장 모듈과 migration 소유권
 - [ADR-025](../../../architecture/decisions/ADR-025-daily-seller-settlement-and-user-wallet-ledger.md)의 결제별 근거, 판매자별 집계, 사용자 지갑과 원장 불변식
 - [ADR-028](../../../architecture/decisions/ADR-028-database-inventory-counter-and-order-reservation.md)의 결제 승인·주문·재고 예약 상태 전이
-- [ADR-030](../../../architecture/decisions/ADR-030-daily-seller-settlement-local-partitioning.md)의 결정론적 파티션 계획, worker별 checkpoint와 지갑 입금 재시작 계약
+- [ADR-030](../../../architecture/decisions/ADR-030-daily-seller-settlement-local-partitioning.md)의 지갑 입금 파티셔닝, 결정론적 파티션 계획, worker별 checkpoint와 재시작 계약 (collection 파티셔닝은 [ADR-037](../../../architecture/decisions/ADR-037-remove-settlement-collection-partitioning.md)이 제거)
 
 [ADR-035](../../../architecture/decisions/ADR-035-payment-approval-settlement-entry-snapshot.md)는 ADR-025의 결제별 근거 생성 시점과 ADR-030의 collection 입력을 변경한다. 결제별 근거를 일일 배치가 생성하던 방식은 결제 승인 transaction에서 생성하는 방식으로 대체한다. 판매자별 확정과 지갑 입금 계약은 유지한다.
 
@@ -144,7 +144,7 @@ API root project가 다음 구조의 `settlement_entries` migration을 소유한
 
 ### Collection과 확정
 
-첫 구현은 기존 local partitioning과 worker별 ID keyset paging을 유지하되 입력을 `settlement_entries`로 변경한다. reader는 자신의 상호 배타적인 ID 범위와 정산일 안에서 필요한 snapshot을 읽고 전체 원본 관계를 다시 조회하지 않는다.
+[ADR-037](../../../architecture/decisions/ADR-037-remove-settlement-collection-partitioning.md)에 따라 `settlement_entries`를 파티션 worker로 읽는 collection 단계는 두지 않는다. 승인 시점에 검증과 변환이 끝난 불변 원천을 배치가 다시 읽어 변환하거나 저장할 대상이 없기 때문이다. 정산 실행 준비 Step이 정산일의 `settlement_entries.id` 최소·최대 경계를 한 번 조회해 Job `ExecutionContext`에 고정하고, 같은 JobInstance 재시작에서는 저장된 경계를 재사용한다. `completeSettlementCollectionStep`은 이 경계 안의 entry 건수와 총액을 SQL로 집계해 `settlement_runs`에 기록하는 대사 기준점으로 유지한다.
 
 기존 `settlement_details`에 같은 내용을 다시 복제하지 않는다. `settlement_entries`가 결제별 불변 정산 근거를 담당하고, `settlement_runs`는 정산일별 실행과 수수료율, 집계 상태를 담당한다. 판매자별 확정은 대상 entry의 건수와 총액을 검산한 뒤 `seller_settlements`를 생성한다.
 
@@ -255,7 +255,7 @@ DB connection 단절이나 lock timeout 같은 일시적 오류는 transaction r
 - seller ID로 지급 대상 user ID를 조회하는 명시적 계약
 - `settlement_entries` Flyway migration
 - 결제 승인·동시성·reconcile 통합 테스트와 fixture
-- 배치 collection reader, 파티션 계획과 확정 집계
+- 배치 입력 경계 고정, 수집 집계와 확정 집계 (collection reader와 collection 파티션 계획은 제거)
 - 성능 합성 데이터 생성, 검산, 자원 측정과 SLA 판정
 - 관련 ADR, 백엔드 아키텍처 지침과 배치 명세
 

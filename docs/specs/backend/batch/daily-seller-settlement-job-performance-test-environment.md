@@ -1,5 +1,7 @@
 # 판매자 일일 정산 Job 성능 테스트 환경
 
+> [ADR-037](../../../architecture/decisions/ADR-037-remove-settlement-collection-partitioning.md)로 collection 파티셔닝(collection 파티션 계획·manager·worker, `collection-partition-count`)을 제거했다. 이 문서의 collection 단계 관련 측정 항목과 설정은 구현 당시의 설계 기록이며, 현재 harness는 수집 집계 고정·확정·credit 단계를 대상으로 한다.
+
 ## 목적과 완료 조건
 
 [`dailySellerSettlementJob`](daily-seller-settlement-job-wallet-credit-stage.md)의 성능을 운영 데이터나 외부 PostgreSQL 없이 반복 측정할 수 있는 테스트 환경을 제공한다. 실행자가 외부 설정으로 판매자 수, 주문 수와 정산 조건을 지정하면 테스트가 PostgreSQL Testcontainer를 시작하고 합성 데이터를 준비한 뒤 실제 배치 애플리케이션과 Job을 실행한다.
