@@ -16,13 +16,12 @@ import org.junit.jupiter.api.DisplayName
 @DisplayName("대용량 정산 성능 SLA 판정")
 class PerformanceSlaEvaluatorTest {
 	@Test
-	@DisplayName("1000만 건은 실제 파티션 manager 단계 이름으로 SLA를 판정한다")
+	@DisplayName("1000만 건은 실제 확정·입금 단계 이름으로 SLA를 판정한다")
 	fun 천만_실제_단계_이름_SLA_판정() {
 		val result = PerformanceSlaEvaluator().evaluate(
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
 			Duration.ofSeconds(40).toMillis(),
 			listOf(
-				step("collectSettlementDetailsManagerStep", 1),
 				step("confirmSellerSettlementsStep", 1),
 				step("creditSellerWalletsManagerStep", 1),
 				step("completeSettlementRunStep", 1),
@@ -38,7 +37,7 @@ class PerformanceSlaEvaluatorTest {
 		val result = PerformanceSlaEvaluator().evaluate(
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
 			Duration.ofMinutes(61).toMillis(),
-			listOf(step("collectSettlementDetailsManagerStep", 50), step("confirmSellerSettlementsStep", 5)),
+			listOf(step("confirmSellerSettlementsStep", 5)),
 		)
 
 		assertFalse(result.success)
@@ -66,7 +65,7 @@ class PerformanceSlaEvaluatorTest {
 		val result = PerformanceSlaEvaluator().evaluate(
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED, timeout = Duration.ofMinutes(64)),
 			Duration.ofMinutes(59).toMillis(),
-			listOf(step("collectSettlementDetailsManagerStep", 49), step("confirmSellerSettlementsStep", 4)),
+			listOf(step("confirmSellerSettlementsStep", 4)),
 		)
 
 		assertFalse(result.success)
@@ -80,7 +79,6 @@ class PerformanceSlaEvaluatorTest {
 			scenario(orderCount = 10_000_000, sellerCount = 100_000, distribution = ApprovalTimeDistribution.FIXED),
 			Duration.ofMinutes(59).toMillis(),
 			listOf(
-				step("collectSettlementDetailsManagerStep", 49),
 				step("confirmSellerSettlementsStep", 4),
 				step("creditSellerWalletsManagerStep", 3),
 				step("completeSettlementRunStep", 3),

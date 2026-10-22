@@ -36,9 +36,9 @@ class PerformanceReportWriterTest {
 			values = linkedMapOf(
 				"expected.order.count" to "2",
 				"actual.order.count" to "2",
-				"iteration.1.partition.collection.longest.ratio" to "0.251",
+				"iteration.1.partition.credit.longest.ratio" to "0.251",
 			),
-			failures = listOf("iteration 1: collection 파티션 처리 편향이 25.0%를 초과했습니다"),
+			failures = listOf("iteration 1: credit 파티션 처리 편향이 25.0%를 초과했습니다"),
 		)
 
 		PerformanceReportWriter(directory).write(
@@ -52,13 +52,9 @@ class PerformanceReportWriterTest {
 			validation = validation,
 			queryPlans = listOf(
 				QueryPlanDiagnostic(
-					partitionLabel = "collectionPartition032",
-					partitionStartInclusive = 101,
-					partitionEndExclusive = 201,
-					partitionEndInclusive = false,
-					cursorPosition = "middle",
+					label = "entryAggregate",
 					executionMillis = 12,
-					plan = "Index Cond: [REDACTED_CURSOR]",
+					plan = "Index Only Scan using settlement_entries_settlement_date_id_idx",
 				),
 			),
 		)
@@ -78,20 +74,16 @@ class PerformanceReportWriterTest {
 				"job.duration.p50.millis=250",
 				"job.throughput.average.per-second=8.000",
 				"overall.success=false",
-				"iteration.1.partition.collection.longest.ratio=0.251",
+				"iteration.1.partition.credit.longest.ratio=0.251",
 				"partition.skew.success=false",
 			)
 			.doesNotContain("throughput.milli", "throughput.average.millis")
 			.doesNotContain("9999")
 		assertThat(directory.resolve("query-plans.txt").readText())
 			.contains(
-				"partition=collectionPartition032",
-				"partition_start_inclusive=101",
-				"partition_end_exclusive=201",
-				"partition_end_inclusive=false",
-				"cursor=middle",
+				"query=entryAggregate",
 				"execution_millis=12",
-				"[REDACTED_CURSOR]",
+				"Index Only Scan using settlement_entries_settlement_date_id_idx",
 			)
 	}
 
@@ -106,7 +98,7 @@ class PerformanceReportWriterTest {
 		jobDurationMillis = durationMillis,
 		processedOrderCount = 2,
 		steps = listOf(
-			StepMeasurement("collectSettlementDetailsStep", ExecutionStatus.COMPLETED, durationMillis / 2, 2, 2, 0, 0, 1, 0),
+			StepMeasurement("confirmSellerSettlementsStep", ExecutionStatus.COMPLETED, durationMillis / 2, 2, 2, 0, 0, 1, 0),
 		),
 		validationSuccess = true,
 	)

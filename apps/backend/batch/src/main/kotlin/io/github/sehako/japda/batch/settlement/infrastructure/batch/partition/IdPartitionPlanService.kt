@@ -7,7 +7,6 @@ import org.springframework.batch.infrastructure.item.ExecutionContext
 enum class PartitionPlanType(
 	val keyPrefix: String,
 ) {
-	COLLECTION("collection"),
 	CREDIT("credit"),
 }
 

@@ -63,11 +63,7 @@ class PerformanceReportWriter(
 
 	private fun writeQueryPlans(queryPlans: List<QueryPlanDiagnostic>) {
 		val content = queryPlans.joinToString("\n\n") { diagnostic ->
-			"partition=${diagnostic.partitionLabel}\n" +
-				"partition_start_inclusive=${diagnostic.partitionStartInclusive}\n" +
-				"partition_end_exclusive=${diagnostic.partitionEndExclusive}\n" +
-				"partition_end_inclusive=${diagnostic.partitionEndInclusive}\n" +
-				"cursor=${diagnostic.cursorPosition}\nexecution_millis=${diagnostic.executionMillis}\n" +
+			"query=${diagnostic.label}\nexecution_millis=${diagnostic.executionMillis}\n" +
 				"returned_row_count=${diagnostic.returnedRowCount}\n${diagnostic.plan}"
 		}
 		write("query-plans.txt", if (content.isEmpty()) "" else "$content\n")

@@ -12,8 +12,18 @@ data class SettlementEntryBounds(
 	}
 
 	companion object {
-		private const val MIN_ID_KEY = "collection.partition.minId"
-		private const val MAX_ID_KEY = "collection.partition.maxId"
+		private const val MIN_ID_KEY = "settlementEntry.minId"
+		private const val MAX_ID_KEY = "settlementEntry.maxId"
+
+		fun fixIfAbsent(executionContext: ExecutionContext, find: () -> SettlementEntryBounds): SettlementEntryBounds {
+			if (executionContext.containsKey(MIN_ID_KEY) || executionContext.containsKey(MAX_ID_KEY)) {
+				return from(executionContext)
+			}
+			return find().also { bounds ->
+				bounds.minId?.let { executionContext.putLong(MIN_ID_KEY, it) }
+				bounds.maxId?.let { executionContext.putLong(MAX_ID_KEY, it) }
+			}
+		}
 
 		fun from(executionContext: ExecutionContext): SettlementEntryBounds {
 			val hasMinId = executionContext.containsKey(MIN_ID_KEY)

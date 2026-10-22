@@ -113,8 +113,6 @@ class DailySellerSettlementJobPerformanceTest {
 	private fun diagnoseQueryPlans(
 		scenario: PerformanceScenario,
 		fixture: PerformancePostgresFixture,
-		pageSize: Int,
-		partitionCount: Int,
 	): List<QueryPlanDiagnostic> {
 		val database = fixture.createIteration()
 		val dataset = SyntheticDatasetFactory.create(scenario)
@@ -122,8 +120,6 @@ class DailySellerSettlementJobPerformanceTest {
 		SyntheticDatasetInserter().insertAndVerify(jdbcTemplate, dataset, scenario.dataset.generationBatchSize)
 		return QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
 			SettlementDateRange.from(scenario.job.settlementDate),
-			pageSize,
-			partitionCount,
 		)
 	}
 
@@ -157,7 +153,7 @@ class DailySellerSettlementJobPerformanceTest {
 			captureEffectiveEnvironment(context, jdbcTemplate, scenarioValues)
 			if (queryPlans.isEmpty()) {
 				val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
-				queryPlans += diagnoseQueryPlans(scenario, fixture, tuning.pageSize, tuning.collectionPartitionCount)
+				queryPlans += diagnoseQueryPlans(scenario, fixture)
 			}
 			val execution = executeJob(index, scenario, fixture, context)
 			val steps = execution.jobExecution?.stepMeasurements().orEmpty()
@@ -330,7 +326,6 @@ class DailySellerSettlementJobPerformanceTest {
 		val tuning = context.getBean(DailySellerSettlementBatchProperties::class.java)
 		val dataSource = context.getBean(javax.sql.DataSource::class.java) as HikariDataSource
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.worker-count", tuning.workerCount.toString())
-		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.collection-partition-count", tuning.collectionPartitionCount.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.credit-partition-count", tuning.creditPartitionCount.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.chunk-size", tuning.chunkSize.toString())
 		scenarioValues.putIfAbsent("japda.batch.daily-seller-settlement.page-size", tuning.pageSize.toString())
@@ -426,7 +421,6 @@ class DailySellerSettlementJobPerformanceTest {
 		)
 		println(
 			"설정: worker=${scenarioValues["japda.batch.daily-seller-settlement.worker-count"] ?: "UNKNOWN"}, " +
-				"collection-partitions=${scenarioValues["japda.batch.daily-seller-settlement.collection-partition-count"] ?: "UNKNOWN"}, " +
 				"credit-partitions=${scenarioValues["japda.batch.daily-seller-settlement.credit-partition-count"] ?: "UNKNOWN"}, " +
 				"chunk=${scenarioValues["japda.batch.daily-seller-settlement.chunk-size"] ?: "UNKNOWN"}, " +
 				"page=${scenarioValues["japda.batch.daily-seller-settlement.page-size"] ?: "UNKNOWN"}, " +

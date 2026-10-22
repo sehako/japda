@@ -73,7 +73,6 @@ val forwardedDatasourceSystemProperties = setOf(
 )
 val forwardedBatchTuningSystemProperties = setOf(
 	"japda.batch.daily-seller-settlement.worker-count",
-	"japda.batch.daily-seller-settlement.collection-partition-count",
 	"japda.batch.daily-seller-settlement.credit-partition-count",
 	"japda.batch.daily-seller-settlement.chunk-size",
 	"japda.batch.daily-seller-settlement.page-size",
@@ -152,7 +151,6 @@ tasks.register<Test>("performanceTest") {
 		)
 		logger.lifecycle(
 			"성능 테스트 설정: worker=${scenario.getProperty("japda.batch.daily-seller-settlement.worker-count")}, " +
-				"collection-partitions=${scenario.getProperty("japda.batch.daily-seller-settlement.collection-partition-count")}, " +
 				"credit-partitions=${scenario.getProperty("japda.batch.daily-seller-settlement.credit-partition-count")}, " +
 				"chunk=${scenario.getProperty("japda.batch.daily-seller-settlement.chunk-size")}, " +
 				"page=${scenario.getProperty("japda.batch.daily-seller-settlement.page-size")}, " +

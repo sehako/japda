@@ -19,5 +19,4 @@ japda:
   batch:
     daily-seller-settlement:
       worker-count: ${DAILY_SELLER_SETTLEMENT_WORKER_COUNT:8}
-      collection-partition-count: ${DAILY_SELLER_SETTLEMENT_COLLECTION_PARTITION_COUNT:64}
       credit-partition-count: ${DAILY_SELLER_SETTLEMENT_CREDIT_PARTITION_COUNT:64}

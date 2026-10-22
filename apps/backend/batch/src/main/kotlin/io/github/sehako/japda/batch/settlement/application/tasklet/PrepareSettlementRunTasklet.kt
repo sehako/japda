@@ -1,5 +1,6 @@
 package io.github.sehako.japda.batch.settlement.application.tasklet
 
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.validation.DailySellerSettlementJobParametersValidator.Companion.PLATFORM_FEE_RATE_BPS_PARAMETER
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.validation.DailySellerSettlementJobParametersValidator.Companion.SETTLEMENT_DATE_PARAMETER
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
@@ -24,6 +25,9 @@ class PrepareSettlementRunTasklet(
 		val settlementRun = existing ?: settlementRunRepository.create(settlementDate, platformFeeRateBps, Instant.now(clock))
 		if (settlementRun.platformFeeRateBps != platformFeeRateBps) {
 			throw SettlementRunStateException("저장된 플랫폼 수수료율과 재시작 parameter가 다릅니다: settlementDate=$settlementDate")
+		}
+		SettlementEntryBounds.fixIfAbsent(contribution.stepExecution.jobExecution.executionContext) {
+			settlementRunRepository.findEntryBounds(settlementDate)
 		}
 		contribution.stepExecution.executionContext.putLong(SETTLEMENT_RUN_ID_CONTEXT_KEY, settlementRun.id)
 		return RepeatStatus.FINISHED

@@ -20,15 +20,15 @@ class IdPartitionPlanPreparationTaskletTest {
 		val execution = jobExecution()
 		val tasklet = IdPartitionPlanPreparationTasklet(
 			IdPartitionPlanService(),
-			PartitionPlanType.COLLECTION,
+			PartitionPlanType.CREDIT,
 			2,
 		) { IdBounds(10L, 12L) }
 
 		tasklet.execute(mock(StepContribution::class.java), ChunkContext(StepContext(StepExecution(1L, "prepare", execution))))
 
-		assertEquals(2, execution.executionContext.getInt("collection.partition.count"))
-		assertEquals(10L, execution.executionContext.getLong("collection.partition.000.startInclusive"))
-		assertEquals(13L, execution.executionContext.getLong("collection.partition.001.endExclusive"))
+		assertEquals(2, execution.executionContext.getInt("credit.partition.count"))
+		assertEquals(10L, execution.executionContext.getLong("credit.partition.000.startInclusive"))
+		assertEquals(13L, execution.executionContext.getLong("credit.partition.001.endExclusive"))
 	}
 
 	@Test

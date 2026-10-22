@@ -45,7 +45,6 @@ class BatchCounterValidator(
 			"batch.expected.order.count" to expectedOrderCount.toString(),
 			"batch.expected.seller.count" to expectedSellerCount.toString(),
 		)
-		validateWorkerSteps(steps, COLLECTION_WORKER_PREFIX, "collection", expectedOrderCount, failures, values)
 		validateWorkerSteps(steps, CREDIT_WORKER_PREFIX, "credit", expectedSellerCount, failures, values)
 		return ValidationReport(
 			success = failures.isEmpty(),
@@ -83,12 +82,9 @@ class BatchCounterValidator(
 	}
 
 	private companion object {
-		const val COLLECTION_WORKER_PREFIX = "collectSettlementDetailsWorkerStep"
 		const val CREDIT_WORKER_PREFIX = "creditSellerWalletsWorkerStep"
 		val REQUIRED_STEPS = setOf(
 			"prepareSettlementRunStep",
-			"prepareCollectionPartitionPlanStep",
-			"collectSettlementDetailsManagerStep",
 			"completeSettlementCollectionStep",
 			"confirmSellerSettlementsStep",
 			"prepareCreditPartitionPlanStep",
@@ -103,7 +99,6 @@ class PartitionSkewValidator {
 		val values = linkedMapOf<String, String>()
 		val failures = mutableListOf<String>()
 		val reportOnly = expectedEntryCount < MINIMUM_SKEW_EVALUATION_COUNT
-		validatePhase(steps, COLLECTION_PHASE, values, failures, reportOnly)
 		validatePhase(steps, CREDIT_PHASE, values, failures, reportOnly)
 		return ValidationReport(failures.isEmpty(), values, failures)
 	}
@@ -142,7 +137,6 @@ class PartitionSkewValidator {
 	private companion object {
 		const val MAX_LONGEST_PARTITION_RATIO = 0.25
 		const val MINIMUM_SKEW_EVALUATION_COUNT = 1_000_000L
-		val COLLECTION_PHASE = Phase("collection", "collectSettlementDetailsManagerStep", "collectSettlementDetailsWorkerStep")
 		val CREDIT_PHASE = Phase("credit", "creditSellerWalletsManagerStep", "creditSellerWalletsWorkerStep")
 	}
 }

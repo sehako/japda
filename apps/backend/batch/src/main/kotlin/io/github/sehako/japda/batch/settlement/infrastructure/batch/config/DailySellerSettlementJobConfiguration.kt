@@ -1,6 +1,5 @@
 package io.github.sehako.japda.batch.settlement.infrastructure.batch.config
 
-import io.github.sehako.japda.batch.settlement.application.dto.SettlementPaymentProjection
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementCollectionTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementRunTasklet
 import io.github.sehako.japda.batch.settlement.application.tasklet.ConfirmSellerSettlementsTasklet
@@ -8,7 +7,6 @@ import io.github.sehako.japda.batch.settlement.application.tasklet.PrepareSettle
 import io.github.sehako.japda.batch.settlement.application.tasklet.PrepareSettlementRunTasklet.Companion.SETTLEMENT_RUN_ID_CONTEXT_KEY
 import io.github.sehako.japda.batch.settlement.application.validation.SettlementRunCreditValidator
 import io.github.sehako.japda.batch.settlement.application.writer.SellerWalletCreditWriter
-import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.IdBounds
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.IdPartitionPlanPreparationTasklet
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.IdPartitionPlanService
@@ -18,7 +16,6 @@ import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.St
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.StoredIdPartitioner.Companion.END_INCLUSIVE_KEY
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.partition.StoredIdPartitioner.Companion.START_INCLUSIVE_KEY
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SellerSettlementIdKeysetReader
-import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SettlementPaymentKeysetReader
 import io.github.sehako.japda.batch.settlement.infrastructure.batch.validation.DailySellerSettlementJobParametersValidator
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunJdbcRepository
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SellerSettlementJdbcRepository
@@ -26,7 +23,6 @@ import io.github.sehako.japda.ledger.application.service.CreditWalletService
 import io.github.sehako.japda.ledger.domain.repository.LedgerEntryRepository
 import io.github.sehako.japda.ledger.infrastructure.config.LedgerConfiguration
 import java.time.Clock
-import java.time.LocalDate
 import javax.sql.DataSource
 import org.springframework.batch.core.configuration.annotation.StepScope
 import org.springframework.batch.core.job.Job
@@ -105,24 +101,6 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 
 	@Bean
 	@StepScope
-	fun prepareCollectionPartitionPlanTasklet(
-		dataSource: DataSource,
-		planService: IdPartitionPlanService,
-		@Value("#{jobParameters['settlementDate']}") settlementDateParameter: String,
-	): Tasklet {
-		val range = SettlementDateRange.from(LocalDate.parse(settlementDateParameter))
-		val jdbcTemplate = JdbcTemplate(dataSource)
-		return IdPartitionPlanPreparationTasklet(planService, PartitionPlanType.COLLECTION, properties.collectionPartitionCount) {
-			jdbcTemplate.queryForObject(
-				COLLECTION_BOUNDS_SQL,
-				{ resultSet, _ -> IdBounds(resultSet.getNullableLong("min_id"), resultSet.getNullableLong("max_id")) },
-				LocalDate.parse(settlementDateParameter),
-			)
-		}
-	}
-
-	@Bean
-	@StepScope
 	fun prepareCreditPartitionPlanTasklet(
 		dataSource: DataSource,
 		planService: IdPartitionPlanService,
@@ -139,25 +117,11 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 	}
 
 	@Bean
-	fun prepareCollectionPartitionPlanStep(
-		jobRepository: JobRepository,
-		transactionManager: PlatformTransactionManager,
-		@Qualifier("prepareCollectionPartitionPlanTasklet") tasklet: Tasklet,
-	): Step = StepBuilder(PREPARE_COLLECTION_PLAN_STEP_NAME, jobRepository).tasklet(tasklet, transactionManager).build()
-
-	@Bean
 	fun prepareCreditPartitionPlanStep(
 		jobRepository: JobRepository,
 		transactionManager: PlatformTransactionManager,
 		@Qualifier("prepareCreditPartitionPlanTasklet") tasklet: Tasklet,
 	): Step = StepBuilder(PREPARE_CREDIT_PLAN_STEP_NAME, jobRepository).tasklet(tasklet, transactionManager).build()
-
-	@Bean
-	@StepScope
-	fun collectionPartitioner(
-		planService: IdPartitionPlanService,
-		@Value("#{stepExecution.jobExecution.executionContext}") jobExecutionContext: ExecutionContext,
-	): Partitioner = StoredIdPartitioner(jobExecutionContext, PartitionPlanType.COLLECTION, planService)
 
 	@Bean
 	@StepScope
@@ -170,56 +134,12 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 	fun settlementPartitionTaskExecutor() = ThreadPoolTaskExecutor().apply {
 		corePoolSize = properties.workerCount
 		maxPoolSize = properties.workerCount
-		queueCapacity = maxOf(properties.collectionPartitionCount, properties.creditPartitionCount)
+		queueCapacity = properties.creditPartitionCount
 		setThreadNamePrefix("settlement-partition-")
 		setWaitForTasksToCompleteOnShutdown(true)
 		setAwaitTerminationSeconds(EXECUTOR_AWAIT_TERMINATION_SECONDS)
 		setStrictEarlyShutdown(true)
 	}
-
-	@Bean
-	@StepScope
-	fun settlementPaymentReader(
-		dataSource: DataSource,
-		@Value("#{jobParameters['settlementDate']}") settlementDateParameter: String,
-		@Value("#{stepExecutionContext['$START_INCLUSIVE_KEY']}") partitionStartInclusive: Long,
-		@Value("#{stepExecutionContext['$END_EXCLUSIVE_KEY']}") partitionEndExclusive: Long,
-		@Value("#{stepExecutionContext['$END_INCLUSIVE_KEY']}") partitionEndInclusive: Boolean,
-	): SettlementPaymentKeysetReader {
-		val dateRange = SettlementDateRange.from(LocalDate.parse(settlementDateParameter))
-		return SettlementPaymentKeysetReader(dataSource, dateRange, properties.pageSize, properties.fetchSize, partitionStartInclusive, partitionEndExclusive, partitionEndInclusive)
-	}
-
-	@Bean
-	@StepScope
-	fun settlementEntryCollectionWriter(): ItemWriter<SettlementPaymentProjection> = ItemWriter { }
-
-	@Bean
-	fun collectSettlementDetailsWorkerStep(
-		jobRepository: JobRepository,
-		transactionManager: PlatformTransactionManager,
-		settlementPaymentReader: ItemStreamReader<SettlementPaymentProjection>,
-		settlementEntryCollectionWriter: ItemWriter<SettlementPaymentProjection>,
-	): Step = StepBuilder(COLLECTION_WORKER_STEP_NAME, jobRepository)
-		.chunk<SettlementPaymentProjection, SettlementPaymentProjection>(properties.chunkSize)
-		.transactionManager(transactionManager)
-		.reader(settlementPaymentReader)
-		.stream(settlementPaymentReader)
-		.writer(settlementEntryCollectionWriter)
-		.build()
-
-	@Bean
-	fun collectSettlementDetailsManagerStep(
-		jobRepository: JobRepository,
-		@Qualifier("collectSettlementDetailsWorkerStep") workerStep: Step,
-		@Qualifier("collectionPartitioner") partitioner: Partitioner,
-		settlementPartitionTaskExecutor: ThreadPoolTaskExecutor,
-	): Step = StepBuilder(COLLECTION_MANAGER_STEP_NAME, jobRepository)
-		.partitioner(COLLECTION_WORKER_STEP_NAME, partitioner)
-		.step(workerStep)
-		.gridSize(properties.collectionPartitionCount)
-		.taskExecutor(settlementPartitionTaskExecutor)
-		.build()
 
 	@Bean
 	fun completeSettlementCollectionStep(
@@ -305,8 +225,6 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 		jobRepository: JobRepository,
 		dailySellerSettlementJobParametersValidator: DailySellerSettlementJobParametersValidator,
 		@Qualifier("prepareSettlementRunStep") prepareRunStep: Step,
-		@Qualifier("prepareCollectionPartitionPlanStep") prepareCollectionPlanStep: Step,
-		@Qualifier("collectSettlementDetailsManagerStep") collectionManagerStep: Step,
 		@Qualifier("completeSettlementCollectionStep") completeCollectionStep: Step,
 		@Qualifier("confirmSellerSettlementsStep") confirmStep: Step,
 		@Qualifier("prepareCreditPartitionPlanStep") prepareCreditPlanStep: Step,
@@ -315,8 +233,6 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 	): Job = JobBuilder(JOB_NAME, jobRepository)
 		.validator(dailySellerSettlementJobParametersValidator)
 		.start(prepareRunStep)
-		.next(prepareCollectionPlanStep)
-		.next(collectionManagerStep)
 		.next(completeCollectionStep)
 		.next(confirmStep)
 		.next(prepareCreditPlanStep)
@@ -329,9 +245,6 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 	private companion object {
 		const val JOB_NAME = "dailySellerSettlementJob"
 		const val PREPARE_RUN_STEP_NAME = "prepareSettlementRunStep"
-		const val PREPARE_COLLECTION_PLAN_STEP_NAME = "prepareCollectionPartitionPlanStep"
-		const val COLLECTION_MANAGER_STEP_NAME = "collectSettlementDetailsManagerStep"
-		const val COLLECTION_WORKER_STEP_NAME = "collectSettlementDetailsWorkerStep"
 		const val COMPLETE_COLLECTION_STEP_NAME = "completeSettlementCollectionStep"
 		const val CONFIRM_STEP_NAME = "confirmSellerSettlementsStep"
 		const val PREPARE_CREDIT_PLAN_STEP_NAME = "prepareCreditPartitionPlanStep"
@@ -340,11 +253,6 @@ class DailySellerSettlementJobConfiguration(private val properties: DailySellerS
 		const val COMPLETE_RUN_STEP_NAME = "completeSettlementRunStep"
 		const val EXECUTOR_AWAIT_TERMINATION_SECONDS = 60
 
-		val COLLECTION_BOUNDS_SQL = """
-			SELECT MIN(id) AS min_id, MAX(id) AS max_id
-			FROM settlement_entries
-			WHERE settlement_date = ?
-		""".trimIndent()
 		val CREDIT_BOUNDS_SQL = """
 			SELECT MIN(id) AS min_id, MAX(id) AS max_id
 			FROM seller_settlements

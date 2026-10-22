@@ -13,17 +13,18 @@ import java.time.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import org.junit.jupiter.api.DisplayName
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.jdbc.datasource.DriverManagerDataSource
 import org.testcontainers.junit.jupiter.Testcontainers
 
 @Testcontainers(disabledWithoutDocker = true)
-@DisplayName("정산 수집 query plan 진단")
+@DisplayName("정산 원천 집계 query plan 진단")
 class QueryPlanDiagnosticRunnerTest {
 	@Test
-	@DisplayName("실제 ID 범위를 나눈 초기·중간·마지막 파티션의 cursor별 실행계획을 기록한다")
-	fun 실제_ID_범위를_나눈_대표_파티션의_cursor별_실행계획을_기록한다() {
+	@DisplayName("정산 원천 경계 산정과 수집 집계 쿼리의 실행계획을 기록한다")
+	fun 정산_원천_경계_산정과_수집_집계_쿼리의_실행계획을_기록한다() {
 		PerformancePostgresFixture(Path.of(System.getProperty("rootMigrationDirectory"))).use { fixture ->
 			fixture.start()
 			val database = fixture.createIteration()
@@ -36,35 +37,14 @@ class QueryPlanDiagnosticRunnerTest {
 				resourceSamplingInterval = Duration.ofMillis(100),
 			)
 			SyntheticDatasetInserter().insertAndVerify(jdbcTemplate, SyntheticDatasetFactory.create(scenario), 2)
-			jdbcTemplate.update("DELETE FROM settlement_entries WHERE id = 7")
 
 			val diagnostics = QueryPlanDiagnosticRunner(jdbcTemplate).diagnose(
 				SettlementDateRange.from(scenario.job.settlementDate),
-				pageSize = 2,
-				partitionCount = 3,
 			)
 
-			assertEquals(
-				listOf(
-					"collectionPartition000" to "initial",
-					"collectionPartition000" to "middle",
-					"collectionPartition000" to "last",
-					"collectionPartition001" to "initial",
-					"collectionPartition001" to "middle",
-					"collectionPartition001" to "last",
-					"collectionPartition002" to "initial",
-					"collectionPartition002" to "middle",
-					"collectionPartition002" to "last",
-				),
-				diagnostics.map { it.partitionLabel to it.cursorPosition },
-			)
-			assertEquals(1L, diagnostics.first().partitionStartInclusive)
-			assertEquals(3L, diagnostics.first().partitionEndExclusive)
-			assertFalse(diagnostics.first().partitionEndInclusive)
-			assertEquals(5L, diagnostics.last().partitionStartInclusive)
-			assertEquals(7L, diagnostics.last().partitionEndExclusive)
-			assertFalse(diagnostics.last().partitionEndInclusive)
-			assertFalse(diagnostics.any { it.plan.contains("2026-09-15 03:00:00") })
+			assertEquals(listOf("entryBounds", "entryAggregate"), diagnostics.map { it.label })
+			assertEquals(listOf(1, 1), diagnostics.map { it.returnedRowCount })
+			assertTrue(diagnostics.all { it.plan.isNotBlank() })
 			assertFalse(diagnostics.any { it.executionMillis < 0 })
 		}
 	}

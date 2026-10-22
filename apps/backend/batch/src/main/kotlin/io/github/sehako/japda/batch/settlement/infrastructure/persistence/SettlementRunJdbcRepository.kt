@@ -1,5 +1,6 @@
 package io.github.sehako.japda.batch.settlement.infrastructure.persistence
 
+import io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -49,15 +50,21 @@ class SettlementRunJdbcRepository(
 		)
 	}
 
+	fun findEntryBounds(settlementDate: LocalDate): SettlementEntryBounds =
+		jdbcTemplate.queryForObject(
+			ENTRY_BOUNDS_SQL,
+			{ resultSet, _ ->
+				SettlementEntryBounds(
+					(resultSet.getObject("min_id") as? Number)?.toLong(),
+					(resultSet.getObject("max_id") as? Number)?.toLong(),
+				)
+			},
+			settlementDate,
+		) ?: error("정산 원천 ID 경계 조회 결과가 없습니다: settlementDate=$settlementDate")
+
 	fun aggregateEntries(settlementDate: LocalDate, entryBounds: io.github.sehako.japda.batch.settlement.domain.model.SettlementEntryBounds): SettlementDetailAggregate =
 		jdbcTemplate.queryForObject(
-			"""
-			SELECT COUNT(*) AS collected_count, COALESCE(SUM(gross_amount), 0) AS collected_amount
-			FROM settlement_entries
-			WHERE settlement_date = ?
-			  AND id >= COALESCE(?, id)
-			  AND id <= COALESCE(?, id)
-			""".trimIndent(),
+			AGGREGATE_ENTRIES_SQL,
 			{ resultSet, _ ->
 				SettlementDetailAggregate(
 					collectedCount = resultSet.getLong("collected_count"),
@@ -152,6 +159,22 @@ class SettlementRunJdbcRepository(
 		confirmationCompletedAt = getTimestamp("confirmation_completed_at")?.toInstant(),
 		completedAt = getTimestamp("completed_at")?.toInstant(),
 	)
+
+	companion object {
+		val ENTRY_BOUNDS_SQL = """
+			SELECT MIN(id) AS min_id, MAX(id) AS max_id
+			FROM settlement_entries
+			WHERE settlement_date = ?
+		""".trimIndent()
+
+		val AGGREGATE_ENTRIES_SQL = """
+			SELECT COUNT(*) AS collected_count, COALESCE(SUM(gross_amount), 0) AS collected_amount
+			FROM settlement_entries
+			WHERE settlement_date = ?
+			  AND id >= COALESCE(?, id)
+			  AND id <= COALESCE(?, id)
+		""".trimIndent()
+	}
 }
 
 data class SettlementRunSnapshot(

@@ -30,7 +30,6 @@ class PerformanceSlaEvaluator {
 			if (jobDurationMillis > TEN_MILLION_JOB_LIMIT.toMillis()) {
 				failures += "1000만 건 기준 시나리오의 전체 Job 시간이 60분을 초과했습니다: ${jobDurationMillis}ms"
 			}
-			assertStepLimit(steps, COLLECT_STEP, COLLECT_LIMIT, failures)
 			assertStepLimit(steps, CONFIRM_STEP, CONFIRM_LIMIT, failures)
 			val creditAndCompleteMillis = steps.filter { it.name == CREDIT_STEP || it.name == COMPLETE_STEP }.sumOf { it.durationMillis }
 			if (creditAndCompleteMillis > CREDIT_AND_COMPLETE_LIMIT.toMillis()) {
@@ -64,13 +63,11 @@ class PerformanceSlaEvaluator {
 		const val ONE_MILLION = 1_000_000
 		const val TEN_MILLION = 10_000_000
 		const val ONE_HUNDRED_THOUSAND = 100_000
-		const val COLLECT_STEP = "collectSettlementDetailsManagerStep"
 		const val CONFIRM_STEP = "confirmSellerSettlementsStep"
 		const val CREDIT_STEP = "creditSellerWalletsManagerStep"
 		const val COMPLETE_STEP = "completeSettlementRunStep"
 		val ONE_MILLION_JOB_LIMIT: Duration = Duration.ofMinutes(4)
 		val TEN_MILLION_JOB_LIMIT: Duration = Duration.ofMinutes(60)
-		val COLLECT_LIMIT: Duration = Duration.ofMinutes(50)
 		val CONFIRM_LIMIT: Duration = Duration.ofMinutes(5)
 		val CREDIT_AND_COMPLETE_LIMIT: Duration = Duration.ofMinutes(5)
 		val OFFICIAL_TIMEOUT: Duration = Duration.ofMinutes(65)

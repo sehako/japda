@@ -13,10 +13,6 @@ class BatchCounterValidatorTest {
 		val report = BatchCounterValidator(chunkSize = 100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				tasklet("prepareCollectionPartitionPlanStep"),
-				tasklet("collectSettlementDetailsManagerStep"),
-				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 100, write = 100, commit = 1),
-				step("collectSettlementDetailsWorkerStep:collectionPartition001", read = 101, write = 101, commit = 2),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
 				tasklet("prepareCreditPartitionPlanStep"),
@@ -31,9 +27,6 @@ class BatchCounterValidatorTest {
 
 		assertThat(report.success).isTrue()
 		assertThat(report.failures).isEmpty()
-		assertThat(report.values).containsEntry("batch.collection.worker.read.count", "201")
-		assertThat(report.values).containsEntry("batch.collection.worker.write.count", "201")
-		assertThat(report.values).containsEntry("batch.collection.worker.commit.count", "3")
 		assertThat(report.values).containsEntry("batch.credit.worker.read.count", "2")
 		assertThat(report.values).containsEntry("batch.credit.worker.write.count", "2")
 		assertThat(report.values).containsEntry("batch.credit.worker.commit.count", "2")
@@ -44,14 +37,11 @@ class BatchCounterValidatorTest {
 		val report = BatchCounterValidator(100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				tasklet("prepareCollectionPartitionPlanStep"),
-				tasklet("collectSettlementDetailsManagerStep"),
-				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 2, write = 1, commit = 1, skip = 1, rollback = 1),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
 				tasklet("prepareCreditPartitionPlanStep"),
 				tasklet("creditSellerWalletsManagerStep"),
-				step("creditSellerWalletsWorkerStep:creditPartition000", read = 1, write = 1, commit = 1),
+				step("creditSellerWalletsWorkerStep:creditPartition000", read = 2, write = 1, commit = 1, skip = 1, rollback = 1),
 				tasklet("completeSettlementRunStep"),
 			),
 			expectedOrderCount = 2,
@@ -68,9 +58,6 @@ class BatchCounterValidatorTest {
 		val report = BatchCounterValidator(100).validate(
 			steps = listOf(
 				tasklet("prepareSettlementRunStep"),
-				tasklet("prepareCollectionPartitionPlanStep"),
-				tasklet("collectSettlementDetailsManagerStep"),
-				step("collectSettlementDetailsWorkerStep:collectionPartition000", read = 1, write = 1, commit = 1),
 				tasklet("completeSettlementCollectionStep"),
 				tasklet("confirmSellerSettlementsStep"),
 				tasklet("prepareCreditPartitionPlanStep"),

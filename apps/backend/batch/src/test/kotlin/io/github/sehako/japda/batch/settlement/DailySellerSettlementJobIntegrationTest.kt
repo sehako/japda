@@ -2,8 +2,6 @@ package io.github.sehako.japda.batch.settlement
 
 import io.github.sehako.japda.batch.BatchApplication
 import io.github.sehako.japda.batch.settlement.application.tasklet.CompleteSettlementCollectionTasklet
-import io.github.sehako.japda.batch.settlement.domain.model.SettlementDateRange
-import io.github.sehako.japda.batch.settlement.infrastructure.batch.reader.SettlementPaymentKeysetReader
 import io.github.sehako.japda.batch.settlement.infrastructure.persistence.SettlementRunStateException
 import java.sql.DriverManager
 import java.time.Instant
@@ -11,7 +9,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.UUID
-import javax.sql.DataSource
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
@@ -103,51 +100,6 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("동일한 승인 시각의 결제를 tuple keyset 여러 페이지로 빠짐없이 읽는다")
-	fun 동일한_승인_시각의_결제를_tuple_keyset_여러_페이지로_빠짐없이_읽는다() {
-		val approvedAt = Instant.parse("2026-09-14T15:00:00Z")
-		val paymentIds = List(5) { insertPayment(approvedAt = approvedAt) }
-
-		val projections = readSettlementPayments(pageSize = 2)
-
-		assertEquals(paymentIds, projections.map { it.paymentId })
-		assertEquals(List(5) { approvedAt }, projections.map { it.paymentApprovedAt })
-	}
-
-	@Test
-	@DisplayName("분산된 승인 시각의 결제를 ID 순서로 읽는다")
-	fun 분산된_승인_시각의_결제를_ID_순서로_읽는다() {
-		val latestId = insertPayment(approvedAt = Instant.parse("2026-09-14T18:00:00Z"))
-		val earliestId = insertPayment(approvedAt = Instant.parse("2026-09-14T15:00:00Z"))
-		val middleId = insertPayment(approvedAt = Instant.parse("2026-09-14T16:00:00Z"))
-
-		val projections = readSettlementPayments(pageSize = 1)
-
-		assertEquals(listOf(latestId, earliestId, middleId), projections.map { it.paymentId })
-	}
-
-	@Test
-	@DisplayName("정산일 시작은 포함하고 다음 날 시작과 미승인 결제는 제외한다")
-	fun 정산일_시작은_포함하고_다음_날_시작과_미승인_결제는_제외한다() {
-		val includedId = insertPayment(approvedAt = Instant.parse("2026-09-14T15:00:00Z"))
-		insertPayment(approvedAt = Instant.parse("2026-09-15T15:00:00Z"))
-		insertPayment(approvedAt = Instant.parse("2026-09-14T18:00:00Z"), status = "FAILED")
-
-		val projections = readSettlementPayments(pageSize = 2)
-
-		assertEquals(listOf(includedId), projections.map { it.paymentId })
-	}
-
-	@Test
-	@DisplayName("정산 원천이 없는 승인 결제는 collection projection에서 제외한다")
-	fun 정산_원천이_없는_승인_결제는_collection_projection에서_제외한다() {
-		val saleId = insertSale(sellerId = 900L, mapRecipient = false)
-		insertPayment(Instant.parse("2026-09-14T15:00:00Z"), saleId = saleId)
-
-		assertTrue(readSettlementPayments(pageSize = 2).isEmpty())
-	}
-
-	@Test
 	@DisplayName("대상이 없으면 판매자별 결과 없이 확정을 완료한다")
 	fun 대상이_없으면_판매자별_결과_없이_확정을_완료한다() {
 		val execution = launch(EMPTY_SETTLEMENT_DATE, 250L)
@@ -156,8 +108,6 @@ class DailySellerSettlementJobIntegrationTest {
 		assertEquals(
 			listOf(
 				"prepareSettlementRunStep",
-				"prepareCollectionPartitionPlanStep",
-				"collectSettlementDetailsManagerStep",
 				"completeSettlementCollectionStep",
 				"confirmSellerSettlementsStep",
 				"prepareCreditPartitionPlanStep",
@@ -217,8 +167,8 @@ class DailySellerSettlementJobIntegrationTest {
 	}
 
 	@Test
-	@DisplayName("정산 원천 collection은 상세를 중복 생성하지 않는다")
-	fun 정산_원천_collection은_상세를_중복_생성하지_않는다() {
+	@DisplayName("정산 원천 집계는 상세를 중복 생성하지 않는다")
+	fun 정산_원천_집계는_상세를_중복_생성하지_않는다() {
 		val validSaleId = insertSale(sellerId = 1L, mapRecipient = true)
 		repeat(100) {
 			insertPayment(
@@ -231,6 +181,27 @@ class DailySellerSettlementJobIntegrationTest {
 		assertEquals(BatchStatus.COMPLETED, execution.status)
 		assertEquals(100L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
 		assertEquals(0L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_details", Long::class.java))
+	}
+
+	@Test
+	@DisplayName("정산 실행 준비 단계가 정산 원천 ID 경계를 고정하고 재시작에서 재사용한다")
+	fun 정산_실행_준비_단계가_정산_원천_ID_경계를_고정하고_재시작에서_재사용한다() {
+		insertPayment(approvedAt = Instant.parse("2026-09-01T15:00:00Z"))
+		val boundedEntryId = jdbcTemplate.queryForObject("SELECT MAX(id) FROM settlement_entries", Long::class.java)!!
+		val first = launch(ENTRY_BOUNDS_SETTLEMENT_DATE, 300L)
+		assertEquals(BatchStatus.COMPLETED, first.status)
+		assertEquals(boundedEntryId, first.executionContext.getLong("settlementEntry.minId"))
+		assertEquals(boundedEntryId, first.executionContext.getLong("settlementEntry.maxId"))
+		markStepAndJobFailed(first, "prepareSettlementRunStep")
+		insertPayment(approvedAt = Instant.parse("2026-09-01T16:00:00Z"))
+
+		val restarted = launch(ENTRY_BOUNDS_SETTLEMENT_DATE, 300L)
+
+		assertEquals(BatchStatus.COMPLETED, restarted.status)
+		assertEquals(boundedEntryId, restarted.executionContext.getLong("settlementEntry.minId"))
+		assertEquals(boundedEntryId, restarted.executionContext.getLong("settlementEntry.maxId"))
+		assertEquals(2L, jdbcTemplate.queryForObject("SELECT COUNT(*) FROM settlement_entries", Long::class.java))
+		assertEquals(1L, jdbcTemplate.queryForObject("SELECT collected_count FROM settlement_runs", Long::class.java))
 	}
 
 	@Test
@@ -513,21 +484,6 @@ class DailySellerSettlementJobIntegrationTest {
 				.toJobParameters(),
 		)
 
-	private fun readSettlementPayments(pageSize: Int) = buildList {
-		val reader = SettlementPaymentKeysetReader(
-			context.getBean(DataSource::class.java),
-			SettlementDateRange.from(SETTLEMENT_DATE),
-			pageSize,
-			fetchSize = pageSize,
-		)
-		reader.open(org.springframework.batch.infrastructure.item.ExecutionContext())
-		try {
-			while (true) add(reader.read() ?: break)
-		} finally {
-			reader.close()
-		}
-	}
-
 	private fun markStepAndJobFailed(execution: org.springframework.batch.core.job.JobExecution, stepName: String) {
 		jdbcTemplate.update(
 			"UPDATE batch_step_execution SET status = 'FAILED', exit_code = 'FAILED' WHERE job_execution_id = ? AND step_name = ?",
@@ -670,6 +626,7 @@ class DailySellerSettlementJobIntegrationTest {
 		const val SCHEMA = "daily_seller_settlement_job"
 		val SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 15)
 		val EMPTY_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 9)
+		val ENTRY_BOUNDS_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 2)
 		val RESTART_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 14)
 		val FEE_MISMATCH_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 13)
 		val COMPLETED_SETTLEMENT_DATE: LocalDate = LocalDate.of(2026, 9, 12)
