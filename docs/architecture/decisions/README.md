@@ -66,3 +66,4 @@ ADR 파일명은 `ADR-{일련번호}-{영문-kebab-case-제목}.md` 형식을 �
 | 034 | [체크아웃 단일 쿼리 조회 모델 복원](ADR-034-single-query-checkout-read-model.md) | backend | 승인 |
 | 035 | [결제 승인 transaction에서 정산 원천 스냅샷 생성](ADR-035-payment-approval-settlement-entry-snapshot.md) | backend | 승인 |
 | 036 | [판매 일정 committed quantity 단일 재고 원천](ADR-036-sales-committed-quantity-single-inventory-source.md) | backend | 승인 |
+| 037 | [판매자 일일 정산의 수집 파티셔닝 제거와 정산 입력 상한 고정](ADR-037-remove-settlement-collection-partitioning.md) | backend | 제안 |
