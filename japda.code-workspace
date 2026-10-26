@@ -1,0 +1,20 @@
+{
+  "folders": [
+    { "name": "backend", "path": "./apps/backend" },
+    { "name": "frontend", "path": "./apps/frontend" },
+    { "name": "docs", "path": "./docs" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.gradle": true,
+      "**/.kotlin": true
+    },
+    "search.exclude": {
+      "**/build": true,
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/kotlin-js-store": true
+    },
+    "git.openRepositoryInParentFolders": "always"
+  }
+}
